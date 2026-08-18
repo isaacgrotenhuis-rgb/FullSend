@@ -4,6 +4,8 @@ import type { BleService } from "@main/ble/types";
 import type { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import type { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
 import type { EventPlanService } from "@main/plans/EventPlanService";
+import type { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
+import type { StravaService } from "@main/strava/StravaService";
 import {
   adaptEventPlanResultSchema,
   adaptEventPlanRequestSchema,
@@ -21,6 +23,15 @@ import {
   bleScanRequestSchema,
   bleStateSchema,
   createIntervalRequestSchema,
+  dashboardMetricsRequestSchema,
+  dashboardMetricsResultSchema,
+  stravaConnectRequestSchema,
+  stravaConnectResultSchema,
+  stravaDisconnectRequestSchema,
+  stravaRetryRequestSchema,
+  stravaStatusSchema,
+  stravaSyncRequestSchema,
+  stravaSyncResultSchema,
   createWorkoutRequestSchema,
   deleteIntervalRequestSchema,
   deleteWorkoutRequestSchema,
@@ -52,7 +63,9 @@ export const registerIpcHandlers = (
   bleService: BleService,
   workoutEngine: ErgWorkoutEngine,
   workoutLibraryService: WorkoutLibraryService,
-  eventPlanService: EventPlanService
+  eventPlanService: EventPlanService,
+  progressDashboardService: ProgressDashboardService,
+  stravaService: StravaService
 ): (() => void) => {
   const bleSubscribers = new Set<WebContents>();
   const workoutSubscribers = new Set<WebContents>();
@@ -309,6 +322,41 @@ export const registerIpcHandlers = (
     eventPlanAuditEntriesSchema,
     (_event, input) => eventPlanService.listPlanAuditEntries(input.planId)
   );
+  safeHandle(
+    ipcChannels.dashboard.getMetrics,
+    dashboardMetricsRequestSchema.partial(),
+    dashboardMetricsResultSchema,
+    (_event, input) => progressDashboardService.getMetrics(input.weeksBack ?? 12)
+  );
+  safeHandle(
+    ipcChannels.strava.connect,
+    stravaConnectRequestSchema.partial(),
+    stravaConnectResultSchema,
+    (_event, input) =>
+      stravaService.connect({
+        authorizationCode: input.authorizationCode,
+        state: input.state
+      })
+  );
+  safeHandle(
+    ipcChannels.strava.disconnect,
+    stravaDisconnectRequestSchema,
+    okResultSchema,
+    () => stravaService.disconnect()
+  );
+  safeHandle(
+    ipcChannels.strava.sync,
+    stravaSyncRequestSchema.partial(),
+    stravaSyncResultSchema,
+    (_event, input) => stravaService.sync({ sessionId: input.sessionId, limit: input.limit ?? 10 })
+  );
+  safeHandle(
+    ipcChannels.strava.retry,
+    stravaRetryRequestSchema,
+    stravaSyncResultSchema,
+    (_event, input) => stravaService.retry(input.eventId)
+  );
+  safeHandle(ipcChannels.strava.getStatus, emptySchema, stravaStatusSchema, () => stravaService.getStatus());
 
   ipcMain.on(ipcChannels.ble.subscribeState, (event) => {
     bleSubscribers.add(event.sender);

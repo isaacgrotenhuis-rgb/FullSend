@@ -24,6 +24,12 @@ import type {
   EventPlanAuditEntry,
   DashboardMetricsRequest,
   DashboardMetrics,
+  StravaConnectRequest,
+  StravaConnectResult,
+  StravaSyncRequest,
+  StravaSyncResult,
+  StravaRetryRequest,
+  StravaStatus,
   PingResult,
   ReorderIntervalsRequest,
   StartWorkoutSessionRequest,
@@ -83,5 +89,12 @@ export interface KickrDesktopApi {
   };
   dashboard: {
     getMetrics: (request?: Partial<DashboardMetricsRequest>) => Promise<DashboardMetrics>;
+  };
+  strava: {
+    connect: (request?: Partial<StravaConnectRequest>) => Promise<StravaConnectResult>;
+    disconnect: () => Promise<OkResult>;
+    sync: (request?: Partial<StravaSyncRequest>) => Promise<StravaSyncResult>;
+    retry: (request: StravaRetryRequest) => Promise<StravaSyncResult>;
+    getStatus: () => Promise<StravaStatus>;
   };
 }

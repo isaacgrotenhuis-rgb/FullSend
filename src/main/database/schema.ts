@@ -180,6 +180,14 @@ const migrations = [
   );
   `,
   `
+  CREATE TABLE IF NOT EXISTS strava_tokens (
+    id TEXT PRIMARY KEY,
+    encrypted_payload TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
+  `
   CREATE TABLE IF NOT EXISTS ble_state_transitions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     from_state TEXT NOT NULL,
@@ -210,5 +218,13 @@ export const applySchema = (db: Database): void => {
   }
   if (!intervalColumnNames.has("target_resistance_percent")) {
     db.exec("ALTER TABLE workout_intervals ADD COLUMN target_resistance_percent REAL;");
+  }
+
+  const stravaSyncColumns = db
+    .prepare("SELECT name FROM pragma_table_info('strava_sync_events')")
+    .all() as Array<{ name: string }>;
+  const stravaSyncColumnNames = new Set(stravaSyncColumns.map((column) => column.name));
+  if (!stravaSyncColumnNames.has("session_id")) {
+    db.exec("ALTER TABLE strava_sync_events ADD COLUMN session_id TEXT;");
   }
 };

@@ -12,8 +12,15 @@ export class BleService implements BleServicePort {
   private readonly adapter: BleAdapter;
   private readonly transitionStore?: BleTransitionStore;
   private scanTimeout: NodeJS.Timeout | null = null;
+  private reconnectTimeout: NodeJS.Timeout | null = null;
   private listeners = new Set<(state: BleState) => void>();
   private initialized = false;
+  private operationSeq = 0;
+  private manualDisconnectInProgress = false;
+  private reconnectAttempts = 0;
+  private readonly maxReconnectAttempts = 2;
+  private readonly reconnectDelayMs = 1800;
+  private lastConnectedDeviceId: string | null = null;
 
   constructor(options?: { adapter?: BleAdapter; transitionStore?: BleTransitionStore }) {
     this.adapter = options?.adapter ?? new NobleBleAdapter();
@@ -28,11 +35,19 @@ export class BleService implements BleServicePort {
 
     this.adapter.onDisconnected((deviceId) => {
       if (this.state.connectedDeviceId === deviceId) {
+        const droppedDeviceId = deviceId;
         this.setState({
           lifecycle: "disconnected",
-          connectedDeviceId: null
+          connectedDeviceId: null,
+          ftmsProfile: null,
+          scanning: false,
+          lastError: this.manualDisconnectInProgress ? null : "BLE signal lost; disconnected"
         }, "adapter-disconnected");
+        if (!this.manualDisconnectInProgress) {
+          this.scheduleReconnect(droppedDeviceId);
+        }
       }
+      this.manualDisconnectInProgress = false;
     });
 
     this.adapter.onError((error) => {
@@ -41,6 +56,32 @@ export class BleService implements BleServicePort {
         lastError: error.message
       }, "adapter-error");
     });
+  }
+
+  private clearReconnectTimeout(): void {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+  }
+
+  private scheduleReconnect(deviceId: string): void {
+    if (!deviceId || this.reconnectAttempts >= this.maxReconnectAttempts) {
+      return;
+    }
+    this.clearReconnectTimeout();
+    const reconnectAttempt = this.reconnectAttempts + 1;
+    this.reconnectTimeout = setTimeout(() => {
+      if (this.state.connectedDeviceId || this.state.lifecycle === "connecting") {
+        return;
+      }
+      this.reconnectAttempts = reconnectAttempt;
+      void this.connectInternal(deviceId, "auto-reconnect").catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : "Unknown reconnect error";
+        this.setState({ lastError: message }, "reconnect-failed");
+        this.scheduleReconnect(deviceId);
+      });
+    }, this.reconnectDelayMs);
   }
 
   private async ensureInitialized(): Promise<void> {
@@ -84,6 +125,7 @@ export class BleService implements BleServicePort {
   }
 
   async startScan(timeoutMs: number): Promise<void> {
+    const opId = ++this.operationSeq;
     await this.ensureInitialized();
     this.setState({
       lifecycle: "scanning",
@@ -92,6 +134,9 @@ export class BleService implements BleServicePort {
       discoveredDevices: []
     }, "scan-started");
     await this.adapter.startScan();
+    if (opId !== this.operationSeq) {
+      return;
+    }
     if (this.scanTimeout) {
       clearTimeout(this.scanTimeout);
     }
@@ -101,7 +146,11 @@ export class BleService implements BleServicePort {
   }
 
   async stopScan(): Promise<void> {
+    const opId = ++this.operationSeq;
     await this.adapter.stopScan();
+    if (opId !== this.operationSeq) {
+      return;
+    }
     if (this.scanTimeout) {
       clearTimeout(this.scanTimeout);
       this.scanTimeout = null;
@@ -112,18 +161,30 @@ export class BleService implements BleServicePort {
     }, "scan-stopped");
   }
 
-  async connect(deviceId: string): Promise<void> {
+  private async connectInternal(deviceId: string, reason = "connect-requested"): Promise<void> {
+    const opId = ++this.operationSeq;
     await this.ensureInitialized();
+    this.clearReconnectTimeout();
     this.setState({
       lifecycle: "connecting",
       lastError: null
-    }, "connect-requested");
+    }, reason);
     await this.adapter.connect(deviceId);
+    if (opId !== this.operationSeq) {
+      return;
+    }
+    this.reconnectAttempts = 0;
+    this.lastConnectedDeviceId = deviceId;
+    this.manualDisconnectInProgress = false;
     this.setState({
       lifecycle: "connected",
       connectedDeviceId: deviceId,
       ftmsProfile: null
     }, "connected");
+  }
+
+  async connect(deviceId: string): Promise<void> {
+    await this.connectInternal(deviceId, "connect-requested");
   }
 
   listDevices(): BleDevice[] {
@@ -158,13 +219,21 @@ export class BleService implements BleServicePort {
   }
 
   async disconnect(deviceId?: string): Promise<void> {
+    const opId = ++this.operationSeq;
+    this.manualDisconnectInProgress = true;
+    this.clearReconnectTimeout();
     this.setState({ lifecycle: "disconnecting", lastError: null }, "disconnect-requested");
     await this.adapter.disconnect(deviceId);
+    if (opId !== this.operationSeq) {
+      return;
+    }
+    this.reconnectAttempts = 0;
     this.setState({
       lifecycle: "disconnected",
       connectedDeviceId: null,
       ftmsProfile: null
     }, "disconnected");
+    this.manualDisconnectInProgress = false;
   }
 
   getState(): BleState {
@@ -177,11 +246,11 @@ export class BleService implements BleServicePort {
       canConnect: true,
       canDisconnect: true,
       supportsFtmsDiscovery: true,
-      supportsBackgroundReconnect: false,
+      supportsBackgroundReconnect: true,
       knownLimitations: [
         "ERG execution is intentionally out of scope in this scaffold.",
         "BLE behavior may vary by macOS version and device firmware.",
-        "No reconnect policy implemented yet."
+        "Reconnect policy is conservative (bounded retries) and does not guarantee recovery on all adapters."
       ]
     };
   }

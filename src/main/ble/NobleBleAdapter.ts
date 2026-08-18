@@ -26,6 +26,7 @@ type NoblePeripheralLike = {
       writeAsync?: (data: Buffer, withoutResponse?: boolean) => Promise<void>;
     }>;
   }>;
+  on?: (event: string, listener: (...args: unknown[]) => void) => void;
 };
 
 export class NobleBleAdapter implements BleAdapter {
@@ -35,6 +36,7 @@ export class NobleBleAdapter implements BleAdapter {
   private onDeviceDiscoveredListener: ((device: BleDevice) => void) | null = null;
   private onDisconnectedListener: ((deviceId: string) => void) | null = null;
   private onErrorListener: ((error: Error) => void) | null = null;
+  private disconnectSubscribed = new Set<string>();
 
   async initialize(): Promise<void> {
     if (this.noble) {
@@ -48,6 +50,13 @@ export class NobleBleAdapter implements BleAdapter {
     this.noble.on("discover", (...args: unknown[]) => {
       const peripheral = args[0] as NoblePeripheralLike;
       this.peripherals.set(peripheral.id, peripheral);
+      if (!this.disconnectSubscribed.has(peripheral.id)) {
+        peripheral.on?.("disconnect", () => {
+          this.ftmsControlPoints.delete(peripheral.id);
+          this.onDisconnectedListener?.(peripheral.id);
+        });
+        this.disconnectSubscribed.add(peripheral.id);
+      }
       this.onDeviceDiscoveredListener?.({
         id: peripheral.id,
         name: peripheral.advertisement?.localName,

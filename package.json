@@ -4,7 +4,7 @@
   "description": "Standalone macOS-first KICKR training desktop foundation",
   "private": true,
   "type": "module",
-  "main": "dist-electron/main.js",
+  "main": "out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

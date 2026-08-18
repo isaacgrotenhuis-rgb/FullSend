@@ -7,13 +7,15 @@ import { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
 import { createPlanAdaptationService } from "@main/plans/PlanAdaptationService";
 import { EventPlanService } from "@main/plans/EventPlanService";
+import { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
+import { StravaService } from "@main/strava/StravaService";
 
 const createWindow = async (): Promise<void> => {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.js"),,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true
@@ -42,11 +44,15 @@ const bootstrap = async (): Promise<void> => {
   const workoutLibraryService = new WorkoutLibraryService(databaseService.repositories);
   const adaptationService = createPlanAdaptationService();
   const eventPlanService = new EventPlanService(databaseService.repositories, adaptationService);
+  const progressDashboardService = new ProgressDashboardService(databaseService.repositories);
+  const stravaService = new StravaService(databaseService.repositories);
   const cleanupIpcHandlers = registerIpcHandlers(
     bleService,
     workoutEngine,
     workoutLibraryService,
-    eventPlanService
+    eventPlanService,
+    progressDashboardService,
+    stravaService
   );
 
   await createWindow();

@@ -17,13 +17,21 @@ export default defineConfig({
     }
   },
   preload: {
-    resolve: {
-      alias: {
-        "@preload": resolve("src/preload"),
-        "@shared": resolve("src/shared")
+  build: {
+    rollupOptions: {
+      output: {
+        format: "cjs",
+        entryFileNames: "index.js"
       }
     }
   },
+  resolve: {
+    alias: {
+      "@preload": resolve("src/preload"),
+      "@shared": resolve("src/shared")
+    }
+  }
+},
   renderer: {
     resolve: {
       alias: {

@@ -80,11 +80,46 @@ Out of scope in this phase:
 - Log only high-level sync outcomes in `strava_sync_events`; never log raw tokens.
 - Expose only sanitized sync status/events to renderer through typed IPC.
 
+## Run and onboarding
+
+1. Install dependencies: `npm install`
+2. Start app in development: `npm run dev`
+3. Validate release readiness gate: `npm run typecheck && npm run build`
+4. In app, run **Release smoke workflow** to execute core flow checks (BLE/workout/plan/Strava status path).
+
 ## Scripts
 
 - `npm run dev` - start Electron + renderer in development.
 - `npm run build` - production build for main/preload/renderer.
 - `npm run typecheck` - TypeScript checks for node + web targets.
+
+## QA and release-readiness scope (Phase 9)
+
+- BLE reliability hardening:
+  - bounded reconnect attempts after signal drop
+  - stale async-operation prevention for scan/connect/disconnect state transitions
+  - disconnect cleanup safeguards for FTMS state
+- ERG runtime guardrails:
+  - tick overlap prevention
+  - timing drift detection and event logging
+  - elapsed-jump clamping to limit transition/timing drift impact
+- In-app smoke workflow coverage:
+  - connect trainer
+  - run workout session
+  - generate/adapt plan
+  - Strava workflow status check (and sync attempt when connected)
+
+## Known limitations / open decisions
+
+- BLE auto-reconnect is intentionally conservative (limited retries) and does not guarantee recovery on all adapters/firmware combinations.
+- Smoke workflow is practical and environment-dependent (real hardware/network/account state affects outcomes).
+- Strava auth currently uses browser authorization with manual code/state completion in UI; tokens remain main-process only.
+- Strava posting uses activity creation payload mapping from completed sessions (not FIT/TCX file upload in this phase).
+
+## OSS dependency and license attribution notes
+
+- This repository currently tracks third-party dependencies via `package.json` / lockfile and runtime attribution in source docs.
+- No dedicated dependency-license report artifact is generated in-repo yet; add one if distribution packaging policy requires explicit bundled license manifests.
 
 ## macOS BLE setup and smoke checks
 

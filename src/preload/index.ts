@@ -75,6 +75,13 @@ const api: KickrDesktopApi = {
   },
   dashboard: {
     getMetrics: async (request) => ipcRenderer.invoke(ipcChannels.dashboard.getMetrics, request ?? {})
+  },
+  strava: {
+    connect: async (request) => ipcRenderer.invoke(ipcChannels.strava.connect, request ?? {}),
+    disconnect: async () => ipcRenderer.invoke(ipcChannels.strava.disconnect, {}),
+    sync: async (request) => ipcRenderer.invoke(ipcChannels.strava.sync, request ?? {}),
+    retry: async (request) => ipcRenderer.invoke(ipcChannels.strava.retry, request),
+    getStatus: async () => ipcRenderer.invoke(ipcChannels.strava.getStatus, {})
   }
 };
 

@@ -49,6 +49,13 @@ export const ipcChannels = {
   },
   dashboard: {
     getMetrics: "dashboard:get-metrics"
+  },
+  strava: {
+    connect: "strava:connect",
+    disconnect: "strava:disconnect",
+    sync: "strava:sync",
+    retry: "strava:retry",
+    getStatus: "strava:get-status"
   }
 } as const;
 
@@ -406,6 +413,63 @@ export const dashboardMetricsSchema = z.object({
   trendSummary: z.string().min(1)
 });
 
+export const stravaSyncStatusSchema = z.enum(["pending", "success", "failed"]);
+
+export const stravaConnectRequestSchema = z.object({
+  authorizationCode: z.string().min(1).optional(),
+  state: z.string().min(1).optional()
+});
+
+export const stravaConnectResultSchema = z.object({
+  ok: z.literal(true),
+  connected: z.boolean(),
+  requiresAuthorizationCode: z.boolean(),
+  authorizationUrl: z.string().url().optional(),
+  state: z.string().optional()
+});
+
+export const stravaDisconnectRequestSchema = z.object({});
+
+export const stravaSyncRequestSchema = z.object({
+  sessionId: z.string().min(1).optional(),
+  limit: z.number().int().min(1).max(25).default(10)
+});
+
+export const stravaRetryRequestSchema = z.object({
+  eventId: z.string().min(1)
+});
+
+export const stravaSyncEventSummarySchema = z.object({
+  id: z.string().min(1),
+  eventType: z.string().min(1),
+  syncStatus: stravaSyncStatusSchema,
+  stravaActivityId: z.string().nullable(),
+  sessionId: z.string().nullable(),
+  attemptedAt: z.string(),
+  message: z.string().nullable()
+});
+
+export const stravaSyncResultSchema = z.object({
+  ok: z.literal(true),
+  processedCount: z.number().int().min(0),
+  successCount: z.number().int().min(0),
+  failedCount: z.number().int().min(0),
+  events: z.array(stravaSyncEventSummarySchema)
+});
+
+export const stravaStatusSchema = z.object({
+  connected: z.boolean(),
+  hasConfig: z.boolean(),
+  athleteId: z.number().int().nullable(),
+  tokenExpiresAt: z.string().nullable(),
+  counts: z.object({
+    pending: z.number().int().min(0),
+    success: z.number().int().min(0),
+    failed: z.number().int().min(0)
+  }),
+  recentEvents: z.array(stravaSyncEventSummarySchema)
+});
+
 export const okResultSchema = z.object({
   ok: z.literal(true)
 });
@@ -416,6 +480,7 @@ export const planWeekSummariesSchema = z.array(planWeekSummarySchema);
 export const eventPlanVersionsSchema = z.array(eventPlanVersionSchema);
 export const eventPlanAuditEntriesSchema = z.array(eventPlanAuditEntrySchema);
 export const dashboardMetricsResultSchema = dashboardMetricsSchema;
+export const stravaSyncEventsSchema = z.array(stravaSyncEventSummarySchema);
 
 export const pingResultSchema = z.object({
   app: z.literal("kickr-desktop"),
@@ -479,5 +544,14 @@ export type DashboardMetricsRequest = z.infer<typeof dashboardMetricsRequestSche
 export type FtpTrendPoint = z.infer<typeof ftpTrendPointSchema>;
 export type WeeklyLoadPoint = z.infer<typeof weeklyLoadPointSchema>;
 export type DashboardMetrics = z.infer<typeof dashboardMetricsSchema>;
+export type StravaSyncStatus = z.infer<typeof stravaSyncStatusSchema>;
+export type StravaConnectRequest = z.infer<typeof stravaConnectRequestSchema>;
+export type StravaConnectResult = z.infer<typeof stravaConnectResultSchema>;
+export type StravaDisconnectRequest = z.infer<typeof stravaDisconnectRequestSchema>;
+export type StravaSyncRequest = z.infer<typeof stravaSyncRequestSchema>;
+export type StravaRetryRequest = z.infer<typeof stravaRetryRequestSchema>;
+export type StravaSyncEventSummary = z.infer<typeof stravaSyncEventSummarySchema>;
+export type StravaSyncResult = z.infer<typeof stravaSyncResultSchema>;
+export type StravaStatus = z.infer<typeof stravaStatusSchema>;
 export type OkResult = z.infer<typeof okResultSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;

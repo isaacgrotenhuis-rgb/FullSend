@@ -72,6 +72,11 @@ export class ErgWorkoutEngine {
   private pausedAtMs: number | null = null;
   private totalPausedMs = 0;
   private lastAppliedTarget: number | null = null;
+  private tickInFlight = false;
+  private expectedNextTickAtMs: number | null = null;
+  private lastElapsedSec = 0;
+  private readonly maxTickDriftMs = 2500;
+  private readonly maxElapsedJumpSec = 4;
   private listeners = new Set<(state: WorkoutSessionState) => void>();
 
   constructor(bleService: BleService, persistence: WorkoutPersistence) {
@@ -112,7 +117,11 @@ export class ErgWorkoutEngine {
     if (!this.sessionStartedAtMs) {
       return 0;
     }
-    return Math.max(0, Math.floor((nowMs - this.sessionStartedAtMs - this.totalPausedMs) / 1000));
+    const rawElapsed = Math.max(0, Math.floor((nowMs - this.sessionStartedAtMs - this.totalPausedMs) / 1000));
+    if (rawElapsed < this.lastElapsedSec) {
+      return this.lastElapsedSec;
+    }
+    return rawElapsed;
   }
 
   private persistEvent(eventType: string, payload: Record<string, unknown>): void {
@@ -169,6 +178,8 @@ export class ErgWorkoutEngine {
       return;
     }
     this.stopTicking();
+    this.expectedNextTickAtMs = null;
+    this.tickInFlight = false;
     const endedAt = new Date().toISOString();
     this.persistence.workoutSessions.updateStatus({
       id: this.state.sessionId,
@@ -185,14 +196,33 @@ export class ErgWorkoutEngine {
       lifecycle,
       endedAt
     });
+    this.scheduler = null;
   }
 
   private async tick(): Promise<void> {
-    if (!this.scheduler || this.state.lifecycle !== "running") {
+    if (!this.scheduler || this.state.lifecycle !== "running" || this.tickInFlight) {
       return;
     }
+    this.tickInFlight = true;
     try {
-      const elapsedSec = this.getElapsedSec(Date.now());
+      const nowMs = Date.now();
+      if (this.expectedNextTickAtMs !== null) {
+        const driftMs = nowMs - this.expectedNextTickAtMs;
+        if (Math.abs(driftMs) > this.maxTickDriftMs) {
+          this.persistEvent("tick-drift-detected", { driftMs });
+        }
+      }
+      const elapsedSecRaw = this.getElapsedSec(nowMs);
+      const elapsedJump = elapsedSecRaw - this.lastElapsedSec;
+      const elapsedSec = elapsedJump > this.maxElapsedJumpSec ? this.lastElapsedSec + this.maxElapsedJumpSec : elapsedSecRaw;
+      if (elapsedJump > this.maxElapsedJumpSec) {
+        this.persistEvent("tick-elapsed-clamped", {
+          elapsedSecRaw,
+          previousElapsedSec: this.lastElapsedSec,
+          clampedElapsedSec: elapsedSec
+        });
+      }
+      this.lastElapsedSec = elapsedSec;
       const cursor = this.scheduler.locate(elapsedSec);
 
       if (!cursor) {
@@ -223,6 +253,9 @@ export class ErgWorkoutEngine {
       await this.completeSession("error", "tick-failure");
       this.patchState({ lastError: message });
       await this.safeErgStop();
+    } finally {
+      this.expectedNextTickAtMs = Date.now() + 1000;
+      this.tickInFlight = false;
     }
   }
 
@@ -259,6 +292,9 @@ export class ErgWorkoutEngine {
     this.pausedAtMs = null;
     this.totalPausedMs = 0;
     this.lastAppliedTarget = null;
+    this.lastElapsedSec = 0;
+    this.tickInFlight = false;
+    this.expectedNextTickAtMs = Date.now() + 1000;
 
     this.persistence.workoutSessions.create({
       id: sessionId,
@@ -302,6 +338,7 @@ export class ErgWorkoutEngine {
       throw new Error("Session must be running to pause");
     }
     this.pausedAtMs = Date.now();
+    this.expectedNextTickAtMs = null;
     this.stopTicking();
     this.persistence.workoutSessions.updateStatus({
       id: sessionId,
@@ -331,6 +368,7 @@ export class ErgWorkoutEngine {
       lifecycle: "running",
       pausedAt: null
     });
+    this.expectedNextTickAtMs = Date.now() + 1000;
     this.stopTicking();
     this.tickTimer = setInterval(() => {
       void this.tick();
@@ -342,6 +380,7 @@ export class ErgWorkoutEngine {
     this.requireActiveSession(sessionId);
     await this.completeSession("stopped", "manual-stop");
     await this.safeErgStop();
+    this.scheduler = null;
   }
 
   getState(): WorkoutSessionState {

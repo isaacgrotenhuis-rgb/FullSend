@@ -207,6 +207,43 @@ export class WorkoutSessionsRepository extends BaseRepository {
       )
       .run(input.status, input.endedAt ?? null, input.summaryJson ?? null, input.id);
   }
+
+  listCompletedWithWorkoutLoad(): Row[] {
+    return this.db
+      .prepare(
+        `SELECT ws.id, ws.workout_id, ws.started_at, ws.status, w.duration_seconds, w.intensity_factor
+         FROM workout_sessions ws
+         LEFT JOIN workouts w ON w.id = ws.workout_id
+         WHERE ws.status = 'completed'
+         ORDER BY ws.started_at DESC`
+      )
+      .all() as Row[];
+  }
+
+  listCompletedForStrava(): Row[] {
+    return this.db
+      .prepare(
+        `SELECT ws.id, ws.workout_id, ws.started_at, ws.ended_at, ws.summary_json,
+                w.name AS workout_name, w.duration_seconds, w.intensity_factor
+         FROM workout_sessions ws
+         LEFT JOIN workouts w ON w.id = ws.workout_id
+         WHERE ws.status = 'completed'
+         ORDER BY ws.started_at DESC`
+      )
+      .all() as Row[];
+  }
+
+  getCompletedForStrava(sessionId: string): Row | undefined {
+    return this.db
+      .prepare(
+        `SELECT ws.id, ws.workout_id, ws.started_at, ws.ended_at, ws.summary_json,
+                w.name AS workout_name, w.duration_seconds, w.intensity_factor
+         FROM workout_sessions ws
+         LEFT JOIN workouts w ON w.id = ws.workout_id
+         WHERE ws.status = 'completed' AND ws.id = ?`
+      )
+      .get(sessionId) as Row | undefined;
+  }
 }
 
 export class WorkoutSessionEventsRepository extends BaseRepository {
@@ -344,6 +381,19 @@ export class PlanWeekWorkoutsRepository extends BaseRepository {
       )
       .all(planWeekId) as Row[];
   }
+
+  listPlannedWithWorkoutLoad(): Row[] {
+    return this.db
+      .prepare(
+        `SELECT pww.plan_week_id, pww.day_index, pww.workout_id, pw.start_date,
+                w.duration_seconds, w.intensity_factor
+         FROM plan_week_workouts pww
+         JOIN plan_weeks pw ON pw.id = pww.plan_week_id
+         JOIN workouts w ON w.id = pww.workout_id
+         ORDER BY pw.start_date ASC, pww.day_index ASC`
+      )
+      .all() as Row[];
+  }
 }
 
 export class GoalsRepository extends BaseRepository {
@@ -356,11 +406,121 @@ export class MetricsSnapshotsRepository extends BaseRepository {
   list(): Row[] {
     return this.db.prepare("SELECT * FROM metrics_snapshots ORDER BY captured_at DESC").all() as Row[];
   }
+
+  listFtpTrend(limit: number): Row[] {
+    return this.db
+      .prepare(
+        `SELECT captured_at, ftp_watts
+         FROM metrics_snapshots
+         ORDER BY captured_at DESC
+         LIMIT ?`
+      )
+      .all(limit) as Row[];
+  }
 }
 
 export class StravaSyncEventsRepository extends BaseRepository {
   list(): Row[] {
     return this.db.prepare("SELECT * FROM strava_sync_events ORDER BY attempted_at DESC").all() as Row[];
+  }
+
+  create(input: {
+    id: string;
+    eventType: string;
+    syncStatus: string;
+    stravaActivityId: string | null;
+    sessionId: string | null;
+    payloadJson: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO strava_sync_events
+         (id, event_type, sync_status, strava_activity_id, session_id, payload_json, attempted_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))`
+      )
+      .run(
+        input.id,
+        input.eventType,
+        input.syncStatus,
+        input.stravaActivityId,
+        input.sessionId,
+        input.payloadJson
+      );
+  }
+
+  updateResult(input: {
+    id: string;
+    syncStatus: string;
+    stravaActivityId: string | null;
+    payloadJson: string;
+  }): void {
+    this.db
+      .prepare(
+        `UPDATE strava_sync_events
+         SET sync_status = ?, strava_activity_id = ?, payload_json = ?, attempted_at = datetime('now'), updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(input.syncStatus, input.stravaActivityId, input.payloadJson, input.id);
+  }
+
+  getById(eventId: string): Row | undefined {
+    return this.db
+      .prepare(
+        `SELECT id, event_type, sync_status, strava_activity_id, session_id, payload_json, attempted_at, created_at, updated_at
+         FROM strava_sync_events WHERE id = ?`
+      )
+      .get(eventId) as Row | undefined;
+  }
+
+  listRecent(limit: number): Row[] {
+    return this.db
+      .prepare(
+        `SELECT id, event_type, sync_status, strava_activity_id, session_id, payload_json, attempted_at, created_at, updated_at
+         FROM strava_sync_events
+         ORDER BY attempted_at DESC
+         LIMIT ?`
+      )
+      .all(limit) as Row[];
+  }
+
+  listSuccessfulSessionIds(): Row[] {
+    return this.db
+      .prepare(
+        `SELECT DISTINCT session_id
+         FROM strava_sync_events
+         WHERE event_type = 'upload' AND sync_status = 'success' AND session_id IS NOT NULL`
+      )
+      .all() as Row[];
+  }
+
+  countByStatus(syncStatus: string): number {
+    const row = this.db
+      .prepare("SELECT COUNT(1) AS count FROM strava_sync_events WHERE sync_status = ?")
+      .get(syncStatus) as { count: number };
+    return row.count;
+  }
+}
+
+export class StravaTokensRepository extends BaseRepository {
+  getToken(): Row | undefined {
+    return this.db
+      .prepare("SELECT id, encrypted_payload, created_at, updated_at FROM strava_tokens WHERE id = 'default'")
+      .get() as Row | undefined;
+  }
+
+  upsertToken(encryptedPayload: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO strava_tokens (id, encrypted_payload, created_at, updated_at)
+         VALUES ('default', ?, datetime('now'), datetime('now'))
+         ON CONFLICT(id)
+         DO UPDATE SET encrypted_payload = excluded.encrypted_payload, updated_at = datetime('now')`
+      )
+      .run(encryptedPayload);
+  }
+
+  clearToken(): void {
+    this.db.prepare("DELETE FROM strava_tokens WHERE id = 'default'").run();
   }
 }
 
@@ -498,6 +658,7 @@ export class Repositories {
   public readonly goals: GoalsRepository;
   public readonly metricsSnapshots: MetricsSnapshotsRepository;
   public readonly stravaSyncEvents: StravaSyncEventsRepository;
+  public readonly stravaTokens: StravaTokensRepository;
   public readonly bleStateTransitions: BleStateTransitionsRepository;
   public readonly planVersions: PlanVersionsRepository;
   public readonly planAuditEntries: PlanAuditEntriesRepository;
@@ -515,6 +676,7 @@ export class Repositories {
     this.goals = new GoalsRepository(db);
     this.metricsSnapshots = new MetricsSnapshotsRepository(db);
     this.stravaSyncEvents = new StravaSyncEventsRepository(db);
+    this.stravaTokens = new StravaTokensRepository(db);
     this.bleStateTransitions = new BleStateTransitionsRepository(db);
     this.planVersions = new PlanVersionsRepository(db);
     this.planAuditEntries = new PlanAuditEntriesRepository(db);
