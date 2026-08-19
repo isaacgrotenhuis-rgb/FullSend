@@ -4,6 +4,7 @@ import {
   FTMS_INDOOR_BIKE_DATA_UUID,
   FTMS_SERVICE_UUID,
   buildFtmsProfile,
+  parseControlPointResponse,
   parseIndoorBikeData
 } from "@main/ble/ftms";
 import type { BleDevice, BleFtmsProfile, BleLiveTelemetry } from "@shared/ipc/contracts";
@@ -122,10 +123,15 @@ export class NobleBleAdapter implements BleAdapter {
         return [];
       }
       const normalized = item.uuid.toLowerCase();
-      if (normalized === FTMS_CONTROL_POINT_UUID && item.writeAsync) {
-        this.ftmsControlPoints.set(deviceId, async (data: Buffer) => {
-          await item.writeAsync?.(data, true);
-        });
+      if (normalized === FTMS_CONTROL_POINT_UUID) {
+        if (item.writeAsync) {
+          this.ftmsControlPoints.set(deviceId, async (data: Buffer) => {
+            await item.writeAsync?.(data, false);
+          });
+        }
+        if (item.properties?.includes("indicate") || item.properties?.includes("notify")) {
+          void this.subscribeControlPointResponses(deviceId, item);
+        }
       }
       if (normalized === FTMS_INDOOR_BIKE_DATA_UUID && item.properties?.includes("notify")) {
         void this.subscribeIndoorBikeData(deviceId, item);
@@ -153,6 +159,33 @@ export class NobleBleAdapter implements BleAdapter {
       await characteristic.subscribeAsync?.();
     } catch (error) {
       console.error(`[NobleBleAdapter] indoor bike data subscribe failed for device ${deviceId}:`, error);
+    }
+  }
+
+  private async subscribeControlPointResponses(deviceId: string, characteristic: NobleCharacteristicLike): Promise<void> {
+    try {
+      characteristic.on?.("data", (...args: unknown[]) => {
+        const data = args[0] as Buffer;
+        const isNotification = args[1] as boolean | undefined;
+        if (!isNotification || !Buffer.isBuffer(data)) {
+          return;
+        }
+        const response = parseControlPointResponse(data);
+        if (!response) {
+          console.warn(
+            `[NobleBleAdapter] unrecognized FTMS control point response for device ${deviceId}: ${data.toString("hex")}`
+          );
+          return;
+        }
+        if (response.resultCode !== 0x01) {
+          console.error(
+            `[NobleBleAdapter] FTMS control point response for device ${deviceId}: ${response.requestOpCodeName} -> ${response.resultCodeName}`
+          );
+        }
+      });
+      await characteristic.subscribeAsync?.();
+    } catch (error) {
+      console.error(`[NobleBleAdapter] control point response subscribe failed for device ${deviceId}:`, error);
     }
   }
 

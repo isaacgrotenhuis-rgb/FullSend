@@ -3,6 +3,7 @@ import type { BleFtmsCharacteristic, BleFtmsProfile } from "@shared/ipc/contract
 export const FTMS_SERVICE_UUID = "1826";
 export const FTMS_CONTROL_POINT_UUID = "2ad9";
 export const FTMS_INDOOR_BIKE_DATA_UUID = "2ad2";
+export const FTMS_CONTROL_POINT_RESPONSE_OPCODE = 0x80;
 
 type FtmsCharacteristicDescriptor = {
   key: BleFtmsCharacteristic["key"];
@@ -87,4 +88,42 @@ export const parseIndoorBikeData = (data: Buffer): IndoorBikeSample => {
   }
 
   return sample;
+};
+
+const controlPointOpcodeNames: Record<number, string> = {
+  0x00: "Request Control",
+  0x01: "Reset",
+  0x04: "Set Target Resistance Level",
+  0x05: "Set Target Power",
+  0x07: "Start or Resume",
+  0x08: "Stop or Pause"
+};
+
+const controlPointResultNames: Record<number, string> = {
+  0x01: "Success",
+  0x02: "Op Code Not Supported",
+  0x03: "Invalid Parameter",
+  0x04: "Operation Failed",
+  0x05: "Control Not Permitted"
+};
+
+export type ControlPointResponse = {
+  requestOpCode: number;
+  requestOpCodeName: string;
+  resultCode: number;
+  resultCodeName: string;
+};
+
+export const parseControlPointResponse = (data: Buffer): ControlPointResponse | null => {
+  if (data.length < 3 || data.readUInt8(0) !== FTMS_CONTROL_POINT_RESPONSE_OPCODE) {
+    return null;
+  }
+  const requestOpCode = data.readUInt8(1);
+  const resultCode = data.readUInt8(2);
+  return {
+    requestOpCode,
+    requestOpCodeName: controlPointOpcodeNames[requestOpCode] ?? `Unknown (0x${requestOpCode.toString(16)})`,
+    resultCode,
+    resultCodeName: controlPointResultNames[resultCode] ?? `Unknown (0x${resultCode.toString(16)})`
+  };
 };
