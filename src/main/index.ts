@@ -34,7 +34,8 @@ const bootstrap = async (): Promise<void> => {
 
   const databaseService = new DatabaseService();
   const bleService = new BleService({
-    transitionStore: databaseService.repositories.bleStateTransitions
+    transitionStore: databaseService.repositories.bleStateTransitions,
+    deviceStore: databaseService.repositories.devices
   });
   const workoutEngine = new ErgWorkoutEngine(bleService, {
     workoutSessions: databaseService.repositories.workoutSessions,

@@ -1,6 +1,12 @@
 import type { BleAdapter } from "@main/ble/types";
-import { FTMS_CONTROL_POINT_UUID, FTMS_SERVICE_UUID, buildFtmsProfile } from "@main/ble/ftms";
-import type { BleDevice, BleFtmsProfile } from "@shared/ipc/contracts";
+import {
+  FTMS_CONTROL_POINT_UUID,
+  FTMS_INDOOR_BIKE_DATA_UUID,
+  FTMS_SERVICE_UUID,
+  buildFtmsProfile,
+  parseIndoorBikeData
+} from "@main/ble/ftms";
+import type { BleDevice, BleFtmsProfile, BleLiveTelemetry } from "@shared/ipc/contracts";
 
 type NobleLike = {
   state?: string;
@@ -9,9 +15,18 @@ type NobleLike = {
   stopScanningAsync?: () => Promise<void>;
 };
 
+type NobleCharacteristicLike = {
+  uuid?: string;
+  properties?: string[];
+  writeAsync?: (data: Buffer, withoutResponse?: boolean) => Promise<void>;
+  subscribeAsync?: () => Promise<void>;
+  on?: (event: string, listener: (...args: unknown[]) => void) => void;
+};
+
 type NoblePeripheralLike = {
   id: string;
   rssi?: number;
+  state?: string;
   advertisement?: {
     localName?: string;
   };
@@ -21,10 +36,7 @@ type NoblePeripheralLike = {
     serviceUuids: string[],
     characteristicUuids: string[]
   ) => Promise<{
-    characteristics?: Array<{
-      uuid?: string;
-      writeAsync?: (data: Buffer, withoutResponse?: boolean) => Promise<void>;
-    }>;
+    characteristics?: NobleCharacteristicLike[];
   }>;
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
 };
@@ -36,6 +48,7 @@ export class NobleBleAdapter implements BleAdapter {
   private onDeviceDiscoveredListener: ((device: BleDevice) => void) | null = null;
   private onDisconnectedListener: ((deviceId: string) => void) | null = null;
   private onErrorListener: ((error: Error) => void) | null = null;
+  private onLiveTelemetryListener: ((deviceId: string, sample: BleLiveTelemetry) => void) | null = null;
   private disconnectSubscribed = new Set<string>();
 
   async initialize(): Promise<void> {
@@ -70,7 +83,7 @@ export class NobleBleAdapter implements BleAdapter {
     if (!this.noble) {
       throw new Error("BLE adapter is not initialized");
     }
-    await this.noble.startScanningAsync?.([], true);
+    await this.noble.startScanningAsync?.([FTMS_SERVICE_UUID], true);
   }
 
   async stopScan(): Promise<void> {
@@ -81,6 +94,9 @@ export class NobleBleAdapter implements BleAdapter {
     const peripheral = this.peripherals.get(deviceId);
     if (!peripheral) {
       throw new Error(`Device not discovered: ${deviceId}`);
+    }
+    if (peripheral.state === "connected") {
+      return;
     }
     await peripheral.connectAsync?.();
   }
@@ -111,26 +127,65 @@ export class NobleBleAdapter implements BleAdapter {
           await item.writeAsync?.(data, true);
         });
       }
+      if (normalized === FTMS_INDOOR_BIKE_DATA_UUID && item.properties?.includes("notify")) {
+        void this.subscribeIndoorBikeData(deviceId, item);
+      }
       return [item.uuid];
     }) ?? [];
     return buildFtmsProfile(deviceId, characteristicUuids);
+  }
+
+  private async subscribeIndoorBikeData(deviceId: string, characteristic: NobleCharacteristicLike): Promise<void> {
+    try {
+      characteristic.on?.("data", (...args: unknown[]) => {
+        const data = args[0] as Buffer;
+        const isNotification = args[1] as boolean | undefined;
+        if (!isNotification || !Buffer.isBuffer(data)) {
+          return;
+        }
+        const sample = parseIndoorBikeData(data);
+        this.onLiveTelemetryListener?.(deviceId, {
+          powerWatts: sample.powerWatts,
+          cadenceRpm: sample.cadenceRpm,
+          timestamp: new Date().toISOString()
+        });
+      });
+      await characteristic.subscribeAsync?.();
+    } catch (error) {
+      console.error(`[NobleBleAdapter] indoor bike data subscribe failed for device ${deviceId}:`, error);
+    }
+  }
+
+  private async writeControlPoint(deviceId: string, payload: Buffer): Promise<void> {
+    const writeControl = this.ftmsControlPoints.get(deviceId);
+    if (!writeControl) {
+      throw new Error("FTMS control point is unavailable; run FTMS discovery after connecting.");
+    }
+    await writeControl(payload);
   }
 
   async applyErgTarget(
     deviceId: string,
     input: { targetPowerWatts: number | null; targetResistancePercent: number | null }
   ): Promise<void> {
-    const writeControl = this.ftmsControlPoints.get(deviceId);
-    if (!writeControl) {
-      throw new Error("FTMS control point is unavailable; run FTMS discovery after connecting.");
-    }
     const targetPower = Math.max(0, Math.round(input.targetPowerWatts ?? 0));
-    const payload = Buffer.from([0x05, targetPower & 0xff, (targetPower >> 8) & 0xff]);
-    await writeControl(payload);
+    await this.writeControlPoint(deviceId, Buffer.from([0x05, targetPower & 0xff, (targetPower >> 8) & 0xff]));
   }
 
   async safeErgStop(deviceId: string): Promise<void> {
-    await this.applyErgTarget(deviceId, { targetPowerWatts: 0, targetResistancePercent: null });
+    await this.stopOrPause(deviceId, "stop");
+  }
+
+  async requestControl(deviceId: string): Promise<void> {
+    await this.writeControlPoint(deviceId, Buffer.from([0x00]));
+  }
+
+  async startOrResume(deviceId: string): Promise<void> {
+    await this.writeControlPoint(deviceId, Buffer.from([0x07]));
+  }
+
+  async stopOrPause(deviceId: string, mode: "stop" | "pause"): Promise<void> {
+    await this.writeControlPoint(deviceId, Buffer.from([0x08, mode === "stop" ? 0x01 : 0x02]));
   }
 
   async disconnect(deviceId?: string): Promise<void> {
@@ -161,5 +216,9 @@ export class NobleBleAdapter implements BleAdapter {
 
   onError(listener: (error: Error) => void): void {
     this.onErrorListener = listener;
+  }
+
+  onLiveTelemetry(listener: (deviceId: string, sample: BleLiveTelemetry) => void): void {
+    this.onLiveTelemetryListener = listener;
   }
 }

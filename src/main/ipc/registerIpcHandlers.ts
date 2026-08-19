@@ -51,6 +51,8 @@ import {
   workoutDetailSchema,
   workoutIdResultSchema,
   workoutSessionControlRequestSchema,
+  workoutSessionSetIntensityRequestSchema,
+  workoutSessionSetRampDurationRequestSchema,
   workoutSessionStartResultSchema,
   workoutSessionStateSchema,
   workoutSummariesSchema
@@ -176,6 +178,24 @@ export const registerIpcHandlers = (
     okResultSchema,
     async (_event, input) => {
       await workoutEngine.stop(input.sessionId);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.workout.setIntensity,
+    workoutSessionSetIntensityRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      workoutEngine.setIntensity(input.sessionId, input.intensityMultiplier);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.workout.setRampDuration,
+    workoutSessionSetRampDurationRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      workoutEngine.setRampDuration(input.sessionId, input.rampDurationSec);
       return { ok: true };
     }
   );

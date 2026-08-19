@@ -40,6 +40,8 @@ import type {
   WorkoutIdResult,
   WorkoutSummary,
   WorkoutSessionControlRequest,
+  WorkoutSessionSetIntensityRequest,
+  WorkoutSessionSetRampDurationRequest,
   WorkoutSessionStartResult,
   WorkoutSessionState,
   AssignWorkoutToPlanDayRequest,
@@ -64,6 +66,8 @@ export interface KickrDesktopApi {
     pauseSession: (request: WorkoutSessionControlRequest) => Promise<OkResult>;
     resumeSession: (request: WorkoutSessionControlRequest) => Promise<OkResult>;
     stopSession: (request: WorkoutSessionControlRequest) => Promise<OkResult>;
+    setIntensity: (request: WorkoutSessionSetIntensityRequest) => Promise<OkResult>;
+    setRampDuration: (request: WorkoutSessionSetRampDurationRequest) => Promise<OkResult>;
     getSessionState: () => Promise<WorkoutSessionState>;
     subscribeSession: (listener: (state: WorkoutSessionState) => void) => () => void;
   };

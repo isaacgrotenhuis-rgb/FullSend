@@ -37,3 +37,11 @@ pre {
   padding: 12px;
   overflow: auto;
 }
+
+.workout-timeline {
+  width: 100%;
+  height: 220px;
+  border: 1px solid #2d3340;
+  border-radius: 8px;
+  background: #0e121a;
+}

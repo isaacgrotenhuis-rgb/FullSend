@@ -1,5 +1,6 @@
-import { useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import type {
+  BleState,
   DashboardMetrics,
   DayAvailability,
   EventPlanAuditEntry,
@@ -8,8 +9,11 @@ import type {
   EventType,
   PlanLengthWeeks,
   StravaStatus,
-  StravaSyncEventSummary
+  StravaSyncEventSummary,
+  WorkoutInterval,
+  WorkoutSessionState
 } from "@shared/ipc/contracts";
+import { formatClock, WorkoutTimelineChart } from "./WorkoutTimelineChart";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,6 +55,17 @@ export const App = (): ReactElement => {
   const [smokeChecks, setSmokeChecks] = useState<SmokeCheck[]>([]);
   const [runningSmoke, setRunningSmoke] = useState(false);
 
+  const [bleState, setBleState] = useState<BleState | null>(null);
+  const [bleActionPending, setBleActionPending] = useState(false);
+  const [bleActionError, setBleActionError] = useState<string | null>(null);
+
+  const [workoutSessionState, setWorkoutSessionState] = useState<WorkoutSessionState | null>(null);
+  const [activeIntervals, setActiveIntervals] = useState<WorkoutInterval[] | null>(null);
+  const [activeWorkoutName, setActiveWorkoutName] = useState<string | null>(null);
+  const [liveWorkoutBusy, setLiveWorkoutBusy] = useState(false);
+  const [liveWorkoutError, setLiveWorkoutError] = useState<string | null>(null);
+  const [rampDurationInput, setRampDurationInput] = useState("15");
+
   const [planId, setPlanId] = useState("");
   const [weeks, setWeeks] = useState<EventPlanWeek[]>([]);
   const [versions, setVersions] = useState<EventPlanVersion[]>([]);
@@ -65,6 +80,142 @@ export const App = (): ReactElement => {
     () => weeklyAvailability.filter((day) => day.canTrain).length >= 2,
     [weeklyAvailability]
   );
+
+  useEffect(() => {
+    const unsubscribe = window.kickr.ble.subscribeState((nextState) => {
+      setBleState(nextState);
+    });
+    return unsubscribe;
+  }, []);
+
+  const connectedDevice = useMemo(
+    () => bleState?.discoveredDevices.find((device) => device.id === bleState.connectedDeviceId) ?? null,
+    [bleState]
+  );
+
+  const runBleAction = async (action: () => Promise<unknown>): Promise<void> => {
+    setBleActionPending(true);
+    setBleActionError(null);
+    try {
+      await action();
+    } catch (error) {
+      console.error("[ble action]", error);
+      setBleActionError(error instanceof Error ? error.message : "Unknown BLE error");
+    } finally {
+      setBleActionPending(false);
+    }
+  };
+
+  const scanForDevices = (): Promise<void> =>
+    runBleAction(() => window.kickr.ble.startScan({ timeoutMs: 8000 }));
+
+  const stopScanning = (): Promise<void> => runBleAction(() => window.kickr.ble.stopScan());
+
+  const connectToDevice = (deviceId: string): Promise<void> =>
+    runBleAction(() => window.kickr.ble.connect({ deviceId }));
+
+  const disconnectDevice = (): Promise<void> =>
+    runBleAction(() =>
+      window.kickr.ble.disconnect(
+        bleState?.connectedDeviceId ? { deviceId: bleState.connectedDeviceId } : {}
+      )
+    );
+
+  useEffect(() => {
+    const unsubscribe = window.kickr.workout.subscribeSession((nextState) => {
+      setWorkoutSessionState(nextState);
+      setRampDurationInput(String(nextState.rampDurationSec));
+    });
+    return unsubscribe;
+  }, []);
+
+  const isWorkoutSessionActive =
+    workoutSessionState?.lifecycle === "running" || workoutSessionState?.lifecycle === "paused";
+
+  const runWorkoutAction = async (action: () => Promise<unknown>): Promise<void> => {
+    setLiveWorkoutBusy(true);
+    setLiveWorkoutError(null);
+    try {
+      await action();
+    } catch (error) {
+      console.error("[workout action]", error);
+      setLiveWorkoutError(error instanceof Error ? error.message : "Unknown workout error");
+    } finally {
+      setLiveWorkoutBusy(false);
+    }
+  };
+
+  const startWorkoutForDay = async (workoutId: string, workoutName: string): Promise<void> => {
+    if (!bleState?.connectedDeviceId) {
+      setLiveWorkoutError("Connect a trainer before starting a workout.");
+      return;
+    }
+    const deviceId = bleState.connectedDeviceId;
+    await runWorkoutAction(async () => {
+      const detail = await window.kickr.workoutLibrary.getWorkoutDetail({ workoutId });
+      setActiveIntervals(detail.intervals);
+      setActiveWorkoutName(workoutName);
+      await window.kickr.workout.startSession({
+        deviceId,
+        workoutId,
+        intervals: detail.intervals,
+        metadata: { source: "plan" }
+      });
+    });
+  };
+
+  const pauseWorkout = async (): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    await runWorkoutAction(() => window.kickr.workout.pauseSession({ sessionId }));
+  };
+
+  const resumeWorkout = async (): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    await runWorkoutAction(() => window.kickr.workout.resumeSession({ sessionId }));
+  };
+
+  const stopWorkout = async (): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    await runWorkoutAction(() => window.kickr.workout.stopSession({ sessionId }));
+  };
+
+  const adjustIntensity = async (deltaFraction: number): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    const current = workoutSessionState.intensityMultiplier;
+    const next = Math.min(1.5, Math.max(0.5, Math.round((current + deltaFraction) * 100) / 100));
+    await runWorkoutAction(() => window.kickr.workout.setIntensity({ sessionId, intensityMultiplier: next }));
+  };
+
+  const applyRampDuration = async (): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    const parsed = Number(rampDurationInput);
+    if (!Number.isFinite(parsed)) {
+      return;
+    }
+    const clamped = Math.min(60, Math.max(0, Math.round(parsed)));
+    await runWorkoutAction(() => window.kickr.workout.setRampDuration({ sessionId, rampDurationSec: clamped }));
+  };
+
+  const closeLiveWorkout = (): void => {
+    setActiveIntervals(null);
+    setActiveWorkoutName(null);
+    setLiveWorkoutError(null);
+  };
 
   const refreshHistory = async (activePlanId: string): Promise<void> => {
     const [nextVersions, nextAudits] = await Promise.all([
@@ -315,6 +466,141 @@ export const App = (): ReactElement => {
     <main className="app">
       <h1>Event Plan Generator</h1>
       <p>{status}</p>
+
+      <section>
+        <h2>Trainer connection</h2>
+        <p>
+          Status: {bleState?.lifecycle ?? "unknown"}
+          {connectedDevice
+            ? ` — connected to ${connectedDevice.name ?? connectedDevice.localName ?? connectedDevice.id}`
+            : ""}
+        </p>
+        {bleState?.lastError ? <p>Last error: {bleState.lastError}</p> : null}
+        {bleActionError ? <p>Action error: {bleActionError}</p> : null}
+        <div className="row">
+          <button onClick={() => void scanForDevices()} disabled={bleActionPending || bleState?.scanning}>
+            {bleState?.scanning ? "Scanning..." : "Scan for devices"}
+          </button>
+          {bleState?.scanning ? (
+            <button onClick={() => void stopScanning()} disabled={bleActionPending}>
+              Stop scan
+            </button>
+          ) : null}
+          <button
+            onClick={() => void disconnectDevice()}
+            disabled={bleActionPending || !bleState?.connectedDeviceId}
+          >
+            Disconnect
+          </button>
+        </div>
+        {!bleState || bleState.discoveredDevices.length === 0 ? (
+          <p>No devices discovered yet. Click "Scan for devices".</p>
+        ) : (
+          <ul>
+            {bleState.discoveredDevices.map((device) => {
+              const isConnected = bleState.connectedDeviceId === device.id;
+              const connectDisabled =
+                bleActionPending ||
+                isConnected ||
+                bleState.lifecycle === "connecting" ||
+                (bleState.connectedDeviceId !== null && !isConnected);
+              return (
+                <li key={device.id}>
+                  {device.name ?? device.localName ?? "Unknown device"} ({device.id})
+                  {typeof device.rssi === "number" ? ` — RSSI ${device.rssi}` : ""}
+                  {isConnected ? " — connected" : ""}{" "}
+                  <button onClick={() => void connectToDevice(device.id)} disabled={connectDisabled}>
+                    {isConnected ? "Connected" : "Connect"}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+
+      {activeIntervals ? (
+        <section>
+          <h2>Live workout{activeWorkoutName ? `: ${activeWorkoutName}` : ""}</h2>
+          <p>
+            Status: {workoutSessionState?.lifecycle ?? "idle"} — elapsed{" "}
+            {formatClock(workoutSessionState?.elapsedSec ?? 0)} /{" "}
+            {formatClock(activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0))}
+          </p>
+          {workoutSessionState?.liveMetrics ? (
+            <p>
+              Current block: {workoutSessionState.liveMetrics.blockKind} — target{" "}
+              {workoutSessionState.liveMetrics.targetPowerWatts ?? "-"} W
+              {" · actual "}
+              {workoutSessionState.liveMetrics.actualPowerWatts ?? "-"} W
+              {workoutSessionState.liveMetrics.actualCadenceRpm !== null
+                ? ` · ${Math.round(workoutSessionState.liveMetrics.actualCadenceRpm)} rpm`
+                : ""}
+              {workoutSessionState.liveMetrics.targetResistancePercent !== null
+                ? ` / ${workoutSessionState.liveMetrics.targetResistancePercent}% resistance`
+                : ""}
+            </p>
+          ) : null}
+          {liveWorkoutError ? <p>Error: {liveWorkoutError}</p> : null}
+          {workoutSessionState?.lastError ? <p>Session error: {workoutSessionState.lastError}</p> : null}
+
+          <WorkoutTimelineChart
+            intervals={activeIntervals}
+            elapsedSec={workoutSessionState?.elapsedSec ?? 0}
+            currentIndex={workoutSessionState?.currentIntervalIndex ?? null}
+            actualPowerWatts={workoutSessionState?.liveMetrics?.actualPowerWatts ?? null}
+          />
+
+          <div className="row">
+            {workoutSessionState?.lifecycle === "running" ? (
+              <button onClick={() => void pauseWorkout()} disabled={liveWorkoutBusy}>
+                Pause
+              </button>
+            ) : null}
+            {workoutSessionState?.lifecycle === "paused" ? (
+              <button onClick={() => void resumeWorkout()} disabled={liveWorkoutBusy}>
+                Resume
+              </button>
+            ) : null}
+            {isWorkoutSessionActive ? (
+              <button onClick={() => void stopWorkout()} disabled={liveWorkoutBusy}>
+                End workout
+              </button>
+            ) : (
+              <button onClick={closeLiveWorkout} disabled={liveWorkoutBusy}>
+                Close
+              </button>
+            )}
+          </div>
+
+          <div className="row">
+            <span>Intensity: {Math.round((workoutSessionState?.intensityMultiplier ?? 1) * 100)}%</span>
+            <button onClick={() => void adjustIntensity(-0.05)} disabled={liveWorkoutBusy || !isWorkoutSessionActive}>
+              -5%
+            </button>
+            <button onClick={() => void adjustIntensity(0.05)} disabled={liveWorkoutBusy || !isWorkoutSessionActive}>
+              +5%
+            </button>
+          </div>
+
+          <div className="row">
+            <label>
+              Ramp-in duration (sec){" "}
+              <input
+                type="number"
+                min={0}
+                max={60}
+                value={rampDurationInput}
+                onChange={(event) => setRampDurationInput(event.target.value)}
+                disabled={liveWorkoutBusy || !isWorkoutSessionActive}
+              />
+            </label>
+            <button onClick={() => void applyRampDuration()} disabled={liveWorkoutBusy || !isWorkoutSessionActive}>
+              Apply
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       <section>
         <h2>Release smoke workflow</h2>
@@ -585,14 +871,25 @@ export const App = (): ReactElement => {
                 Target {week.targetMinutes} min @ IF {week.targetIF}
               </p>
               <ul>
-                {week.days.map((day) => (
-                  <li key={`${week.weekId}-${day.dayIndex}`}>
-                    {dayLabels[day.dayIndex]}:{" "}
-                    {day.workoutName
-                      ? `${day.workoutName} (${day.durationMin} min, IF ${day.targetIF ?? "-"})`
-                      : "Rest"}
-                  </li>
-                ))}
+                {week.days.map((day) => {
+                  const workoutId = day.workoutId;
+                  return (
+                    <li key={`${week.weekId}-${day.dayIndex}`}>
+                      {dayLabels[day.dayIndex]}:{" "}
+                      {day.workoutName
+                        ? `${day.workoutName} (${day.durationMin} min, IF ${day.targetIF ?? "-"})`
+                        : "Rest"}{" "}
+                      {workoutId ? (
+                        <button
+                          onClick={() => void startWorkoutForDay(workoutId, day.workoutName ?? "Workout")}
+                          disabled={liveWorkoutBusy || isWorkoutSessionActive || !bleState?.connectedDeviceId}
+                        >
+                          Start workout
+                        </button>
+                      ) : null}
+                    </li>
+                  );
+                })}
               </ul>
             </article>
           ))

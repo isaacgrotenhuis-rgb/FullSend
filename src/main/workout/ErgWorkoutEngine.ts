@@ -42,6 +42,8 @@ type WorkoutPersistence = {
       blockIndex: number;
       targetPowerWatts: number | null;
       targetResistancePercent: number | null;
+      actualPowerWatts: number | null;
+      actualCadenceRpm: number | null;
       payloadJson: string;
     }) => void;
   };
@@ -59,7 +61,9 @@ const createIdleState = (): WorkoutSessionState => ({
   currentIntervalIndex: null,
   intervalsTotal: 0,
   lastError: null,
-  liveMetrics: null
+  liveMetrics: null,
+  intensityMultiplier: 1,
+  rampDurationSec: 15
 });
 
 export class ErgWorkoutEngine {
@@ -77,12 +81,22 @@ export class ErgWorkoutEngine {
   private lastElapsedSec = 0;
   private readonly maxTickDriftMs = 2500;
   private readonly maxElapsedJumpSec = 4;
+  private readonly minIntensityMultiplier = 0.5;
+  private readonly maxIntensityMultiplier = 1.5;
+  private readonly maxRampDurationSec = 60;
+  private rampBlockIndex: number | null = null;
+  private rampFromWatts: number | null = null;
+  private forceRampReset = false;
+  private latestTelemetry: { powerWatts: number | null; cadenceRpm: number | null } | null = null;
   private listeners = new Set<(state: WorkoutSessionState) => void>();
 
   constructor(bleService: BleService, persistence: WorkoutPersistence) {
     this.bleService = bleService;
     this.persistence = persistence;
     this.bleService.subscribeState((bleState) => {
+      this.latestTelemetry = bleState.liveTelemetry
+        ? { powerWatts: bleState.liveTelemetry.powerWatts, cadenceRpm: bleState.liveTelemetry.cadenceRpm }
+        : null;
       if (
         this.state.sessionId &&
         (this.state.lifecycle === "running" || this.state.lifecycle === "paused") &&
@@ -148,6 +162,8 @@ export class ErgWorkoutEngine {
       blockIndex: metrics.blockIndex,
       targetPowerWatts: metrics.targetPowerWatts,
       targetResistancePercent: metrics.targetResistancePercent,
+      actualPowerWatts: metrics.actualPowerWatts,
+      actualCadenceRpm: metrics.actualCadenceRpm,
       payloadJson: JSON.stringify(metrics)
     });
   }
@@ -231,13 +247,43 @@ export class ErgWorkoutEngine {
         return;
       }
 
+      const intensityMultiplier = this.state.intensityMultiplier;
+      const blockTargetPowerWatts =
+        cursor.interval.targetPowerWatts !== null
+          ? Math.max(0, Math.round(cursor.interval.targetPowerWatts * intensityMultiplier))
+          : null;
+      const scaledTargetResistancePercent =
+        cursor.interval.targetResistancePercent !== null
+          ? Math.min(100, Math.max(0, Math.round(cursor.interval.targetResistancePercent * intensityMultiplier)))
+          : null;
+
+      if (cursor.index !== this.rampBlockIndex || this.forceRampReset) {
+        this.rampFromWatts = this.forceRampReset ? 0 : this.lastAppliedTarget ?? 0;
+        this.rampBlockIndex = cursor.index;
+        this.forceRampReset = false;
+      }
+
+      const rampDurationSec = this.state.rampDurationSec;
+      let scaledTargetPowerWatts = blockTargetPowerWatts;
+      if (
+        blockTargetPowerWatts !== null &&
+        this.rampFromWatts !== null &&
+        rampDurationSec > 0 &&
+        cursor.elapsedInIntervalSec < rampDurationSec
+      ) {
+        const progress = cursor.elapsedInIntervalSec / rampDurationSec;
+        scaledTargetPowerWatts = Math.round(this.rampFromWatts + (blockTargetPowerWatts - this.rampFromWatts) * progress);
+      }
+
       const metrics: WorkoutLiveMetrics = {
         timestamp: new Date().toISOString(),
         elapsedSec,
         blockIndex: cursor.index,
         blockKind: cursor.interval.kind,
-        targetPowerWatts: cursor.interval.targetPowerWatts,
-        targetResistancePercent: cursor.interval.targetResistancePercent
+        targetPowerWatts: scaledTargetPowerWatts,
+        targetResistancePercent: scaledTargetResistancePercent,
+        actualPowerWatts: this.latestTelemetry?.powerWatts ?? null,
+        actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null
       };
 
       await this.applyTargets(metrics);
@@ -249,6 +295,7 @@ export class ErgWorkoutEngine {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown workout engine error";
+      console.error("[ErgWorkoutEngine] tick failure:", error);
       this.persistEvent("tick-failure", { message });
       await this.completeSession("error", "tick-failure");
       this.patchState({ lastError: message });
@@ -266,8 +313,39 @@ export class ErgWorkoutEngine {
     }
     try {
       await this.bleService.safeErgStop(deviceId);
-    } catch {
+    } catch (error) {
+      console.error("[ErgWorkoutEngine] safe stop failed:", error);
       this.persistEvent("safe-stop-failed", { message: "Failed to transmit safe stop over BLE" });
+    }
+  }
+
+  private async safeStartOrResume(): Promise<void> {
+    const deviceId = this.state.deviceId;
+    if (!deviceId) {
+      return;
+    }
+    try {
+      await this.bleService.startOrResume(deviceId);
+    } catch (error) {
+      console.error("[ErgWorkoutEngine] start-or-resume failed:", error);
+      this.persistEvent("start-or-resume-failed", {
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
+    }
+  }
+
+  private async pauseErg(): Promise<void> {
+    const deviceId = this.state.deviceId;
+    if (!deviceId) {
+      return;
+    }
+    try {
+      await this.bleService.stopOrPause(deviceId, "pause");
+    } catch (error) {
+      console.error("[ErgWorkoutEngine] pause failed:", error);
+      this.persistEvent("pause-failed", {
+        message: error instanceof Error ? error.message : "Unknown error"
+      });
     }
   }
 
@@ -295,6 +373,9 @@ export class ErgWorkoutEngine {
     this.lastElapsedSec = 0;
     this.tickInFlight = false;
     this.expectedNextTickAtMs = Date.now() + 1000;
+    this.rampBlockIndex = null;
+    this.rampFromWatts = null;
+    this.forceRampReset = false;
 
     this.persistence.workoutSessions.create({
       id: sessionId,
@@ -320,9 +401,13 @@ export class ErgWorkoutEngine {
       currentIntervalIndex: 0,
       intervalsTotal: request.intervals.length,
       lastError: null,
-      liveMetrics: null
+      liveMetrics: null,
+      intensityMultiplier: 1,
+      rampDurationSec: this.state.rampDurationSec
     });
     this.persistEvent("session-started", { workoutId: request.workoutId ?? null });
+
+    await this.safeStartOrResume();
 
     this.stopTicking();
     this.tickTimer = setInterval(() => {
@@ -349,7 +434,7 @@ export class ErgWorkoutEngine {
       lifecycle: "paused",
       pausedAt: new Date().toISOString()
     });
-    await this.safeErgStop();
+    await this.pauseErg();
   }
 
   async resume(sessionId: string): Promise<void> {
@@ -368,12 +453,34 @@ export class ErgWorkoutEngine {
       lifecycle: "running",
       pausedAt: null
     });
+    this.forceRampReset = true;
+    await this.safeStartOrResume();
     this.expectedNextTickAtMs = Date.now() + 1000;
     this.stopTicking();
     this.tickTimer = setInterval(() => {
       void this.tick();
     }, 1000);
     await this.tick();
+  }
+
+  setIntensity(sessionId: string, multiplier: number): void {
+    this.requireActiveSession(sessionId);
+    if (this.state.lifecycle !== "running" && this.state.lifecycle !== "paused") {
+      throw new Error("Session must be running or paused to adjust intensity");
+    }
+    const clamped = Math.min(this.maxIntensityMultiplier, Math.max(this.minIntensityMultiplier, multiplier));
+    this.persistEvent("intensity-changed", { intensityMultiplier: clamped });
+    this.patchState({ intensityMultiplier: clamped });
+  }
+
+  setRampDuration(sessionId: string, seconds: number): void {
+    this.requireActiveSession(sessionId);
+    if (this.state.lifecycle !== "running" && this.state.lifecycle !== "paused") {
+      throw new Error("Session must be running or paused to adjust ramp duration");
+    }
+    const clamped = Math.min(this.maxRampDurationSec, Math.max(0, seconds));
+    this.persistEvent("ramp-duration-changed", { rampDurationSec: clamped });
+    this.patchState({ rampDurationSec: clamped });
   }
 
   async stop(sessionId: string): Promise<void> {

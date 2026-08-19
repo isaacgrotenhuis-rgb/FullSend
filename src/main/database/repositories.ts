@@ -13,6 +13,19 @@ export class DevicesRepository extends BaseRepository {
   list(): Row[] {
     return this.db.prepare("SELECT * FROM devices ORDER BY updated_at DESC").all() as Row[];
   }
+
+  upsert(input: { id: string; name: string | null }): void {
+    this.db
+      .prepare(
+        `INSERT INTO devices (id, name, last_seen_at, updated_at)
+         VALUES (?, ?, datetime('now'), datetime('now'))
+         ON CONFLICT(id) DO UPDATE SET
+           name = excluded.name,
+           last_seen_at = excluded.last_seen_at,
+           updated_at = excluded.updated_at`
+      )
+      .run(input.id, input.name);
+  }
 }
 
 export class WorkoutsRepository extends BaseRepository {
@@ -270,13 +283,15 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
     blockIndex: number;
     targetPowerWatts: number | null;
     targetResistancePercent: number | null;
+    actualPowerWatts: number | null;
+    actualCadenceRpm: number | null;
     payloadJson: string;
   }): void {
     this.db
       .prepare(
         `INSERT INTO workout_session_telemetry
-         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, payload_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, actual_power_watts, actual_cadence_rpm, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.id,
@@ -286,6 +301,8 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
         input.blockIndex,
         input.targetPowerWatts,
         input.targetResistancePercent,
+        input.actualPowerWatts,
+        input.actualCadenceRpm,
         input.payloadJson
       );
   }

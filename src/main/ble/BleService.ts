@@ -2,6 +2,7 @@ import { NobleBleAdapter } from "@main/ble/NobleBleAdapter";
 import {
   createInitialBleState,
   type BleAdapter,
+  type BleDeviceStore,
   type BleService as BleServicePort,
   type BleTransitionStore
 } from "@main/ble/types";
@@ -11,6 +12,7 @@ export class BleService implements BleServicePort {
   private state: BleState = createInitialBleState();
   private readonly adapter: BleAdapter;
   private readonly transitionStore?: BleTransitionStore;
+  private readonly deviceStore?: BleDeviceStore;
   private scanTimeout: NodeJS.Timeout | null = null;
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private listeners = new Set<(state: BleState) => void>();
@@ -22,9 +24,14 @@ export class BleService implements BleServicePort {
   private readonly reconnectDelayMs = 1800;
   private lastConnectedDeviceId: string | null = null;
 
-  constructor(options?: { adapter?: BleAdapter; transitionStore?: BleTransitionStore }) {
+  constructor(options?: {
+    adapter?: BleAdapter;
+    transitionStore?: BleTransitionStore;
+    deviceStore?: BleDeviceStore;
+  }) {
     this.adapter = options?.adapter ?? new NobleBleAdapter();
     this.transitionStore = options?.transitionStore;
+    this.deviceStore = options?.deviceStore;
     this.bindAdapterEvents();
   }
 
@@ -40,6 +47,7 @@ export class BleService implements BleServicePort {
           lifecycle: "disconnected",
           connectedDeviceId: null,
           ftmsProfile: null,
+          liveTelemetry: null,
           scanning: false,
           lastError: this.manualDisconnectInProgress ? null : "BLE signal lost; disconnected"
         }, "adapter-disconnected");
@@ -51,10 +59,18 @@ export class BleService implements BleServicePort {
     });
 
     this.adapter.onError((error) => {
+      console.error("[BleService] adapter error:", error);
       this.setState({
         lifecycle: "error",
         lastError: error.message
       }, "adapter-error");
+    });
+
+    this.adapter.onLiveTelemetry((deviceId, sample) => {
+      if (this.state.connectedDeviceId !== deviceId) {
+        return;
+      }
+      this.setState({ liveTelemetry: sample });
     });
   }
 
@@ -78,6 +94,7 @@ export class BleService implements BleServicePort {
       this.reconnectAttempts = reconnectAttempt;
       void this.connectInternal(deviceId, "auto-reconnect").catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Unknown reconnect error";
+        console.error(`[BleService] auto-reconnect failed for device ${deviceId}:`, error);
         this.setState({ lastError: message }, "reconnect-failed");
         this.scheduleReconnect(deviceId);
       });
@@ -162,6 +179,12 @@ export class BleService implements BleServicePort {
   }
 
   private async connectInternal(deviceId: string, reason = "connect-requested"): Promise<void> {
+    if (
+      this.state.lifecycle === "connecting" ||
+      (this.state.lifecycle === "connected" && this.state.connectedDeviceId === deviceId)
+    ) {
+      return;
+    }
     const opId = ++this.operationSeq;
     await this.ensureInitialized();
     this.clearReconnectTimeout();
@@ -173,13 +196,45 @@ export class BleService implements BleServicePort {
     if (opId !== this.operationSeq) {
       return;
     }
+    const discoveredDevice = this.state.discoveredDevices.find((item) => item.id === deviceId);
+    this.deviceStore?.upsert({
+      id: deviceId,
+      name: discoveredDevice?.name ?? discoveredDevice?.localName ?? null
+    });
     this.reconnectAttempts = 0;
     this.lastConnectedDeviceId = deviceId;
     this.manualDisconnectInProgress = false;
+
+    let ftmsProfile: BleFtmsProfile | null = null;
+    let ftmsError: string | null = null;
+    try {
+      ftmsProfile = await this.adapter.discoverFtmsCharacteristics(deviceId);
+    } catch (error) {
+      ftmsError = error instanceof Error ? error.message : "Unknown FTMS discovery error";
+      console.error(`[BleService] FTMS discovery failed for device ${deviceId}:`, error);
+    }
+    if (opId !== this.operationSeq) {
+      return;
+    }
+
+    if (ftmsProfile?.ergControlAvailable) {
+      try {
+        await this.adapter.requestControl(deviceId);
+      } catch (error) {
+        ftmsError = error instanceof Error ? error.message : "Unknown FTMS request-control error";
+        console.error(`[BleService] FTMS request control failed for device ${deviceId}:`, error);
+      }
+    }
+    if (opId !== this.operationSeq) {
+      return;
+    }
+
     this.setState({
       lifecycle: "connected",
       connectedDeviceId: deviceId,
-      ftmsProfile: null
+      ftmsProfile,
+      liveTelemetry: null,
+      lastError: ftmsError
     }, "connected");
   }
 
@@ -218,6 +273,20 @@ export class BleService implements BleServicePort {
     await this.adapter.safeErgStop(deviceId);
   }
 
+  async startOrResume(deviceId: string): Promise<void> {
+    if (this.state.connectedDeviceId !== deviceId) {
+      throw new Error(`Cannot start/resume ERG on non-connected device: ${deviceId}`);
+    }
+    await this.adapter.startOrResume(deviceId);
+  }
+
+  async stopOrPause(deviceId: string, mode: "stop" | "pause"): Promise<void> {
+    if (this.state.connectedDeviceId !== deviceId) {
+      return;
+    }
+    await this.adapter.stopOrPause(deviceId, mode);
+  }
+
   async disconnect(deviceId?: string): Promise<void> {
     const opId = ++this.operationSeq;
     this.manualDisconnectInProgress = true;
@@ -231,7 +300,8 @@ export class BleService implements BleServicePort {
     this.setState({
       lifecycle: "disconnected",
       connectedDeviceId: null,
-      ftmsProfile: null
+      ftmsProfile: null,
+      liveTelemetry: null
     }, "disconnected");
     this.manualDisconnectInProgress = false;
   }

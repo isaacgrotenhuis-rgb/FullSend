@@ -10,8 +10,13 @@ export const safeHandle = <I, O>(
   handler: Handler<I, O>
 ): void => {
   ipcMain.handle(channel, async (event, rawInput) => {
-    const input = inputSchema.parse(rawInput);
-    const result = await handler(event, input);
-    return outputSchema.parse(result);
+    try {
+      const input = inputSchema.parse(rawInput);
+      const result = await handler(event, input);
+      return outputSchema.parse(result);
+    } catch (error) {
+      console.error(`[ipc:${channel}]`, error);
+      throw error;
+    }
   });
 };

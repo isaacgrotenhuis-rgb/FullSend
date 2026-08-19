@@ -227,4 +227,15 @@ export const applySchema = (db: Database): void => {
   if (!stravaSyncColumnNames.has("session_id")) {
     db.exec("ALTER TABLE strava_sync_events ADD COLUMN session_id TEXT;");
   }
+
+  const telemetryColumns = db
+    .prepare("SELECT name FROM pragma_table_info('workout_session_telemetry')")
+    .all() as Array<{ name: string }>;
+  const telemetryColumnNames = new Set(telemetryColumns.map((column) => column.name));
+  if (!telemetryColumnNames.has("actual_power_watts")) {
+    db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN actual_power_watts REAL;");
+  }
+  if (!telemetryColumnNames.has("actual_cadence_rpm")) {
+    db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN actual_cadence_rpm REAL;");
+  }
 };
