@@ -51,6 +51,8 @@ export class NobleBleAdapter implements BleAdapter {
   private onErrorListener: ((error: Error) => void) | null = null;
   private onLiveTelemetryListener: ((deviceId: string, sample: BleLiveTelemetry) => void) | null = null;
   private disconnectSubscribed = new Set<string>();
+  private indoorBikeDataSubscribed = new Set<string>();
+  private controlPointResponseSubscribed = new Set<string>();
 
   async initialize(): Promise<void> {
     if (this.noble) {
@@ -61,12 +63,31 @@ export class NobleBleAdapter implements BleAdapter {
     const noble = (mod as { default?: NobleLike }).default ?? (mod as NobleLike);
     this.noble = noble;
 
+    this.noble.on("stateChange", (...args: unknown[]) => {
+      const state = args[0] as string | undefined;
+      if (state && state !== "poweredOn") {
+        this.onErrorListener?.(new Error(`Bluetooth adapter state: ${state}`));
+      }
+    });
+
+    this.noble.on("warning", (...args: unknown[]) => {
+      const message = args[0] as string | undefined;
+      this.onErrorListener?.(new Error(message ?? "Unknown BLE adapter warning"));
+    });
+
+    this.noble.on("error", (...args: unknown[]) => {
+      const error = args[0];
+      this.onErrorListener?.(error instanceof Error ? error : new Error(String(error)));
+    });
+
     this.noble.on("discover", (...args: unknown[]) => {
       const peripheral = args[0] as NoblePeripheralLike;
       this.peripherals.set(peripheral.id, peripheral);
       if (!this.disconnectSubscribed.has(peripheral.id)) {
         peripheral.on?.("disconnect", () => {
           this.ftmsControlPoints.delete(peripheral.id);
+          this.indoorBikeDataSubscribed.delete(peripheral.id);
+          this.controlPointResponseSubscribed.delete(peripheral.id);
           this.onDisconnectedListener?.(peripheral.id);
         });
         this.disconnectSubscribed.add(peripheral.id);
@@ -129,11 +150,20 @@ export class NobleBleAdapter implements BleAdapter {
             await item.writeAsync?.(data, false);
           });
         }
-        if (item.properties?.includes("indicate") || item.properties?.includes("notify")) {
+        if (
+          (item.properties?.includes("indicate") || item.properties?.includes("notify")) &&
+          !this.controlPointResponseSubscribed.has(deviceId)
+        ) {
+          this.controlPointResponseSubscribed.add(deviceId);
           void this.subscribeControlPointResponses(deviceId, item);
         }
       }
-      if (normalized === FTMS_INDOOR_BIKE_DATA_UUID && item.properties?.includes("notify")) {
+      if (
+        normalized === FTMS_INDOOR_BIKE_DATA_UUID &&
+        item.properties?.includes("notify") &&
+        !this.indoorBikeDataSubscribed.has(deviceId)
+      ) {
+        this.indoorBikeDataSubscribed.add(deviceId);
         void this.subscribeIndoorBikeData(deviceId, item);
       }
       return [item.uuid];
@@ -158,6 +188,7 @@ export class NobleBleAdapter implements BleAdapter {
       });
       await characteristic.subscribeAsync?.();
     } catch (error) {
+      this.indoorBikeDataSubscribed.delete(deviceId);
       console.error(`[NobleBleAdapter] indoor bike data subscribe failed for device ${deviceId}:`, error);
     }
   }
@@ -185,6 +216,7 @@ export class NobleBleAdapter implements BleAdapter {
       });
       await characteristic.subscribeAsync?.();
     } catch (error) {
+      this.controlPointResponseSubscribed.delete(deviceId);
       console.error(`[NobleBleAdapter] control point response subscribe failed for device ${deviceId}:`, error);
     }
   }
@@ -201,8 +233,21 @@ export class NobleBleAdapter implements BleAdapter {
     deviceId: string,
     input: { targetPowerWatts: number | null; targetResistancePercent: number | null }
   ): Promise<void> {
-    const targetPower = Math.max(0, Math.round(input.targetPowerWatts ?? 0));
-    await this.writeControlPoint(deviceId, Buffer.from([0x05, targetPower & 0xff, (targetPower >> 8) & 0xff]));
+    if (input.targetPowerWatts !== null) {
+      const targetPower = Math.max(0, Math.round(input.targetPowerWatts));
+      await this.writeControlPoint(deviceId, Buffer.from([0x05, targetPower & 0xff, (targetPower >> 8) & 0xff]));
+      return;
+    }
+    if (input.targetResistancePercent !== null) {
+      // FTMS Set Target Resistance Level (0x04): sint16, resolution 0.1 (unitless level).
+      const targetResistance = Math.round(Math.min(100, Math.max(0, input.targetResistancePercent)) * 10);
+      await this.writeControlPoint(
+        deviceId,
+        Buffer.from([0x04, targetResistance & 0xff, (targetResistance >> 8) & 0xff])
+      );
+      return;
+    }
+    await this.writeControlPoint(deviceId, Buffer.from([0x05, 0x00, 0x00]));
   }
 
   async safeErgStop(deviceId: string): Promise<void> {
@@ -226,6 +271,8 @@ export class NobleBleAdapter implements BleAdapter {
       const peripheral = this.peripherals.get(deviceId);
       await peripheral?.disconnectAsync?.();
       this.ftmsControlPoints.delete(deviceId);
+      this.indoorBikeDataSubscribed.delete(deviceId);
+      this.controlPointResponseSubscribed.delete(deviceId);
       this.onDisconnectedListener?.(deviceId);
       return;
     }
@@ -234,6 +281,8 @@ export class NobleBleAdapter implements BleAdapter {
       Array.from(this.peripherals.values()).map(async (peripheral) => {
         await peripheral.disconnectAsync?.();
         this.ftmsControlPoints.delete(peripheral.id);
+        this.indoorBikeDataSubscribed.delete(peripheral.id);
+        this.controlPointResponseSubscribed.delete(peripheral.id);
         this.onDisconnectedListener?.(peripheral.id);
       })
     );

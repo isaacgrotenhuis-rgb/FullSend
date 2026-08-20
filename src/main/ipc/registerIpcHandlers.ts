@@ -15,6 +15,7 @@ import {
   eventPlanVersionsSchema,
   generateEventPlanRequestSchema,
   generateEventPlanResultSchema,
+  getCurrentEventPlanResultSchema,
   bleDeviceRequestSchema,
   bleCapabilitiesSchema,
   bleConnectRequestSchema,
@@ -341,6 +342,9 @@ export const registerIpcHandlers = (
     planAuditEntriesRequestSchema,
     eventPlanAuditEntriesSchema,
     (_event, input) => eventPlanService.listPlanAuditEntries(input.planId)
+  );
+  safeHandle(ipcChannels.eventPlan.getCurrent, emptySchema, getCurrentEventPlanResultSchema, () =>
+    eventPlanService.getCurrentPlan()
   );
   safeHandle(
     ipcChannels.dashboard.getMetrics,

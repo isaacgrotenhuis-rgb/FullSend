@@ -16,6 +16,7 @@ import type {
   PlanWeekSummary,
   GenerateEventPlanRequest,
   GenerateEventPlanResult,
+  GetCurrentEventPlanResult,
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
   PlanVersionsRequest,
@@ -90,6 +91,7 @@ export interface KickrDesktopApi {
     adapt: (request: AdaptEventPlanRequest) => Promise<AdaptEventPlanResult>;
     listVersions: (request: PlanVersionsRequest) => Promise<EventPlanVersion[]>;
     listAuditEntries: (request: PlanAuditEntriesRequest) => Promise<EventPlanAuditEntry[]>;
+    getCurrent: () => Promise<GetCurrentEventPlanResult>;
   };
   dashboard: {
     getMetrics: (request?: Partial<DashboardMetricsRequest>) => Promise<DashboardMetrics>;

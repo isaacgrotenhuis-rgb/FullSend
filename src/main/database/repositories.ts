@@ -663,6 +663,7 @@ export class PlanAuditEntriesRepository extends BaseRepository {
 }
 
 export class Repositories {
+  private readonly db: Database;
   public readonly devices: DevicesRepository;
   public readonly workouts: WorkoutsRepository;
   public readonly workoutIntervals: WorkoutIntervalsRepository;
@@ -681,6 +682,7 @@ export class Repositories {
   public readonly planAuditEntries: PlanAuditEntriesRepository;
 
   constructor(db: Database) {
+    this.db = db;
     this.devices = new DevicesRepository(db);
     this.workouts = new WorkoutsRepository(db);
     this.workoutIntervals = new WorkoutIntervalsRepository(db);
@@ -697,5 +699,9 @@ export class Repositories {
     this.bleStateTransitions = new BleStateTransitionsRepository(db);
     this.planVersions = new PlanVersionsRepository(db);
     this.planAuditEntries = new PlanAuditEntriesRepository(db);
+  }
+
+  transaction<T>(fn: () => T): T {
+    return this.db.transaction(fn)();
   }
 }

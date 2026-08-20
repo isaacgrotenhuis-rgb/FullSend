@@ -75,7 +75,8 @@ export class ErgWorkoutEngine {
   private sessionStartedAtMs: number | null = null;
   private pausedAtMs: number | null = null;
   private totalPausedMs = 0;
-  private lastAppliedTarget: number | null = null;
+  private lastAppliedPowerWatts: number | null = null;
+  private lastAppliedResistancePercent: number | null = null;
   private tickInFlight = false;
   private expectedNextTickAtMs: number | null = null;
   private lastElapsedSec = 0;
@@ -180,12 +181,16 @@ export class ErgWorkoutEngine {
     if (!deviceId) {
       return;
     }
-    if (metrics.targetPowerWatts !== this.lastAppliedTarget) {
+    if (
+      metrics.targetPowerWatts !== this.lastAppliedPowerWatts ||
+      metrics.targetResistancePercent !== this.lastAppliedResistancePercent
+    ) {
       await this.bleService.applyErgTarget(deviceId, {
         targetPowerWatts: metrics.targetPowerWatts,
         targetResistancePercent: metrics.targetResistancePercent
       });
-      this.lastAppliedTarget = metrics.targetPowerWatts;
+      this.lastAppliedPowerWatts = metrics.targetPowerWatts;
+      this.lastAppliedResistancePercent = metrics.targetResistancePercent;
     }
   }
 
@@ -258,7 +263,7 @@ export class ErgWorkoutEngine {
           : null;
 
       if (cursor.index !== this.rampBlockIndex || this.forceRampReset) {
-        this.rampFromWatts = this.forceRampReset ? 0 : this.lastAppliedTarget ?? 0;
+        this.rampFromWatts = this.forceRampReset ? 0 : this.lastAppliedPowerWatts ?? 0;
         this.rampBlockIndex = cursor.index;
         this.forceRampReset = false;
       }
@@ -369,7 +374,8 @@ export class ErgWorkoutEngine {
     this.sessionStartedAtMs = Date.now();
     this.pausedAtMs = null;
     this.totalPausedMs = 0;
-    this.lastAppliedTarget = null;
+    this.lastAppliedPowerWatts = null;
+    this.lastAppliedResistancePercent = null;
     this.lastElapsedSec = 0;
     this.tickInFlight = false;
     this.expectedNextTickAtMs = Date.now() + 1000;

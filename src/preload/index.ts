@@ -73,7 +73,8 @@ const api: KickrDesktopApi = {
     generate: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.generate, request),
     adapt: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.adapt, request),
     listVersions: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.listVersions, request),
-    listAuditEntries: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.listAuditEntries, request)
+    listAuditEntries: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.listAuditEntries, request),
+    getCurrent: async () => ipcRenderer.invoke(ipcChannels.eventPlan.getCurrent, {})
   },
   dashboard: {
     getMetrics: async (request) => ipcRenderer.invoke(ipcChannels.dashboard.getMetrics, request ?? {})

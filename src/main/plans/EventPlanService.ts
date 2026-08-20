@@ -13,6 +13,7 @@ import type {
   EventType,
   GenerateEventPlanRequest,
   GenerateEventPlanResult,
+  GetCurrentEventPlanResult,
   LoadTag,
   SessionType,
   WorkoutInterval
@@ -603,101 +604,121 @@ export class EventPlanService {
   }
 
   generatePlan(request: GenerateEventPlanRequest): GenerateEventPlanResult {
-    const planId = randomUUID();
-    const draftWeeks = this.buildWeekDrafts(request, { intensityBias: 0, volumeBias: 0 });
-    const weeks = this.upsertPlanProjection(
-      planId,
-      request.currentFtp,
-      this.createPlanTitle(request),
-      `Event ${request.eventType} on ${request.eventDate}`,
-      draftWeeks
-    );
-    const version = this.createVersion({
-      planId,
-      source: request.source,
-      reason: request.reason,
-      requestInput: {
-        type: "generate",
-        input: request
-      },
-      snapshot: {
-        input: request,
+    return this.repositories.transaction(() => {
+      const planId = randomUUID();
+      const draftWeeks = this.buildWeekDrafts(request, { intensityBias: 0, volumeBias: 0 });
+      const weeks = this.upsertPlanProjection(
+        planId,
+        request.currentFtp,
+        this.createPlanTitle(request),
+        `Event ${request.eventType} on ${request.eventDate}`,
+        draftWeeks
+      );
+      const version = this.createVersion({
+        planId,
+        source: request.source,
+        reason: request.reason,
+        requestInput: {
+          type: "generate",
+          input: request
+        },
+        snapshot: {
+          input: request,
+          weeks
+        }
+      });
+      this.writeAuditEntry({
+        planId,
+        planVersionId: version.versionId,
+        actionType: "generated",
+        source: request.source,
+        reason: request.reason,
+        metadata: {
+          strategy: "template-v1",
+          weeks: weeks.length
+        }
+      });
+      return {
+        ok: true,
+        planId,
+        versionId: version.versionId,
+        versionNumber: version.versionNumber,
         weeks
-      }
+      };
     });
-    this.writeAuditEntry({
-      planId,
-      planVersionId: version.versionId,
-      actionType: "generated",
-      source: request.source,
-      reason: request.reason,
-      metadata: {
-        strategy: "template-v1",
-        weeks: weeks.length
-      }
-    });
-    return {
-      ok: true,
-      planId,
-      versionId: version.versionId,
-      versionNumber: version.versionNumber,
-      weeks
-    };
   }
 
   adaptPlan(request: AdaptEventPlanRequest): AdaptEventPlanResult {
-    const latest = this.repositories.planVersions.getLatestByPlan(request.planId) as PlanVersionRow | undefined;
-    if (!latest) {
-      throw new Error(`No plan versions found for plan ${request.planId}`);
-    }
-    const latestSnapshot = JSON.parse(latest.snapshot_json) as PlanSnapshot;
-    const baseInput = latestSnapshot.input;
-    const adaptation = this.adaptationService.adapt(baseInput, request);
-    const draftWeeks = this.buildWeekDrafts(adaptation.nextInput, adaptation.tuning);
-    const weeks = this.upsertPlanProjection(
-      request.planId,
-      adaptation.nextInput.currentFtp,
-      this.createPlanTitle(adaptation.nextInput),
-      `Event ${adaptation.nextInput.eventType} on ${adaptation.nextInput.eventDate}`,
-      draftWeeks
-    );
-    const version = this.createVersion({
-      planId: request.planId,
-      source: request.source,
-      reason: request.reason,
-      requestInput: {
-        type: "adapt",
-        request,
-        decision: {
-          strategy: adaptation.strategy,
-          tuning: adaptation.tuning
+    return this.repositories.transaction(() => {
+      const latest = this.repositories.planVersions.getLatestByPlan(request.planId) as PlanVersionRow | undefined;
+      if (!latest) {
+        throw new Error(`No plan versions found for plan ${request.planId}`);
+      }
+      const latestSnapshot = JSON.parse(latest.snapshot_json) as PlanSnapshot;
+      const baseInput = latestSnapshot.input;
+      const adaptation = this.adaptationService.adapt(baseInput, request);
+      const draftWeeks = this.buildWeekDrafts(adaptation.nextInput, adaptation.tuning);
+      const weeks = this.upsertPlanProjection(
+        request.planId,
+        adaptation.nextInput.currentFtp,
+        this.createPlanTitle(adaptation.nextInput),
+        `Event ${adaptation.nextInput.eventType} on ${adaptation.nextInput.eventDate}`,
+        draftWeeks
+      );
+      const version = this.createVersion({
+        planId: request.planId,
+        source: request.source,
+        reason: request.reason,
+        requestInput: {
+          type: "adapt",
+          request,
+          decision: {
+            strategy: adaptation.strategy,
+            tuning: adaptation.tuning
+          }
+        },
+        snapshot: {
+          input: adaptation.nextInput,
+          weeks
         }
-      },
-      snapshot: {
-        input: adaptation.nextInput,
-        weeks
-      }
+      });
+      this.writeAuditEntry({
+        planId: request.planId,
+        planVersionId: version.versionId,
+        actionType: "adapted",
+        source: request.source,
+        reason: request.reason,
+        metadata: {
+          strategy: adaptation.strategy,
+          tuning: adaptation.tuning,
+          ...adaptation.metadata,
+          ...summarizeChanges(latestSnapshot.weeks as EventPlanWeek[], weeks)
+        }
+      });
+      return {
+        ok: true,
+        planId: request.planId,
+        versionId: version.versionId,
+        versionNumber: version.versionNumber,
+        weeks,
+        appliedStrategy: adaptation.strategy
+      };
     });
-    this.writeAuditEntry({
-      planId: request.planId,
-      planVersionId: version.versionId,
-      actionType: "adapted",
-      source: request.source,
-      reason: request.reason,
-      metadata: {
-        strategy: adaptation.strategy,
-        tuning: adaptation.tuning,
-        ...adaptation.metadata,
-        ...summarizeChanges(latestSnapshot.weeks as EventPlanWeek[], weeks)
-      }
-    });
+  }
+
+  getCurrentPlan(): GetCurrentEventPlanResult {
+    const [latestPlan] = this.repositories.trainingPlans.list() as PlanRow[];
+    if (!latestPlan) {
+      return null;
+    }
+    const latestVersion = this.repositories.planVersions.getLatestByPlan(latestPlan.id) as PlanVersionRow | undefined;
+    if (!latestVersion) {
+      return null;
+    }
+    const snapshot = JSON.parse(latestVersion.snapshot_json) as PlanSnapshot;
     return {
-      ok: true,
-      planId: request.planId,
-      versionId: version.versionId,
-      versionNumber: version.versionNumber,
-      weeks,
-      appliedStrategy: adaptation.strategy
+      planId: latestPlan.id,
+      weeks: snapshot.weeks as EventPlanWeek[]
     };
   }
 

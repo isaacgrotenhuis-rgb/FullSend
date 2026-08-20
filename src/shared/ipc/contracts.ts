@@ -47,7 +47,8 @@ export const ipcChannels = {
     generate: "event-plan:generate",
     adapt: "event-plan:adapt",
     listVersions: "event-plan:list-versions",
-    listAuditEntries: "event-plan:list-audit-entries"
+    listAuditEntries: "event-plan:list-audit-entries",
+    getCurrent: "event-plan:get-current"
   },
   dashboard: {
     getMetrics: "dashboard:get-metrics"
@@ -405,6 +406,13 @@ export const generateEventPlanResultSchema = z.object({
   weeks: z.array(eventPlanWeekSchema)
 });
 
+export const getCurrentEventPlanResultSchema = z
+  .object({
+    planId: z.string().min(1),
+    weeks: z.array(eventPlanWeekSchema)
+  })
+  .nullable();
+
 export const adaptEventPlanResultSchema = z.object({
   ok: z.literal(true),
   planId: z.string().min(1),
@@ -572,6 +580,7 @@ export type EventPlanVersion = z.infer<typeof eventPlanVersionSchema>;
 export type EventPlanAuditEntry = z.infer<typeof eventPlanAuditEntrySchema>;
 export type GenerateEventPlanResult = z.infer<typeof generateEventPlanResultSchema>;
 export type AdaptEventPlanResult = z.infer<typeof adaptEventPlanResultSchema>;
+export type GetCurrentEventPlanResult = z.infer<typeof getCurrentEventPlanResultSchema>;
 export type DashboardMetricsRequest = z.infer<typeof dashboardMetricsRequestSchema>;
 export type FtpTrendPoint = z.infer<typeof ftpTrendPointSchema>;
 export type WeeklyLoadPoint = z.infer<typeof weeklyLoadPointSchema>;

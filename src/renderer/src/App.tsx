@@ -88,6 +88,17 @@ export const App = (): ReactElement => {
     return unsubscribe;
   }, []);
 
+  useEffect(() => {
+    void (async () => {
+      const current = await window.kickr.eventPlan.getCurrent();
+      if (current) {
+        setPlanId(current.planId);
+        setWeeks(current.weeks);
+        await refreshHistory(current.planId);
+      }
+    })();
+  }, []);
+
   const connectedDevice = useMemo(
     () => bleState?.discoveredDevices.find((device) => device.id === bleState.connectedDeviceId) ?? null,
     [bleState]
