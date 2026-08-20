@@ -7,7 +7,8 @@ import {
   parseControlPointResponse,
   parseIndoorBikeData
 } from "@main/ble/ftms";
-import type { BleDevice, BleFtmsProfile, BleLiveTelemetry } from "@shared/ipc/contracts";
+import { HR_MEASUREMENT_UUID, HR_SERVICE_UUID, parseHeartRateMeasurement } from "@main/ble/hr";
+import type { BleDevice, BleDeviceKind, BleFtmsProfile, BleHeartRateSample, BleLiveTelemetry } from "@shared/ipc/contracts";
 
 type NobleLike = {
   state?: string;
@@ -30,6 +31,7 @@ type NoblePeripheralLike = {
   state?: string;
   advertisement?: {
     localName?: string;
+    serviceUuids?: string[];
   };
   connectAsync?: () => Promise<void>;
   disconnectAsync?: () => Promise<void>;
@@ -42,6 +44,21 @@ type NoblePeripheralLike = {
   on?: (event: string, listener: (...args: unknown[]) => void) => void;
 };
 
+const normalizeUuid = (value: string): string => value.toLowerCase().replace(/-/g, "");
+
+const inferDeviceKind = (peripheral: NoblePeripheralLike): BleDeviceKind => {
+  const advertised = new Set((peripheral.advertisement?.serviceUuids ?? []).map(normalizeUuid));
+  const hasFtms = advertised.has(normalizeUuid(FTMS_SERVICE_UUID));
+  const hasHeartRate = advertised.has(normalizeUuid(HR_SERVICE_UUID));
+  if (hasFtms) {
+    return "trainer";
+  }
+  if (hasHeartRate) {
+    return "heart_rate";
+  }
+  return "unknown";
+};
+
 export class NobleBleAdapter implements BleAdapter {
   private noble: NobleLike | null = null;
   private peripherals = new Map<string, NoblePeripheralLike>();
@@ -50,9 +67,11 @@ export class NobleBleAdapter implements BleAdapter {
   private onDisconnectedListener: ((deviceId: string) => void) | null = null;
   private onErrorListener: ((error: Error) => void) | null = null;
   private onLiveTelemetryListener: ((deviceId: string, sample: BleLiveTelemetry) => void) | null = null;
+  private onHeartRateTelemetryListener: ((deviceId: string, sample: BleHeartRateSample) => void) | null = null;
   private disconnectSubscribed = new Set<string>();
   private indoorBikeDataSubscribed = new Set<string>();
   private controlPointResponseSubscribed = new Set<string>();
+  private heartRateMeasurementSubscribed = new Set<string>();
 
   async initialize(): Promise<void> {
     if (this.noble) {
@@ -88,6 +107,7 @@ export class NobleBleAdapter implements BleAdapter {
           this.ftmsControlPoints.delete(peripheral.id);
           this.indoorBikeDataSubscribed.delete(peripheral.id);
           this.controlPointResponseSubscribed.delete(peripheral.id);
+          this.heartRateMeasurementSubscribed.delete(peripheral.id);
           this.onDisconnectedListener?.(peripheral.id);
         });
         this.disconnectSubscribed.add(peripheral.id);
@@ -96,7 +116,8 @@ export class NobleBleAdapter implements BleAdapter {
         id: peripheral.id,
         name: peripheral.advertisement?.localName,
         localName: peripheral.advertisement?.localName,
-        rssi: peripheral.rssi
+        rssi: peripheral.rssi,
+        kind: inferDeviceKind(peripheral)
       });
     });
   }
@@ -105,7 +126,7 @@ export class NobleBleAdapter implements BleAdapter {
     if (!this.noble) {
       throw new Error("BLE adapter is not initialized");
     }
-    await this.noble.startScanningAsync?.([FTMS_SERVICE_UUID], true);
+    await this.noble.startScanningAsync?.([FTMS_SERVICE_UUID, HR_SERVICE_UUID], true);
   }
 
   async stopScan(): Promise<void> {
@@ -128,7 +149,8 @@ export class NobleBleAdapter implements BleAdapter {
       id: peripheral.id,
       name: peripheral.advertisement?.localName,
       localName: peripheral.advertisement?.localName,
-      rssi: peripheral.rssi
+      rssi: peripheral.rssi,
+      kind: inferDeviceKind(peripheral)
     }));
   }
 
@@ -221,6 +243,43 @@ export class NobleBleAdapter implements BleAdapter {
     }
   }
 
+  async discoverHeartRateCharacteristics(deviceId: string): Promise<void> {
+    const peripheral = this.peripherals.get(deviceId);
+    if (!peripheral) {
+      throw new Error(`Device not discovered: ${deviceId}`);
+    }
+
+    const discovery = await peripheral.discoverSomeServicesAndCharacteristicsAsync?.([HR_SERVICE_UUID], []);
+    const measurementCharacteristic = discovery?.characteristics?.find(
+      (item) => item.uuid?.toLowerCase() === HR_MEASUREMENT_UUID
+    );
+    if (measurementCharacteristic?.properties?.includes("notify") && !this.heartRateMeasurementSubscribed.has(deviceId)) {
+      this.heartRateMeasurementSubscribed.add(deviceId);
+      await this.subscribeHeartRateMeasurement(deviceId, measurementCharacteristic);
+    }
+  }
+
+  private async subscribeHeartRateMeasurement(deviceId: string, characteristic: NobleCharacteristicLike): Promise<void> {
+    try {
+      characteristic.on?.("data", (...args: unknown[]) => {
+        const data = args[0] as Buffer;
+        const isNotification = args[1] as boolean | undefined;
+        if (!isNotification || !Buffer.isBuffer(data)) {
+          return;
+        }
+        const sample = parseHeartRateMeasurement(data);
+        this.onHeartRateTelemetryListener?.(deviceId, {
+          bpm: sample.bpm,
+          timestamp: new Date().toISOString()
+        });
+      });
+      await characteristic.subscribeAsync?.();
+    } catch (error) {
+      this.heartRateMeasurementSubscribed.delete(deviceId);
+      console.error(`[NobleBleAdapter] heart rate measurement subscribe failed for device ${deviceId}:`, error);
+    }
+  }
+
   private async writeControlPoint(deviceId: string, payload: Buffer): Promise<void> {
     const writeControl = this.ftmsControlPoints.get(deviceId);
     if (!writeControl) {
@@ -273,6 +332,7 @@ export class NobleBleAdapter implements BleAdapter {
       this.ftmsControlPoints.delete(deviceId);
       this.indoorBikeDataSubscribed.delete(deviceId);
       this.controlPointResponseSubscribed.delete(deviceId);
+      this.heartRateMeasurementSubscribed.delete(deviceId);
       this.onDisconnectedListener?.(deviceId);
       return;
     }
@@ -283,6 +343,7 @@ export class NobleBleAdapter implements BleAdapter {
         this.ftmsControlPoints.delete(peripheral.id);
         this.indoorBikeDataSubscribed.delete(peripheral.id);
         this.controlPointResponseSubscribed.delete(peripheral.id);
+        this.heartRateMeasurementSubscribed.delete(peripheral.id);
         this.onDisconnectedListener?.(peripheral.id);
       })
     );
@@ -302,5 +363,9 @@ export class NobleBleAdapter implements BleAdapter {
 
   onLiveTelemetry(listener: (deviceId: string, sample: BleLiveTelemetry) => void): void {
     this.onLiveTelemetryListener = listener;
+  }
+
+  onHeartRateTelemetry(listener: (deviceId: string, sample: BleHeartRateSample) => void): void {
+    this.onHeartRateTelemetryListener = listener;
   }
 }

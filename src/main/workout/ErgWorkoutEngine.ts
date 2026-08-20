@@ -44,6 +44,7 @@ type WorkoutPersistence = {
       targetResistancePercent: number | null;
       actualPowerWatts: number | null;
       actualCadenceRpm: number | null;
+      actualHeartRateBpm: number | null;
       payloadJson: string;
     }) => void;
   };
@@ -89,6 +90,7 @@ export class ErgWorkoutEngine {
   private rampFromWatts: number | null = null;
   private forceRampReset = false;
   private latestTelemetry: { powerWatts: number | null; cadenceRpm: number | null } | null = null;
+  private latestHeartRateBpm: number | null = null;
   private listeners = new Set<(state: WorkoutSessionState) => void>();
 
   constructor(bleService: BleService, persistence: WorkoutPersistence) {
@@ -98,6 +100,7 @@ export class ErgWorkoutEngine {
       this.latestTelemetry = bleState.liveTelemetry
         ? { powerWatts: bleState.liveTelemetry.powerWatts, cadenceRpm: bleState.liveTelemetry.cadenceRpm }
         : null;
+      this.latestHeartRateBpm = bleState.heartRate?.bpm ?? null;
       if (
         this.state.sessionId &&
         (this.state.lifecycle === "running" || this.state.lifecycle === "paused") &&
@@ -165,6 +168,7 @@ export class ErgWorkoutEngine {
       targetResistancePercent: metrics.targetResistancePercent,
       actualPowerWatts: metrics.actualPowerWatts,
       actualCadenceRpm: metrics.actualCadenceRpm,
+      actualHeartRateBpm: metrics.actualHeartRateBpm,
       payloadJson: JSON.stringify(metrics)
     });
   }
@@ -288,7 +292,8 @@ export class ErgWorkoutEngine {
         targetPowerWatts: scaledTargetPowerWatts,
         targetResistancePercent: scaledTargetResistancePercent,
         actualPowerWatts: this.latestTelemetry?.powerWatts ?? null,
-        actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null
+        actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null,
+        actualHeartRateBpm: this.latestHeartRateBpm
       };
 
       await this.applyTargets(metrics);

@@ -2,6 +2,7 @@ import type {
   BleCapabilities,
   BleDevice,
   BleFtmsProfile,
+  BleHeartRateSample,
   BleLifecycle,
   BleLiveTelemetry,
   BleState
@@ -23,10 +24,12 @@ export interface BleAdapter {
   requestControl: (deviceId: string) => Promise<void>;
   startOrResume: (deviceId: string) => Promise<void>;
   stopOrPause: (deviceId: string, mode: "stop" | "pause") => Promise<void>;
+  discoverHeartRateCharacteristics: (deviceId: string) => Promise<void>;
   onDeviceDiscovered: (listener: (device: BleDevice) => void) => void;
   onDisconnected: (listener: (deviceId: string) => void) => void;
   onError: (listener: (error: Error) => void) => void;
   onLiveTelemetry: (listener: (deviceId: string, sample: BleLiveTelemetry) => void) => void;
+  onHeartRateTelemetry: (listener: (deviceId: string, sample: BleHeartRateSample) => void) => void;
 }
 
 export interface BleTransitionStore {
@@ -68,5 +71,9 @@ export const createInitialBleState = (): BleState => ({
   lastError: null,
   discoveredDevices: [],
   ftmsProfile: null,
-  liveTelemetry: null
+  liveTelemetry: null,
+  connectedHrDeviceId: null,
+  hrLifecycle: "idle",
+  hrLastError: null,
+  heartRate: null
 });

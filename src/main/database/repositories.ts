@@ -285,13 +285,14 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
     targetResistancePercent: number | null;
     actualPowerWatts: number | null;
     actualCadenceRpm: number | null;
+    actualHeartRateBpm: number | null;
     payloadJson: string;
   }): void {
     this.db
       .prepare(
         `INSERT INTO workout_session_telemetry
-         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, actual_power_watts, actual_cadence_rpm, payload_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, actual_power_watts, actual_cadence_rpm, actual_heart_rate_bpm, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.id,
@@ -303,6 +304,7 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
         input.targetResistancePercent,
         input.actualPowerWatts,
         input.actualCadenceRpm,
+        input.actualHeartRateBpm,
         input.payloadJson
       );
   }

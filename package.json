@@ -9,6 +9,7 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
     "postinstall": "electron-rebuild -f -w better-sqlite3 -w @abandonware/noble"
   },
   "dependencies": {
@@ -28,6 +29,7 @@
     "electron": "^32.2.1",
     "electron-vite": "^2.3.0",
     "typescript": "^5.7.2",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^4.1.11"
   }
 }
