@@ -6,7 +6,11 @@ export default defineConfig({
   main: {
     build: {
       rollupOptions: {
-        external: ["better-sqlite3", "@abandonware/noble"]
+        external: ["better-sqlite3", "@abandonware/noble"],
+        output: {
+          format: "cjs",
+          entryFileNames: "index.cjs"
+        }
       }
     },
     resolve: {
