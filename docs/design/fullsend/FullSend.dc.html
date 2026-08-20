@@ -1,0 +1,1086 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="styles.css">
+<style>
+  a { color: var(--color-accent-700); text-decoration: none; }
+  a:hover { color: var(--color-accent); text-decoration: underline; }
+  ::-webkit-scrollbar { width: 0; height: 0; }
+</style>
+</helmet>
+
+<div style="min-height:100vh;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)">
+
+  <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
+    <div>
+      <nav class="nav" style="background:var(--color-surface)">
+        <span class="nav-brand" style="cursor:pointer" onClick="{{ goHome }}">FULLSEND</span>
+        <button class="btn btn-secondary" style="margin-left:auto" onClick="{{ openPlanWizard }}">{{ planButtonLabel }}</button>
+        <button class="btn btn-icon" style="background:var(--color-text);color:var(--color-bg);font-family:var(--font-heading);font-weight:800" onClick="{{ goProfile }}" aria-label="Profile">{{ avatarInitial }}</button>
+      </nav>
+
+      <div style="max-width:1120px;margin:0 auto;padding:var(--space-8) var(--space-6) 96px">
+
+        <div style="margin-bottom:var(--space-6)">
+          <h6 style="color:var(--color-accent-700);margin-bottom:var(--space-1)">{{ eventCountdownLabel }}</h6>
+          <h1 style="margin:0">Good afternoon, {{ athleteName }}</h1>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider);margin-bottom:var(--space-8)">
+          <div class="card" style="border-radius:0">
+            <div class="card-kicker">Current FTP</div>
+            <div class="card-title" style="font-size:28px">{{ ftpWatts }} W</div>
+          </div>
+          <div class="card" style="border-radius:0">
+            <div class="card-kicker">Plan compliance</div>
+            <div class="card-title" style="font-size:28px">{{ compliancePercent }}%</div>
+          </div>
+          <div class="card" style="border-radius:0">
+            <div class="card-kicker">Training block</div>
+            <div class="card-title" style="font-size:28px">Week {{ planWeekNumber }} / {{ planTotalWeeks }}</div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:var(--space-4)">
+          <h2 style="margin:0">This week</h2>
+          <div style="display:flex;align-items:center;gap:var(--space-3)">
+            <span style="font-size:13px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ weekDateRangeLabel }} · Week {{ planWeekNumber }} of {{ planTotalWeeks }}</span>
+            <button class="btn btn-secondary btn-icon" onClick="{{ prevWeek }}" disabled="{{ prevWeekDisabled }}" aria-label="Previous week">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="16,3 6,12 16,21"></polygon></svg>
+            </button>
+            <button class="btn btn-secondary btn-icon" onClick="{{ nextWeek }}" disabled="{{ nextWeekDisabled }}" aria-label="Next week">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="8,3 18,12 8,21"></polygon></svg>
+            </button>
+          </div>
+        </div>
+        <div class="hr"></div>
+        <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:0;border:2px solid var(--color-divider);margin-bottom:var(--space-8)">
+          <sc-for list="{{ weekDays }}" as="day" hint-placeholder-count="7">
+            <div style="{{ day.cellStyle }}" onClick="{{ day.onClick }}" onMouseEnter="{{ day.onMouseEnter }}" onMouseLeave="{{ day.onMouseLeave }}">
+              <sc-if value="{{ day.showEditButton }}" hint-placeholder-val="{{ false }}">
+                <button class="btn btn-ghost" style="position:absolute;top:6px;right:6px;padding:2px 6px;font-size:11px;z-index:1" onClick="{{ day.onEditClick }}">Edit</button>
+              </sc-if>
+              <h6 style="{{ day.labelStyle }}">{{ day.label }}</h6>
+              <div style="flex:1;font-size:13px;font-weight:600;overflow-wrap:break-word">{{ day.workoutName }}</div>
+              <sc-if value="{{ day.hasWorkout }}" hint-placeholder-val="{{ false }}">
+                <div class="card-meta">{{ day.durationLabel }} · {{ day.intensityLabel }}</div>
+              </sc-if>
+              <sc-if value="{{ day.isRestDay }}" hint-placeholder-val="{{ false }}">
+                <div class="card-meta">+ Add workout</div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+
+        <h2>Recent activity</h2>
+        <div class="hr"></div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Workout</th>
+              <th>Duration</th>
+              <th>Avg power</th>
+              <th>Compliance</th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ recentActivity }}" as="act" hint-placeholder-count="5">
+              <tr>
+                <td>{{ act.date }}</td>
+                <td>{{ act.name }}</td>
+                <td>{{ act.durationLabel }}</td>
+                <td>{{ act.avgPowerLabel }}</td>
+                <td>{{ act.complianceLabel }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+
+      </div>
+
+      <sc-if value="{{ hasSelectedWorkout }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" onClick="{{ closeDayPopout }}" style="z-index:100">
+          <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(520px,100%)">
+            <div class="dialog-title">{{ selectedWorkout.name }}</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider)">
+              <div style="background:var(--color-bg);padding:var(--space-3)">
+                <h6 style="font-size: 11px">Duration</h6>
+                <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.durationLabel }}</div>
+              </div>
+              <div style="background:var(--color-bg);padding:var(--space-3)">
+                <h6 style="font-size: 11px">TSS</h6>
+                <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.tss }}</div>
+              </div>
+              <div style="background:var(--color-bg);padding:var(--space-3)">
+                <h6 style="font-size: 11px">IF</h6>
+                <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.ifLabel }}</div>
+              </div>
+            </div>
+            <div style="display:flex;gap:var(--space-2);width:485px">
+              <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);display:flex;align-items:center;justify-content:center">Watts</div>
+              <div style="flex:1">
+                <div style="position:relative;height:176px;display:flex;border:2px solid var(--color-divider);background:var(--color-surface)">
+                  <div style="{{ selectedWorkout.avgLine.lineStyle }}"></div>
+                  <div style="{{ selectedWorkout.avgLine.labelStyle }}">{{ selectedWorkout.avgLine.label }}</div>
+                  <sc-for list="{{ selectedWorkout.blocks }}" as="block" hint-placeholder-count="6">
+                    <div style="{{ block.cellStyle }}"><div style="{{ block.fillStyle }}"></div></div>
+                  </sc-for>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-top:4px">
+                  <span style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">Time</span>
+                  <span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ selectedWorkout.durationLabel }} total</span>
+                </div>
+              </div>
+            </div>
+            <div class="dialog-body">{{ selectedWorkout.description }}</div>
+            <div class="dialog-actions">
+              <button class="btn btn-ghost" style="margin-right:auto" onClick="{{ editSelectedWorkout }}">Change workout</button>
+              <button class="btn btn-secondary" onClick="{{ closeDayPopout }}">Close</button>
+              <button class="btn btn-primary" onClick="{{ startSelectedWorkout }}">Start ride</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+
+      <sc-if value="{{ hasPickerOpen }}" hint-placeholder-val="{{ false }}">
+        <div class="dialog-backdrop" onClick="{{ closePicker }}" style="z-index:100">
+          <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(480px,100%)">
+            <div class="dialog-title">Choose a workout · {{ pickerDayLabel }}</div>
+            <div style="display:flex;flex-direction:column;gap:6px">
+              <sc-for list="{{ pickerOptions }}" as="opt" hint-placeholder-count="5">
+                <button style="{{ opt.rowStyle }}" onClick="{{ opt.onSelect }}">
+                  <span style="font-family:var(--font-heading);font-weight:800;font-size:14px">{{ opt.name }}</span>
+                  <span class="card-meta">{{ opt.summary }}</span>
+                </button>
+              </sc-for>
+            </div>
+            <div class="dialog-actions">
+              <button class="btn btn-secondary" onClick="{{ closePicker }}">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isRide }}" hint-placeholder-val="{{ false }}">
+    <div style="max-width:1120px;margin:0 auto;padding:var(--space-6) var(--space-6) 64px;min-height:100vh;display:flex;flex-direction:column">
+
+      <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:var(--space-4)">
+        <div>
+          <h6 style="color:var(--color-accent-700);margin-bottom:2px">{{ rideIntervalKindLabel }}</h6>
+          <h2 style="margin:0">{{ workoutName }}</h2>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--space-6)">
+          <div style="text-align:right">
+            <h6 style="margin-bottom:2px">Elapsed / Total</h6>
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:20px">{{ elapsedLabel }} / {{ totalLabel }}</div>
+          </div>
+          <button class="btn btn-secondary" onClick="{{ endWorkout }}">End</button>
+        </div>
+      </div>
+      <div class="hr" style="margin:0 0 var(--space-6)"></div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:2px;background:var(--color-divider);border:2px solid var(--color-divider);margin-bottom:var(--space-6)">
+        <div style="background:var(--color-bg);padding:var(--space-4)">
+          <h6>Target power</h6>
+          <div style="font-family:var(--font-heading);font-weight:800;font-size:64px;line-height:1">{{ targetPowerWatts }}<span style="font-size:22px;font-weight:600">W</span></div>
+        </div>
+        <div style="background:var(--color-bg);padding:var(--space-4)">
+          <h6>Actual power</h6>
+          <div style="font-family:var(--font-heading);font-weight:800;font-size:64px;line-height:1;color:var(--color-accent)">{{ actualPowerWatts }}<span style="font-size:22px;font-weight:600">W</span></div>
+        </div>
+        <div style="background:var(--color-bg);padding:var(--space-4)">
+          <h6>Cadence</h6>
+          <div style="font-family:var(--font-heading);font-weight:800;font-size:64px;line-height:1">{{ cadenceRpm }}<span style="font-size:22px;font-weight:600">rpm</span></div>
+        </div>
+      </div>
+
+      <h6 style="margin-bottom:var(--space-3)">Workout timeline · {{ intervalPositionLabel }}</h6>
+      <div style="display:flex;gap:var(--space-3);margin-bottom:var(--space-8)">
+        <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);display:flex;align-items:center;justify-content:center">Watts</div>
+        <div style="flex:1">
+          <div style="position:relative;height:220px;border:2px solid var(--color-divider);background:var(--color-surface)">
+            <div style="position:absolute;top:var(--space-3);left:var(--space-3);font-family:var(--font-heading);font-weight:800;font-size:13px;z-index:1">{{ timelinePeakLabel }}</div>
+            <div style="position:absolute;top:44px;left:0;right:0;bottom:0;display:flex">
+              <div style="{{ timelineAvgLine.lineStyle }}"></div>
+              <div style="{{ timelineAvgLine.labelStyle }}">{{ timelineAvgLine.label }}</div>
+              <sc-for list="{{ timelineBlocks }}" as="block" hint-placeholder-count="6">
+                <div style="{{ block.cellStyle }}">
+                  <div style="{{ block.fillStyle }}"></div>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+          <div style="display:flex;justify-content:space-between;margin-top:4px">
+            <span style="font-size:10px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">Time</span>
+            <span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ totalLabel }} total</span>
+          </div>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-4);margin-bottom:var(--space-8)">
+        <div style="display:flex;align-items:center;gap:var(--space-3)">
+          <button class="btn btn-primary" style="min-width:140px" onClick="{{ togglePause }}">{{ pauseButtonLabel }}</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--space-3)">
+          <h6 style="margin:0">Intensity</h6>
+          <button class="btn btn-secondary btn-icon" onClick="{{ decreaseIntensity }}">−</button>
+          <div style="font-family:var(--font-heading);font-weight:800;font-size:18px;min-width:52px;text-align:center">{{ intensityLabel }}</div>
+          <button class="btn btn-secondary btn-icon" onClick="{{ increaseIntensity }}">+</button>
+        </div>
+      </div>
+
+      <div style="margin-top:auto">
+        <div class="hr"></div>
+        <div class="card" style="flex-direction:row;align-items:center;justify-content:space-between;border-radius:0">
+          <div>
+            <div class="card-kicker">Now playing</div>
+            <div class="card-title" style="font-size:15px">{{ trackTitle }}</div>
+            <div class="card-meta">{{ trackArtist }}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:var(--space-2)">
+            <button class="btn btn-secondary btn-icon" onClick="{{ prevTrack }}" aria-label="Previous track">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="19,4 19,20 8,12"></polygon><rect x="4" y="4" width="2.5" height="16"></rect></svg>
+            </button>
+            <button class="btn btn-primary btn-icon" onClick="{{ toggleMusic }}" aria-label="Play or pause">
+              <sc-if value="{{ musicPlaying }}" hint-placeholder-val="{{ true }}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="4" width="5" height="16"></rect><rect x="14" y="4" width="5" height="16"></rect></svg>
+              </sc-if>
+              <sc-if value="{{ musicNotPlaying }}" hint-placeholder-val="{{ false }}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"></polygon></svg>
+              </sc-if>
+            </button>
+            <button class="btn btn-secondary btn-icon" onClick="{{ nextTrack }}" aria-label="Next track">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><polygon points="5,4 5,20 16,12"></polygon><rect x="17.5" y="4" width="2.5" height="16"></rect></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <sc-if value="{{ showEndSummary }}" hint-placeholder-val="{{ false }}">
+      <div class="dialog-backdrop" style="z-index:100">
+        <div class="dialog" style="width:min(480px,100%)">
+          <div class="dialog-title">{{ endSummary.workoutName }}</div>
+          <div class="card-meta">{{ endSummary.completionLabel }}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider)">
+            <div style="background:var(--color-bg);padding:var(--space-3)">
+              <h6>Duration</h6>
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:20px">{{ endSummary.durationLabel }}</div>
+            </div>
+            <div style="background:var(--color-bg);padding:var(--space-3)">
+              <h6>Avg power</h6>
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:20px">{{ endSummary.avgPowerWatts }} W</div>
+            </div>
+            <div style="background:var(--color-bg);padding:var(--space-3)">
+              <h6>Avg cadence</h6>
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:20px">{{ endSummary.avgCadence }} rpm</div>
+            </div>
+            <div style="background:var(--color-bg);padding:var(--space-3)">
+              <h6>TSS</h6>
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:20px">{{ endSummary.tss }}</div>
+            </div>
+            <div style="background:var(--color-bg);padding:var(--space-3)">
+              <h6>IF</h6>
+              <div style="font-family:var(--font-heading);font-weight:800;font-size:20px">{{ endSummary.ifLabel }}</div>
+            </div>
+          </div>
+
+          <div class="hr" style="margin:var(--space-2) 0"></div>
+          <label class="radio" style="gap:10px">
+            <input type="checkbox" checked="{{ postToStrava }}" onChange="{{ togglePostToStrava }}" style="position:static;opacity:1;width:16px;height:16px;pointer-events:auto"/>
+            <span style="font-size:13px">Post this workout to Strava</span>
+          </label>
+
+          <div class="dialog-actions">
+            <button class="btn btn-secondary" onClick="{{ discardWorkout }}">Discard</button>
+            <button class="btn btn-primary" onClick="{{ saveWorkout }}">Save workout</button>
+          </div>
+        </div>
+      </div>
+    </sc-if>
+  </sc-if>
+
+  <sc-if value="{{ isProfile }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <nav class="nav" style="background:var(--color-surface)">
+        <span class="nav-brand" style="cursor:pointer" onClick="{{ goHome }}">FULLSEND</span>
+        <button class="btn btn-secondary" style="margin-left:auto" onClick="{{ openPlanWizard }}">{{ planButtonLabel }}</button>
+        <button class="btn btn-icon" style="background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-weight:800" aria-current="page" aria-label="Profile">{{ avatarInitial }}</button>
+      </nav>
+
+
+      <div style="max-width:1120px;margin:0 auto;padding:var(--space-8) var(--space-6) 96px">
+
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:var(--space-4);margin-bottom:var(--space-6)">
+          <h1 style="margin:0">Profile</h1>
+          <button class="btn btn-primary" onClick="{{ toggleEditing }}">{{ editButtonLabel }}</button>
+        </div>
+
+        <h2>Account details</h2>
+        <div class="hr"></div>
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:var(--space-4);margin-bottom:var(--space-8)">
+          <div class="field">
+            <label>Name</label>
+            <input class="input" value="{{ draftName }}" onChange="{{ onNameChange }}" disabled="{{ isNotEditing }}">
+          </div>
+          <div class="field">
+            <label>Email</label>
+            <input class="input" value="{{ draftEmail }}" onChange="{{ onEmailChange }}" disabled="{{ isNotEditing }}">
+          </div>
+          <div class="field">
+            <label>Weight (kg)</label>
+            <input class="input" type="number" value="{{ draftWeightKg }}" onChange="{{ onWeightChange }}" disabled="{{ isNotEditing }}">
+          </div>
+          <div class="field">
+            <label>Goal event</label>
+            <input class="input" value="{{ draftGoalEvent }}" onChange="{{ onGoalChange }}" disabled="{{ isNotEditing }}">
+          </div>
+        </div>
+
+        <h2>Connected services</h2>
+        <div class="hr"></div>
+        <div class="card" style="border-radius:0;margin-bottom:var(--space-8)">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--space-4)">
+            <div>
+              <div class="card-title">Strava</div>
+              <div class="card-meta" style="margin-top:4px">
+                <span class="tag {{ stravaTagClass }}">{{ stravaStatusLabel }}</span>
+                <sc-if value="{{ stravaConnected }}" hint-placeholder-val="{{ false }}">
+                  <span>{{ stravaAthleteHandle }}</span>
+                </sc-if>
+              </div>
+            </div>
+            <button class="{{ stravaButtonClass }}" onClick="{{ toggleStravaConnection }}">{{ stravaButtonLabel }}</button>
+          </div>
+          <sc-if value="{{ stravaConnected }}" hint-placeholder-val="{{ false }}">
+            <div class="hr" style="margin:var(--space-3) 0"></div>
+            <label class="radio" style="gap:10px">
+              <input type="checkbox" checked="{{ stravaAutoPublish }}" onChange="{{ toggleAutoPublish }}" style="position:static;opacity:1;width:16px;height:16px;pointer-events:auto">
+              <span style="font-size:13px">Publish completed workouts to Strava automatically</span>
+            </label>
+          </sc-if>
+        </div>
+
+        <h2>Personal stats</h2>
+        <div class="hr"></div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider);margin-bottom:var(--space-8)">
+          <div class="card" style="border-radius:0">
+            <div class="card-kicker">Current FTP</div>
+            <div class="card-title" style="font-size:28px">{{ ftpWatts }} W</div>
+          </div>
+          <div class="card" style="border-radius:0">
+            <div class="card-kicker">Weight</div>
+            <div class="card-title" style="font-size:28px">{{ draftWeightKg }} kg</div>
+          </div>
+          <div class="card" style="border-radius:0">
+            <div class="card-kicker">Power-to-weight</div>
+            <div class="card-title" style="font-size:28px">{{ wattsPerKgLabel }} W/kg</div>
+          </div>
+        </div>
+
+        <h2>Training zones</h2>
+        <div class="hr"></div>
+        <table class="table">
+          <thead>
+            <tr>
+              <th>Zone</th>
+              <th>Name</th>
+              <th>Range</th>
+              <th>Power</th>
+            </tr>
+          </thead>
+          <tbody>
+            <sc-for list="{{ trainingZones }}" as="zone" hint-placeholder-count="7">
+              <tr>
+                <td>{{ zone.number }}</td>
+                <td>{{ zone.name }}</td>
+                <td>{{ zone.rangeLabel }}</td>
+                <td>{{ zone.wattsLabel }}</td>
+              </tr>
+            </sc-for>
+          </tbody>
+        </table>
+
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ showPlanWizard }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onClick="{{ closePlanWizard }}" style="z-index:200">
+      <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(560px,100%)">
+        <div class="dialog-title">New training plan</div>
+        <div style="font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);margin-top:-8px;margin-bottom:var(--space-2)">Step {{ wizardStepNumber }} of 4 · {{ wizardStepLabel }}</div>
+        <div class="hr" style="margin:0 0 var(--space-4)"></div>
+
+        <sc-if value="{{ isWizardStep0 }}" hint-placeholder-val="{{ true }}">
+          <h6 style="margin-bottom:var(--space-3)">What are you training for?</h6>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:var(--space-3)">
+            <sc-for list="{{ eventTypeOptions }}" as="opt" hint-placeholder-count="7">
+              <button style="{{ opt.rowStyle }}" onClick="{{ opt.onSelect }}">{{ opt.label }}</button>
+            </sc-for>
+          </div>
+          <sc-if value="{{ isCustomEventType }}" hint-placeholder-val="{{ false }}">
+            <div class="field">
+              <label>Event name</label>
+              <input class="input" value="{{ draftEventName }}" onChange="{{ onEventNameChange }}" placeholder="e.g. Local club hill climb">
+            </div>
+          </sc-if>
+        </sc-if>
+
+        <sc-if value="{{ isWizardStep1 }}" hint-placeholder-val="{{ false }}">
+          <h6 style="margin-bottom:var(--space-3)">When is it?</h6>
+          <div class="seg" style="margin-bottom:var(--space-4);max-width:280px;display:flex">
+            <label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="timelineMode" checked="{{ isDateMode }}" onChange="{{ selectDateMode }}">By date</label>
+            <label class="seg-opt" style="flex:1;justify-content:center"><input type="radio" name="timelineMode" checked="{{ isWeeksMode }}" onChange="{{ selectWeeksMode }}">By weeks</label>
+          </div>
+          <sc-if value="{{ isDateMode }}" hint-placeholder-val="{{ true }}">
+            <div class="field" style="max-width:280px">
+              <label>Event date</label>
+              <input class="input" type="date" value="{{ draftEventDate }}" onChange="{{ onEventDateChange }}">
+            </div>
+          </sc-if>
+          <sc-if value="{{ isWeeksMode }}" hint-placeholder-val="{{ false }}">
+            <div class="field" style="max-width:280px">
+              <label>Weeks to train</label>
+              <input class="input" type="number" min="1" max="52" value="{{ draftWeeksCount }}" onChange="{{ onWeeksCountChange }}">
+            </div>
+          </sc-if>
+          <div class="card-meta" style="margin-top:var(--space-2)">{{ computedWeeksLabel }}</div>
+        </sc-if>
+
+        <sc-if value="{{ isWizardStep2 }}" hint-placeholder-val="{{ false }}">
+          <h6 style="margin-bottom:var(--space-3)">Training-to-rest ratio</h6>
+          <div style="display:flex;flex-direction:column;gap:6px">
+            <button style="{{ ratio2to1Style }}" onClick="{{ selectRatio2to1 }}">
+              <span style="font-family:var(--font-heading);font-weight:800;font-size:14px">2 : 1</span>
+              <span class="card-meta">Two training days for every rest day</span>
+            </button>
+            <button style="{{ ratio3to1Style }}" onClick="{{ selectRatio3to1 }}">
+              <span style="font-family:var(--font-heading);font-weight:800;font-size:14px">3 : 1</span>
+              <span class="card-meta">Three training days for every rest day</span>
+            </button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ isWizardStep3 }}" hint-placeholder-val="{{ false }}">
+          <h6 style="margin-bottom:var(--space-3)">Hours per week</h6>
+          <div style="display:flex;align-items:center;gap:var(--space-4)">
+            <input type="range" min="3" max="14" step="0.5" value="{{ draftHoursPerWeek }}" onChange="{{ onHoursChange }}" style="flex:1">
+            <div style="font-family:var(--font-heading);font-weight:800;font-size:20px;min-width:80px;text-align:right">{{ draftHoursPerWeek }} hrs</div>
+          </div>
+          <div class="card-meta" style="margin-top:var(--space-2)">{{ hoursHintLabel }}</div>
+        </sc-if>
+
+        <div class="dialog-actions">
+          <button class="btn btn-ghost" style="margin-right:auto" onClick="{{ closePlanWizard }}">Cancel</button>
+          <sc-if value="{{ showWizardBack }}" hint-placeholder-val="{{ false }}">
+            <button class="btn btn-secondary" onClick="{{ wizardBack }}">Back</button>
+          </sc-if>
+          <sc-if value="{{ showWizardNext }}" hint-placeholder-val="{{ true }}">
+            <button class="btn btn-primary" disabled="{{ wizardNextDisabled }}" onClick="{{ wizardNext }}">Next</button>
+          </sc-if>
+          <sc-if value="{{ showWizardGenerate }}" hint-placeholder-val="{{ false }}">
+            <button class="btn btn-primary" onClick="{{ generatePlan }}">Generate plan</button>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;athleteName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Isaac&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;ftpWatts&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:258,&quot;tsType&quot;:&quot;number&quot;,&quot;min&quot;:100,&quot;max&quot;:500},&quot;musicControlsVisible&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+function fmtClock(sec) {
+  sec = Math.max(0, Math.round(sec));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+const KIND_LABELS = { warmup: "Warm-up", work: "Work interval", recovery: "Recovery", cooldown: "Cool-down" };
+const KIND_COLORS = {
+  warmup: "var(--color-neutral-400)",
+  work: "var(--color-accent-500)",
+  recovery: "var(--color-neutral-300)",
+  cooldown: "var(--color-neutral-400)"
+};
+
+const WORKOUT_LIBRARY = {
+  sweetSpot: {
+    name: "Sweet Spot 3x12",
+    tss: 72,
+    ifValue: 0.87,
+    description: "Three 12-minute efforts just below threshold. Builds sustainable power without piling on fatigue — good load two days out from a harder session.",
+    blocksPct: [
+      { kind: "warmup", durationSec: 600, pct: 0.55 },
+      { kind: "work", durationSec: 720, pct: 0.90 },
+      { kind: "recovery", durationSec: 180, pct: 0.55 },
+      { kind: "work", durationSec: 720, pct: 0.90 },
+      { kind: "recovery", durationSec: 180, pct: 0.55 },
+      { kind: "work", durationSec: 720, pct: 0.90 },
+      { kind: "cooldown", durationSec: 300, pct: 0.50 }
+    ]
+  },
+  vo2max: {
+    name: "VO2 Max Intervals",
+    tss: 75,
+    ifValue: 1.02,
+    description: "Four 4-minute efforts at 115% FTP. Raises your ceiling for short, hard surges — the kind you need on a decisive climb or attack.",
+    blocksPct: [
+      { kind: "warmup", durationSec: 420, pct: 0.56 },
+      { kind: "work", durationSec: 240, pct: 1.15 },
+      { kind: "recovery", durationSec: 120, pct: 0.50 },
+      { kind: "work", durationSec: 240, pct: 1.15 },
+      { kind: "recovery", durationSec: 120, pct: 0.50 },
+      { kind: "work", durationSec: 240, pct: 1.15 },
+      { kind: "recovery", durationSec: 120, pct: 0.50 },
+      { kind: "work", durationSec: 240, pct: 1.15 },
+      { kind: "cooldown", durationSec: 360, pct: 0.50 }
+    ]
+  },
+  enduranceZ2: {
+    name: "Endurance Z2",
+    tss: 62,
+    ifValue: 0.66,
+    description: "A steady, conversational pace held for the long middle. Builds aerobic base and recovery capacity between harder days.",
+    blocksPct: [
+      { kind: "warmup", durationSec: 300, pct: 0.55 },
+      { kind: "work", durationSec: 4500, pct: 0.68 },
+      { kind: "cooldown", durationSec: 300, pct: 0.50 }
+    ]
+  },
+  threshold: {
+    name: "Threshold 2x20",
+    tss: 90,
+    ifValue: 0.95,
+    description: "Two 20-minute efforts at FTP. The classic threshold session — improves your ability to hold race pace for longer.",
+    blocksPct: [
+      { kind: "warmup", durationSec: 600, pct: 0.60 },
+      { kind: "work", durationSec: 1200, pct: 1.00 },
+      { kind: "recovery", durationSec: 300, pct: 0.50 },
+      { kind: "work", durationSec: 1200, pct: 1.00 },
+      { kind: "cooldown", durationSec: 300, pct: 0.50 }
+    ]
+  },
+  recoverySpin: {
+    name: "Recovery Spin",
+    tss: 35,
+    ifValue: 0.60,
+    description: "An easy, unstructured spin to flush the legs. Keep it conversational — this day is about recovery, not fitness.",
+    blocksPct: [
+      { kind: "warmup", durationSec: 300, pct: 0.50 },
+      { kind: "work", durationSec: 1800, pct: 0.60 },
+      { kind: "cooldown", durationSec: 300, pct: 0.50 }
+    ]
+  }
+};
+
+const WEEK_PLAN = [
+  { workoutKey: "sweetSpot" },
+  { workoutKey: null },
+  { workoutKey: "vo2max" },
+  { workoutKey: null },
+  { workoutKey: "enduranceZ2" },
+  { workoutKey: "threshold" },
+  { workoutKey: null }
+];
+const TODAY_INDEX = 2;
+const CURRENT_WEEK_MONDAY = new Date(2026, 7, 17);
+const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const fmtDate = (d) => `${MONTH_LABELS[d.getMonth()]} ${d.getDate()}`;
+const TODAY_DATE = new Date(2026, 7, 19);
+const EVENT_TYPES = ["Gran Fondo", "Century Ride", "Gravel Race", "XC Mountain Bike", "Criterium", "Road Race", "Time Trial", "Custom"];
+const EVENT_EMPHASIS = { "Gran Fondo": "endurance", "Century Ride": "endurance", "Gravel Race": "endurance", "XC Mountain Bike": "vo2max", "Criterium": "vo2max", "Road Race": "vo2max", "Time Trial": "threshold", "Custom": "endurance" };
+function tierForHours(h) { return h <= 5 ? "low" : h <= 8 ? "mid" : "high"; }
+function buildWeekPattern(ratio, tier, emphasis) {
+  const cycle = ratio === "3:1" ? [true, true, true, false] : [true, true, false];
+  const trainingFlags = Array.from({ length: 7 }, (_, i) => cycle[i % cycle.length]);
+  const trainingDayCount = trainingFlags.filter(Boolean).length;
+  const hard1 = emphasis === "threshold" ? "threshold" : emphasis === "vo2max" ? "vo2max" : "sweetSpot";
+  const hard2 = hard1 === "threshold" ? "vo2max" : "threshold";
+  let pool;
+  if (tier === "low") pool = [hard1, "enduranceZ2", "recoverySpin", "recoverySpin", "sweetSpot", "enduranceZ2"];
+  else if (tier === "high") pool = [hard1, hard2, "enduranceZ2", "sweetSpot", "enduranceZ2", "recoverySpin"];
+  else pool = [hard1, "enduranceZ2", hard2, "sweetSpot", "recoverySpin", "enduranceZ2"];
+  const keys = pool.slice(0, trainingDayCount);
+  let ki = 0;
+  return trainingFlags.map((isTraining) => (isTraining ? keys[ki++] : null));
+}
+
+class Component extends DCLogic {
+  state = {
+    screen: "home",
+    activeWorkoutKey: "vo2max",
+    elapsedSec: 612,
+    lifecycle: "running",
+    intensityMultiplier: 1.0,
+    musicPlaying: true,
+    trackIndex: 0,
+    selectedDayIndex: null,
+    hoveredDayIndex: null,
+    pickerDayIndex: null,
+    weekPlanKeys: WEEK_PLAN.map((d) => d.workoutKey),
+    weekOffset: 0,
+    showPlanWizard: false,
+    wizardStep: 0,
+    draftEventType: "Gran Fondo",
+    draftEventName: "",
+    draftWeeksMode: "date",
+    draftEventDate: "",
+    draftWeeksCount: 12,
+    draftRatio: "2:1",
+    draftHoursPerWeek: 6,
+    generatedPlan: { eventName: "Gran Fondo", weeksCount: 12, daysUntil: 42, hoursPerWeek: 6, ratio: "2:1", baseWeekNumber: 6 },
+    hasPlan: true,
+    isEditing: false,
+    draftName: "Isaac Grotenhuis",
+    draftEmail: "isaac@example.com",
+    draftWeightKg: 74,
+    draftGoalEvent: "Gran Fondo",
+    stravaConnected: false,
+    stravaAutoPublish: true,
+    showEndSummary: false,
+    postToStrava: true,
+    recentActivityLog: [
+      { date: "Aug 17", name: "Threshold 2x20", durationLabel: "68 min", avgPowerLabel: "241 W", complianceLabel: "97%" },
+      { date: "Aug 15", name: "Endurance Z2", durationLabel: "92 min", avgPowerLabel: "188 W", complianceLabel: "101%" },
+      { date: "Aug 13", name: "VO2 Max Intervals", durationLabel: "54 min", avgPowerLabel: "255 W", complianceLabel: "89%" },
+      { date: "Aug 11", name: "Sweet Spot 3x12", durationLabel: "61 min", avgPowerLabel: "229 W", complianceLabel: "95%" },
+      { date: "Aug 9", name: "Recovery Spin", durationLabel: "40 min", avgPowerLabel: "142 W", complianceLabel: "100%" }
+    ]
+  };
+
+  componentDidMount() {
+    this._timer = setInterval(() => {
+      if (this.state.lifecycle !== "running") return;
+      this.setState((s) => {
+        const total = this.intervalsFor(s.activeWorkoutKey).reduce((sum, iv) => sum + iv.durationSec, 0);
+        return { elapsedSec: (s.elapsedSec + 1) % total };
+      });
+    }, 1000);
+  }
+
+  componentWillUnmount() {
+    clearInterval(this._timer);
+  }
+
+  intervalsFor(key) {
+    return WORKOUT_LIBRARY[key].blocksPct.map((b) => ({ kind: b.kind, durationSec: b.durationSec, pct: b.pct }));
+  }
+
+  makeBlocksView(blocksPct, currentIndex) {
+    const maxPct = Math.max(...blocksPct.map((b) => b.pct)) * 1.25;
+    return blocksPct.map((b, i) => {
+      const heightPct = Math.max(10, Math.round((b.pct / maxPct) * 100));
+      const isCurrent = i === currentIndex;
+      return {
+        cellStyle: `height:100%;flex-grow:${b.durationSec};display:flex;align-items:flex-end;border-right:1px solid var(--color-bg);`,
+        fillStyle: `width:100%;height:${heightPct}%;background:${KIND_COLORS[b.kind]};${isCurrent ? "border:2px solid var(--color-text);" : ""}`
+      };
+    });
+  }
+
+  avgLineFor(blocksPct, ftpWatts) {
+    const totalSec = blocksPct.reduce((sum, b) => sum + b.durationSec, 0);
+    const avgPct = blocksPct.reduce((sum, b) => sum + b.pct * b.durationSec, 0) / totalSec;
+    const maxPct = Math.max(...blocksPct.map((b) => b.pct)) * 1.25;
+    const bottomPercent = Math.round((avgPct / maxPct) * 1000) / 10;
+    return {
+      lineStyle: `position:absolute;left:0;right:0;bottom:${bottomPercent}%;height:2px;background:var(--color-accent);z-index:2;`,
+      labelStyle: `position:absolute;right:var(--space-2);bottom:calc(${bottomPercent}% + 4px);font-size:10px;font-weight:600;color:var(--color-accent-700);z-index:2;`,
+      label: `Avg ${Math.round(ftpWatts * avgPct)} W`
+    };
+  }
+
+  startWorkout(key) {
+    this.setState({ activeWorkoutKey: key, elapsedSec: 0, lifecycle: "running", screen: "ride", selectedDayIndex: null });
+  }
+
+  computeElapsedAvgPct(blocksPct, elapsedSec) {
+    let remaining = elapsedSec;
+    let weightedSum = 0;
+    let coveredSec = 0;
+    for (const b of blocksPct) {
+      if (remaining <= 0) break;
+      const secInBlock = Math.min(b.durationSec, remaining);
+      weightedSum += b.pct * secInBlock;
+      coveredSec += secInBlock;
+      remaining -= secInBlock;
+    }
+    return coveredSec > 0 ? weightedSum / coveredSec : 0;
+  }
+
+  selectWorkoutForDay(key) {
+    const i = this.state.pickerDayIndex;
+    if (i === null) return;
+    this.setState((s) => {
+      const weekPlanKeys = [...s.weekPlanKeys];
+      weekPlanKeys[i] = key;
+      return { weekPlanKeys, pickerDayIndex: null };
+    });
+  }
+
+  generatePlan() {
+    const s = this.state;
+    const eventName = s.draftEventType === "Custom" ? (s.draftEventName.trim() || "Custom event") : s.draftEventType;
+    let weeksCount, daysUntil;
+    if (s.draftWeeksMode === "date" && s.draftEventDate) {
+      const eventDate = new Date(s.draftEventDate + "T00:00:00");
+      daysUntil = Math.max(1, Math.round((eventDate - TODAY_DATE) / 86400000));
+      weeksCount = Math.max(1, Math.ceil(daysUntil / 7));
+    } else {
+      weeksCount = Math.max(1, Math.round(s.draftWeeksCount));
+      daysUntil = weeksCount * 7;
+    }
+    const tier = tierForHours(s.draftHoursPerWeek);
+    const emphasis = EVENT_EMPHASIS[s.draftEventType] || "endurance";
+    const weekPlanKeys = buildWeekPattern(s.draftRatio, tier, emphasis);
+    this.setState({
+      weekPlanKeys,
+      weekOffset: 0,
+      showPlanWizard: false,
+      wizardStep: 0,
+      draftGoalEvent: eventName,
+      generatedPlan: { eventName, weeksCount, daysUntil, hoursPerWeek: s.draftHoursPerWeek, ratio: s.draftRatio, baseWeekNumber: 1 },
+      hasPlan: true
+    });
+  }
+
+  tracks = [
+    { title: "Night Drive", artist: "Kessler Loop" },
+    { title: "Steady State", artist: "Halcyon Bloom" },
+    { title: "Redline", artist: "Vantage Point" }
+  ];
+
+  renderVals() {
+    const athleteName = this.props.athleteName ?? "Isaac";
+    const ftpWatts = this.props.ftpWatts ?? 258;
+    const musicControlsVisible = this.props.musicControlsVisible ?? true;
+
+    const intervals = this.intervalsFor(this.state.activeWorkoutKey);
+    const totalSec = intervals.reduce((sum, iv) => sum + iv.durationSec, 0);
+    const elapsedSec = this.state.elapsedSec;
+
+    let cursor = 0;
+    let currentIndex = 0;
+    for (let i = 0; i < intervals.length; i++) {
+      if (elapsedSec < cursor + intervals[i].durationSec) {
+        currentIndex = i;
+        break;
+      }
+      cursor += intervals[i].durationSec;
+    }
+    const current = intervals[currentIndex];
+    const targetPowerWatts = Math.round(ftpWatts * current.pct * this.state.intensityMultiplier);
+    const wobble = Math.sin(elapsedSec * 0.35) * 6 + Math.sin(elapsedSec * 0.9) * 3;
+    const actualPowerWatts = Math.max(0, Math.round(targetPowerWatts + wobble));
+    const cadenceRpm = Math.round(88 + Math.sin(elapsedSec * 0.4) * 4);
+    const timelineBlocks = this.makeBlocksView(WORKOUT_LIBRARY[this.state.activeWorkoutKey].blocksPct, currentIndex);
+
+    const weekOffset = this.state.weekOffset;
+    const weekStart = new Date(CURRENT_WEEK_MONDAY);
+    weekStart.setDate(weekStart.getDate() + weekOffset * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+    const weekDateRangeLabel = `${fmtDate(weekStart)} – ${fmtDate(weekEnd)}`;
+    const planTotalWeeks = this.state.generatedPlan.weeksCount;
+    const planWeekNumber = Math.min(planTotalWeeks, Math.max(1, this.state.generatedPlan.baseWeekNumber + weekOffset));
+
+    const wizardStep = this.state.wizardStep;
+    const isCustomEventType = this.state.draftEventType === "Custom";
+    const eventTypeOptions = EVENT_TYPES.map((t) => {
+      const isCurrent = t === this.state.draftEventType;
+      return {
+        label: t,
+        rowStyle: `padding:10px 12px;border:1px solid ${isCurrent ? "var(--color-accent)" : "var(--color-divider)"};background:${isCurrent ? "var(--color-accent-100)" : "transparent"};cursor:pointer;text-align:left;font-size:13px;font-weight:600;`,
+        onSelect: () => this.setState({ draftEventType: t })
+      };
+    });
+    let computedWeeksLabel = "";
+    if (this.state.draftWeeksMode === "date" && this.state.draftEventDate) {
+      const eventDate = new Date(this.state.draftEventDate + "T00:00:00");
+      const days = Math.round((eventDate - TODAY_DATE) / 86400000);
+      computedWeeksLabel = days > 0 ? `${Math.ceil(days / 7)} weeks to train · ${days} days out` : "Pick a date after today";
+    } else if (this.state.draftWeeksMode === "weeks") {
+      computedWeeksLabel = `Training block of ${this.state.draftWeeksCount} weeks`;
+    }
+    const wizardTier = tierForHours(this.state.draftHoursPerWeek);
+    const hoursHintLabel = wizardTier === "low"
+      ? "Lighter week — mostly endurance and recovery rides."
+      : wizardTier === "high"
+        ? "High-volume week — two hard sessions plus long endurance days."
+        : "Balanced week — one hard interval session, sweet spot, and endurance rides.";
+    const wizardNextDisabled =
+      (wizardStep === 0 && isCustomEventType && !this.state.draftEventName.trim()) ||
+      (wizardStep === 1 && this.state.draftWeeksMode === "date" && !this.state.draftEventDate) ||
+      (wizardStep === 1 && this.state.draftWeeksMode === "weeks" && !(this.state.draftWeeksCount > 0));
+    const ratio2to1Style = `display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid ${this.state.draftRatio === "2:1" ? "var(--color-accent)" : "var(--color-divider)"};background:${this.state.draftRatio === "2:1" ? "var(--color-accent-100)" : "transparent"};cursor:pointer;text-align:left;`;
+    const ratio3to1Style = `display:flex;flex-direction:column;gap:2px;padding:10px 12px;border:1px solid ${this.state.draftRatio === "3:1" ? "var(--color-accent)" : "var(--color-divider)"};background:${this.state.draftRatio === "3:1" ? "var(--color-accent-100)" : "transparent"};cursor:pointer;text-align:left;`;
+
+    const weekLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const intensityLabelFor = (ifValue) => (ifValue >= 0.9 ? "Hard" : ifValue >= 0.75 ? "Moderate" : "Easy");
+    const weekDays = weekLabels.map((label, i) => {
+      const key = this.state.weekPlanKeys[i];
+      const workout = key ? WORKOUT_LIBRARY[key] : null;
+      const durationMin = workout ? Math.round(workout.blocksPct.reduce((s, b) => s + b.durationSec, 0) / 60) : null;
+      const isHovered = this.state.hoveredDayIndex === i;
+      const hoverFill = workout
+        ? (isHovered ? "background:var(--color-accent-300);box-shadow:inset 0 0 0 3px var(--color-accent-700);" : "")
+        : (isHovered ? "background:var(--color-neutral-200);" : "");
+      return {
+        label,
+        isToday: weekOffset === 0 && i === TODAY_INDEX,
+        hasWorkout: !!workout,
+        isRestDay: !workout,
+        workoutName: workout ? workout.name : "Rest",
+        durationLabel: workout ? `${durationMin} min` : "",
+        intensityLabel: workout ? intensityLabelFor(workout.ifValue) : "",
+        cellStyle: `position:relative;padding:var(--space-3);${i === 0 ? "" : "border-left:1px solid var(--color-divider);"}border-top:3px solid ${i === TODAY_INDEX && weekOffset === 0 ? "var(--color-accent)" : "transparent"};display:flex;flex-direction:column;gap:var(--space-2);min-height:150px;min-width:0;transition:background 0.12s ease, box-shadow 0.12s ease;cursor:pointer;${hoverFill}`,
+        labelStyle: i === TODAY_INDEX && weekOffset === 0 ? "margin:0;color:var(--color-accent-700)" : "margin:0",
+        showEditButton: isHovered,
+        onClick: workout ? () => this.setState({ selectedDayIndex: i }) : () => this.setState({ pickerDayIndex: i }),
+        onEditClick: (e) => { e.stopPropagation(); this.setState({ pickerDayIndex: i, selectedDayIndex: null }); },
+        onMouseEnter: () => this.setState({ hoveredDayIndex: i }),
+        onMouseLeave: () => this.setState({ hoveredDayIndex: null })
+      };
+    });
+
+    let selectedWorkout = null;
+    if (this.state.selectedDayIndex !== null) {
+      const key = this.state.weekPlanKeys[this.state.selectedDayIndex];
+      const workout = WORKOUT_LIBRARY[key];
+      const durationMin = Math.round(workout.blocksPct.reduce((s, b) => s + b.durationSec, 0) / 60);
+      selectedWorkout = {
+        key,
+        name: workout.name,
+        durationLabel: `${durationMin} min`,
+        tss: workout.tss,
+        ifLabel: workout.ifValue.toFixed(2),
+        description: workout.description,
+        blocks: this.makeBlocksView(workout.blocksPct, -1),
+        avgLine: this.avgLineFor(workout.blocksPct, ftpWatts)
+      };
+    }
+
+    const weekLabelsFull = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    const pickerDayIndex = this.state.pickerDayIndex;
+    const pickerCurrentKey = pickerDayIndex !== null ? this.state.weekPlanKeys[pickerDayIndex] : undefined;
+    const pickerOptions = [
+      { key: null, name: "Rest day", summary: "No workout" },
+      ...Object.entries(WORKOUT_LIBRARY).map(([key, w]) => ({
+        key,
+        name: w.name,
+        summary: `${Math.round(w.blocksPct.reduce((s, b) => s + b.durationSec, 0) / 60)} min · TSS ${w.tss} · IF ${w.ifValue.toFixed(2)}`
+      }))
+    ].map((o) => {
+      const isCurrent = o.key === pickerCurrentKey;
+      return {
+        ...o,
+        rowStyle: `display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:10px 12px;border:1px solid ${isCurrent ? "var(--color-accent)" : "var(--color-divider)"};background:${isCurrent ? "var(--color-accent-100)" : "transparent"};cursor:pointer;text-align:left;`,
+        onSelect: () => this.selectWorkoutForDay(o.key)
+      };
+    });
+
+    const recentActivity = this.state.recentActivityLog;
+
+    const activeWorkout = WORKOUT_LIBRARY[this.state.activeWorkoutKey];
+    const elapsedAvgPct = this.computeElapsedAvgPct(activeWorkout.blocksPct, elapsedSec);
+    const completionPercent = Math.min(100, Math.round((elapsedSec / totalSec) * 100));
+    const endSummary = {
+      workoutName: activeWorkout.name,
+      completionLabel: completionPercent >= 98 ? "Workout complete" : `${completionPercent}% complete`,
+      durationLabel: fmtClock(elapsedSec),
+      avgPowerWatts: Math.round(ftpWatts * elapsedAvgPct),
+      avgCadence: 88,
+      tss: Math.round(Math.pow(elapsedAvgPct, 2) * (elapsedSec / 3600) * 100),
+      ifLabel: elapsedAvgPct.toFixed(2),
+      durationMin: Math.max(1, Math.round(elapsedSec / 60))
+    };
+
+    const track = this.tracks[this.state.trackIndex % this.tracks.length];
+
+    const zoneDefs = [
+      { number: "Z1", name: "Active Recovery", min: 0, max: 0.55 },
+      { number: "Z2", name: "Endurance", min: 0.56, max: 0.75 },
+      { number: "Z3", name: "Tempo", min: 0.76, max: 0.90 },
+      { number: "Z4", name: "Threshold", min: 0.91, max: 1.05 },
+      { number: "Z5", name: "VO2 Max", min: 1.06, max: 1.20 },
+      { number: "Z6", name: "Anaerobic", min: 1.21, max: 1.50 },
+      { number: "Z7", name: "Neuromuscular", min: 1.51, max: null }
+    ];
+    const trainingZones = zoneDefs.map((z) => ({
+      number: z.number,
+      name: z.name,
+      rangeLabel: z.max ? `${Math.round(z.min * 100)}–${Math.round(z.max * 100)}%` : `${Math.round(z.min * 100)}%+`,
+      wattsLabel: z.max ? `${Math.round(z.min * ftpWatts)}–${Math.round(z.max * ftpWatts)} W` : `${Math.round(z.min * ftpWatts)}+ W`
+    }));
+
+    return {
+      isHome: this.state.screen === "home",
+      isRide: this.state.screen === "ride",
+      isProfile: this.state.screen === "profile",
+      goHome: () => this.setState({ screen: "home" }),
+      goRide: () => this.setState({ screen: "ride" }),
+      goProfile: () => this.setState({ screen: "profile" }),
+      startTodayWorkout: () => this.startWorkout(this.state.weekPlanKeys[TODAY_INDEX]),
+      endWorkout: () =>
+        this.setState({
+          showEndSummary: true,
+          lifecycle: "paused",
+          postToStrava: this.state.stravaConnected && this.state.stravaAutoPublish
+        }),
+
+      showEndSummary: this.state.showEndSummary,
+      endSummary,
+      postToStrava: this.state.postToStrava,
+      togglePostToStrava: () => this.setState((s) => ({ postToStrava: !s.postToStrava })),
+      discardWorkout: () => this.setState({ showEndSummary: false, screen: "home" }),
+      saveWorkout: () =>
+        this.setState((s) => ({
+          showEndSummary: false,
+          screen: "home",
+          recentActivityLog: [
+            {
+              date: "Aug 19",
+              name: endSummary.workoutName,
+              durationLabel: `${endSummary.durationMin} min`,
+              avgPowerLabel: `${endSummary.avgPowerWatts} W`,
+              complianceLabel: `${completionPercent}%`
+            },
+            ...s.recentActivityLog
+          ]
+        })),
+
+      hasSelectedWorkout: selectedWorkout !== null,
+      selectedWorkout: selectedWorkout ?? { name: "", durationLabel: "", tss: "", ifLabel: "", description: "", blocks: [], avgLine: { lineStyle: "", labelStyle: "", label: "" } },
+      closeDayPopout: () => this.setState({ selectedDayIndex: null }),
+      startSelectedWorkout: () => selectedWorkout && this.startWorkout(selectedWorkout.key),
+      editSelectedWorkout: () => this.setState({ pickerDayIndex: this.state.selectedDayIndex, selectedDayIndex: null }),
+      stopPropagation: (e) => e.stopPropagation(),
+
+      hasPickerOpen: pickerDayIndex !== null,
+      pickerDayLabel: pickerDayIndex !== null ? weekLabelsFull[pickerDayIndex] : "",
+      pickerOptions,
+      closePicker: () => this.setState({ pickerDayIndex: null }),
+
+      avatarInitial: this.state.draftName.trim().charAt(0).toUpperCase() || "?",
+      editButtonLabel: this.state.isEditing ? "Save" : "Edit details",
+      toggleEditing: () => this.setState((s) => ({ isEditing: !s.isEditing })),
+      isNotEditing: !this.state.isEditing,
+      draftName: this.state.draftName,
+      draftEmail: this.state.draftEmail,
+      draftWeightKg: this.state.draftWeightKg,
+      draftGoalEvent: this.state.draftGoalEvent,
+      onNameChange: (e) => this.setState({ draftName: e.target.value }),
+      onEmailChange: (e) => this.setState({ draftEmail: e.target.value }),
+      onWeightChange: (e) => this.setState({ draftWeightKg: Number(e.target.value) }),
+      onGoalChange: (e) => this.setState({ draftGoalEvent: e.target.value }),
+      wattsPerKgLabel: (ftpWatts / this.state.draftWeightKg).toFixed(2),
+      trainingZones,
+
+      stravaConnected: this.state.stravaConnected,
+      stravaStatusLabel: this.state.stravaConnected ? "Connected" : "Not connected",
+      stravaTagClass: this.state.stravaConnected ? "tag-accent" : "tag-neutral",
+      stravaAthleteHandle: "@" + this.state.draftName.trim().toLowerCase().replace(/\s+/g, ""),
+      stravaButtonLabel: this.state.stravaConnected ? "Disconnect" : "Connect Strava",
+      stravaButtonClass: this.state.stravaConnected ? "btn btn-secondary" : "btn btn-primary",
+      toggleStravaConnection: () => this.setState((s) => ({ stravaConnected: !s.stravaConnected })),
+      stravaAutoPublish: this.state.stravaAutoPublish,
+      toggleAutoPublish: () => this.setState((s) => ({ stravaAutoPublish: !s.stravaAutoPublish })),
+
+      showPlanWizard: this.state.showPlanWizard,
+      planButtonLabel: this.state.hasPlan ? "Edit plan" : "Add plan",
+      openPlanWizard: () => this.setState({ showPlanWizard: true, wizardStep: 0 }),
+      closePlanWizard: () => this.setState({ showPlanWizard: false }),
+      wizardStepNumber: wizardStep + 1,
+      wizardStepLabel: ["Event", "Timeline", "Ratio", "Hours"][wizardStep],
+      isWizardStep0: wizardStep === 0,
+      isWizardStep1: wizardStep === 1,
+      isWizardStep2: wizardStep === 2,
+      isWizardStep3: wizardStep === 3,
+      eventTypeOptions,
+      isCustomEventType,
+      draftEventName: this.state.draftEventName,
+      onEventNameChange: (e) => this.setState({ draftEventName: e.target.value }),
+      isDateMode: this.state.draftWeeksMode === "date",
+      isWeeksMode: this.state.draftWeeksMode === "weeks",
+      selectDateMode: () => this.setState({ draftWeeksMode: "date" }),
+      selectWeeksMode: () => this.setState({ draftWeeksMode: "weeks" }),
+      draftEventDate: this.state.draftEventDate,
+      onEventDateChange: (e) => this.setState({ draftEventDate: e.target.value }),
+      draftWeeksCount: this.state.draftWeeksCount,
+      onWeeksCountChange: (e) => this.setState({ draftWeeksCount: Number(e.target.value) }),
+      computedWeeksLabel,
+      ratio2to1Style,
+      ratio3to1Style,
+      selectRatio2to1: () => this.setState({ draftRatio: "2:1" }),
+      selectRatio3to1: () => this.setState({ draftRatio: "3:1" }),
+      draftHoursPerWeek: this.state.draftHoursPerWeek,
+      onHoursChange: (e) => this.setState({ draftHoursPerWeek: Number(e.target.value) }),
+      hoursHintLabel,
+      showWizardBack: wizardStep > 0,
+      showWizardNext: wizardStep < 3,
+      showWizardGenerate: wizardStep === 3,
+      wizardNextDisabled,
+      wizardNext: () => this.setState((s) => ({ wizardStep: Math.min(3, s.wizardStep + 1) })),
+      wizardBack: () => this.setState((s) => ({ wizardStep: Math.max(0, s.wizardStep - 1) })),
+      generatePlan: () => this.generatePlan(),
+
+      athleteName,
+      ftpWatts,
+      compliancePercent: 94,
+      planWeekNumber,
+      planTotalWeeks,
+      eventCountdownLabel: `${this.state.generatedPlan.daysUntil} days to ${this.state.generatedPlan.eventName}`,
+      weekDateRangeLabel,
+      prevWeek: () => this.setState((s) => ({ weekOffset: Math.max(-5, s.weekOffset - 1) })),
+      nextWeek: () => this.setState((s) => ({ weekOffset: Math.min(6, s.weekOffset + 1) })),
+      prevWeekDisabled: weekOffset <= -5,
+      nextWeekDisabled: weekOffset >= 6,
+      weekDays,
+      recentActivity,
+
+      workoutName: WORKOUT_LIBRARY[this.state.activeWorkoutKey].name,
+      rideIntervalKindLabel: KIND_LABELS[current.kind],
+      intervalPositionLabel: `Interval ${currentIndex + 1} of ${intervals.length}`,
+      elapsedLabel: fmtClock(elapsedSec),
+      totalLabel: fmtClock(totalSec),
+      targetPowerWatts,
+      actualPowerWatts,
+      cadenceRpm,
+      timelineBlocks,
+      timelinePeakLabel: `${Math.round(ftpWatts * Math.max(...intervals.map((iv) => iv.pct)))} W peak`,
+      timelineAvgLine: this.avgLineFor(WORKOUT_LIBRARY[this.state.activeWorkoutKey].blocksPct, ftpWatts),
+      pauseButtonLabel: this.state.lifecycle === "running" ? "Pause" : "Resume",
+      togglePause: () => this.setState((s) => ({ lifecycle: s.lifecycle === "running" ? "paused" : "running" })),
+      intensityLabel: `${Math.round(this.state.intensityMultiplier * 100)}%`,
+      increaseIntensity: () => this.setState((s) => ({ intensityMultiplier: Math.min(1.5, Math.round((s.intensityMultiplier + 0.05) * 100) / 100) })),
+      decreaseIntensity: () => this.setState((s) => ({ intensityMultiplier: Math.max(0.5, Math.round((s.intensityMultiplier - 0.05) * 100) / 100) })),
+
+      musicControlsVisible,
+      musicPlaying: this.state.musicPlaying,
+      musicNotPlaying: !this.state.musicPlaying,
+      toggleMusic: () => this.setState((s) => ({ musicPlaying: !s.musicPlaying })),
+      prevTrack: () => this.setState((s) => ({ trackIndex: (s.trackIndex - 1 + this.tracks.length) % this.tracks.length })),
+      nextTrack: () => this.setState((s) => ({ trackIndex: (s.trackIndex + 1) % this.tracks.length })),
+      trackTitle: track.title,
+      trackArtist: track.artist
+    };
+  }
+}
+
+</script>
+</body>
+</html>
