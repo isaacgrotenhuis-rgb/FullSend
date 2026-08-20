@@ -74,11 +74,14 @@ export const bleLifecycleSchema = z.enum([
   "error"
 ]);
 
+export const bleDeviceKindSchema = z.enum(["trainer", "heart_rate", "unknown"]);
+
 export const bleDeviceSchema = z.object({
   id: z.string().min(1),
   name: z.string().optional(),
   rssi: z.number().int().optional(),
-  localName: z.string().optional()
+  localName: z.string().optional(),
+  kind: bleDeviceKindSchema.optional()
 });
 
 export const bleCapabilitiesSchema = z.object({
@@ -86,8 +89,16 @@ export const bleCapabilitiesSchema = z.object({
   canConnect: z.boolean(),
   canDisconnect: z.boolean(),
   supportsFtmsDiscovery: z.boolean(),
+  supportsHeartRateDiscovery: z.boolean(),
   supportsBackgroundReconnect: z.boolean(),
   knownLimitations: z.array(z.string())
+});
+
+export const bleHrLifecycleSchema = z.enum(["idle", "connecting", "connected", "disconnected", "error"]);
+
+export const bleHeartRateSampleSchema = z.object({
+  bpm: z.number().nullable(),
+  timestamp: z.string()
 });
 
 export const bleFtmsCharacteristicSchema = z.object({
@@ -117,7 +128,11 @@ export const bleStateSchema = z.object({
   lastError: z.string().nullable(),
   discoveredDevices: z.array(bleDeviceSchema),
   ftmsProfile: bleFtmsProfileSchema.nullable(),
-  liveTelemetry: bleLiveTelemetrySchema.nullable()
+  liveTelemetry: bleLiveTelemetrySchema.nullable(),
+  connectedHrDeviceId: z.string().nullable(),
+  hrLifecycle: bleHrLifecycleSchema,
+  hrLastError: z.string().nullable(),
+  heartRate: bleHeartRateSampleSchema.nullable()
 });
 
 export const bleScanRequestSchema = z.object({
@@ -192,7 +207,8 @@ export const workoutLiveMetricsSchema = z.object({
   targetPowerWatts: z.number().nullable(),
   targetResistancePercent: z.number().nullable(),
   actualPowerWatts: z.number().nullable(),
-  actualCadenceRpm: z.number().nullable()
+  actualCadenceRpm: z.number().nullable(),
+  actualHeartRateBpm: z.number().nullable()
 });
 
 export const workoutSessionStateSchema = z.object({
@@ -523,8 +539,11 @@ export const pingResultSchema = z.object({
 });
 
 export type BleLifecycle = z.infer<typeof bleLifecycleSchema>;
+export type BleDeviceKind = z.infer<typeof bleDeviceKindSchema>;
 export type BleDevice = z.infer<typeof bleDeviceSchema>;
 export type BleCapabilities = z.infer<typeof bleCapabilitiesSchema>;
+export type BleHrLifecycle = z.infer<typeof bleHrLifecycleSchema>;
+export type BleHeartRateSample = z.infer<typeof bleHeartRateSampleSchema>;
 export type BleFtmsCharacteristic = z.infer<typeof bleFtmsCharacteristicSchema>;
 export type BleFtmsProfile = z.infer<typeof bleFtmsProfileSchema>;
 export type BleLiveTelemetry = z.infer<typeof bleLiveTelemetrySchema>;

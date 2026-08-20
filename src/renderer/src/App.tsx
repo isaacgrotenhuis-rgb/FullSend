@@ -104,6 +104,11 @@ export const App = (): ReactElement => {
     [bleState]
   );
 
+  const connectedHrDevice = useMemo(
+    () => bleState?.discoveredDevices.find((device) => device.id === bleState.connectedHrDeviceId) ?? null,
+    [bleState]
+  );
+
   const runBleAction = async (action: () => Promise<unknown>): Promise<void> => {
     setBleActionPending(true);
     setBleActionError(null);
@@ -129,6 +134,13 @@ export const App = (): ReactElement => {
     runBleAction(() =>
       window.kickr.ble.disconnect(
         bleState?.connectedDeviceId ? { deviceId: bleState.connectedDeviceId } : {}
+      )
+    );
+
+  const disconnectHrDevice = (): Promise<void> =>
+    runBleAction(() =>
+      window.kickr.ble.disconnect(
+        bleState?.connectedHrDeviceId ? { deviceId: bleState.connectedHrDeviceId } : {}
       )
     );
 
@@ -357,19 +369,20 @@ export const App = (): ReactElement => {
       await window.kickr.ble.startScan({ timeoutMs: 4000 });
       await sleep(4500);
       const devices = await window.kickr.ble.listDevices();
-      if (devices.length === 0) {
+      const trainer = devices.find((device) => device.kind === "trainer") ?? devices[0];
+      if (!trainer) {
         pushCheck({
           name: "Connect trainer",
           status: "warning",
           detail: "No trainer discovered in scan window."
         });
       } else {
-        await window.kickr.ble.connect({ deviceId: devices[0].id });
-        await window.kickr.ble.discoverFtms({ deviceId: devices[0].id });
+        await window.kickr.ble.connect({ deviceId: trainer.id });
+        await window.kickr.ble.discoverFtms({ deviceId: trainer.id });
         pushCheck({
           name: "Connect trainer",
           status: "passed",
-          detail: `Connected and discovered FTMS on ${devices[0].id}.`
+          detail: `Connected and discovered FTMS on ${trainer.id}.`
         });
       }
     } catch (error) {
@@ -487,6 +500,14 @@ export const App = (): ReactElement => {
             : ""}
         </p>
         {bleState?.lastError ? <p>Last error: {bleState.lastError}</p> : null}
+        <p>
+          Heart rate: {bleState?.hrLifecycle ?? "unknown"}
+          {connectedHrDevice
+            ? ` — connected to ${connectedHrDevice.name ?? connectedHrDevice.localName ?? connectedHrDevice.id}`
+            : ""}
+          {bleState?.heartRate?.bpm != null ? ` — HR: ${bleState.heartRate.bpm} bpm` : ""}
+        </p>
+        {bleState?.hrLastError ? <p>Heart rate error: {bleState.hrLastError}</p> : null}
         {bleActionError ? <p>Action error: {bleActionError}</p> : null}
         <div className="row">
           <button onClick={() => void scanForDevices()} disabled={bleActionPending || bleState?.scanning}>
@@ -501,7 +522,13 @@ export const App = (): ReactElement => {
             onClick={() => void disconnectDevice()}
             disabled={bleActionPending || !bleState?.connectedDeviceId}
           >
-            Disconnect
+            Disconnect trainer
+          </button>
+          <button
+            onClick={() => void disconnectHrDevice()}
+            disabled={bleActionPending || !bleState?.connectedHrDeviceId}
+          >
+            Disconnect heart rate
           </button>
         </div>
         {!bleState || bleState.discoveredDevices.length === 0 ? (
@@ -509,15 +536,23 @@ export const App = (): ReactElement => {
         ) : (
           <ul>
             {bleState.discoveredDevices.map((device) => {
-              const isConnected = bleState.connectedDeviceId === device.id;
-              const connectDisabled =
-                bleActionPending ||
-                isConnected ||
-                bleState.lifecycle === "connecting" ||
-                (bleState.connectedDeviceId !== null && !isConnected);
+              const isHeartRate = device.kind === "heart_rate";
+              const isConnected = isHeartRate
+                ? bleState.connectedHrDeviceId === device.id
+                : bleState.connectedDeviceId === device.id;
+              const connectDisabled = isHeartRate
+                ? bleActionPending ||
+                  isConnected ||
+                  bleState.hrLifecycle === "connecting" ||
+                  (bleState.connectedHrDeviceId !== null && !isConnected)
+                : bleActionPending ||
+                  isConnected ||
+                  bleState.lifecycle === "connecting" ||
+                  (bleState.connectedDeviceId !== null && !isConnected);
               return (
                 <li key={device.id}>
                   {device.name ?? device.localName ?? "Unknown device"} ({device.id})
+                  {device.kind ? ` — ${device.kind}` : ""}
                   {typeof device.rssi === "number" ? ` — RSSI ${device.rssi}` : ""}
                   {isConnected ? " — connected" : ""}{" "}
                   <button onClick={() => void connectToDevice(device.id)} disabled={connectDisabled}>

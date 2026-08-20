@@ -6,7 +6,7 @@ import {
   type BleService as BleServicePort,
   type BleTransitionStore
 } from "@main/ble/types";
-import type { BleCapabilities, BleDevice, BleFtmsProfile, BleState } from "@shared/ipc/contracts";
+import type { BleCapabilities, BleDevice, BleDeviceKind, BleFtmsProfile, BleState } from "@shared/ipc/contracts";
 
 export class BleService implements BleServicePort {
   private state: BleState = createInitialBleState();
@@ -17,8 +17,10 @@ export class BleService implements BleServicePort {
   private reconnectTimeout: NodeJS.Timeout | null = null;
   private listeners = new Set<(state: BleState) => void>();
   private initialized = false;
-  private operationSeq = 0;
-  private manualDisconnectInProgress = false;
+  private scanOperationSeq = 0;
+  private trainerConnectionOpSeq = 0;
+  private hrConnectionOpSeq = 0;
+  private manualDisconnectDeviceIds = new Set<string>();
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 2;
   private readonly reconnectDelayMs = 1800;
@@ -41,6 +43,8 @@ export class BleService implements BleServicePort {
     });
 
     this.adapter.onDisconnected((deviceId) => {
+      const wasManualDisconnect = this.manualDisconnectDeviceIds.delete(deviceId);
+
       if (this.state.connectedDeviceId === deviceId) {
         const droppedDeviceId = deviceId;
         this.setState({
@@ -49,13 +53,22 @@ export class BleService implements BleServicePort {
           ftmsProfile: null,
           liveTelemetry: null,
           scanning: false,
-          lastError: this.manualDisconnectInProgress ? null : "BLE signal lost; disconnected"
+          lastError: wasManualDisconnect ? null : "BLE signal lost; disconnected"
         }, "adapter-disconnected");
-        if (!this.manualDisconnectInProgress) {
+        if (!wasManualDisconnect) {
           this.scheduleReconnect(droppedDeviceId);
         }
+        return;
       }
-      this.manualDisconnectInProgress = false;
+
+      if (this.state.connectedHrDeviceId === deviceId) {
+        this.setState({
+          hrLifecycle: "disconnected",
+          connectedHrDeviceId: null,
+          heartRate: null,
+          hrLastError: wasManualDisconnect ? null : "BLE signal lost; disconnected"
+        }, "hr-adapter-disconnected");
+      }
     });
 
     this.adapter.onError((error) => {
@@ -71,6 +84,13 @@ export class BleService implements BleServicePort {
         return;
       }
       this.setState({ liveTelemetry: sample });
+    });
+
+    this.adapter.onHeartRateTelemetry((deviceId, sample) => {
+      if (this.state.connectedHrDeviceId !== deviceId) {
+        return;
+      }
+      this.setState({ heartRate: sample });
     });
   }
 
@@ -92,7 +112,7 @@ export class BleService implements BleServicePort {
         return;
       }
       this.reconnectAttempts = reconnectAttempt;
-      void this.connectInternal(deviceId, "auto-reconnect").catch((error: unknown) => {
+      void this.connectTrainerInternal(deviceId, "auto-reconnect").catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Unknown reconnect error";
         console.error(`[BleService] auto-reconnect failed for device ${deviceId}:`, error);
         this.setState({ lastError: message }, "reconnect-failed");
@@ -142,7 +162,7 @@ export class BleService implements BleServicePort {
   }
 
   async startScan(timeoutMs: number): Promise<void> {
-    const opId = ++this.operationSeq;
+    const opId = ++this.scanOperationSeq;
     await this.ensureInitialized();
     this.setState({
       lifecycle: "scanning",
@@ -151,7 +171,7 @@ export class BleService implements BleServicePort {
       discoveredDevices: []
     }, "scan-started");
     await this.adapter.startScan();
-    if (opId !== this.operationSeq) {
+    if (opId !== this.scanOperationSeq) {
       return;
     }
     if (this.scanTimeout) {
@@ -163,9 +183,9 @@ export class BleService implements BleServicePort {
   }
 
   async stopScan(): Promise<void> {
-    const opId = ++this.operationSeq;
+    const opId = ++this.scanOperationSeq;
     await this.adapter.stopScan();
-    if (opId !== this.operationSeq) {
+    if (opId !== this.scanOperationSeq) {
       return;
     }
     if (this.scanTimeout) {
@@ -178,14 +198,18 @@ export class BleService implements BleServicePort {
     }, "scan-stopped");
   }
 
-  private async connectInternal(deviceId: string, reason = "connect-requested"): Promise<void> {
+  private deviceKind(deviceId: string): BleDeviceKind | undefined {
+    return this.state.discoveredDevices.find((item) => item.id === deviceId)?.kind;
+  }
+
+  private async connectTrainerInternal(deviceId: string, reason = "connect-requested"): Promise<void> {
     if (
       this.state.lifecycle === "connecting" ||
       (this.state.lifecycle === "connected" && this.state.connectedDeviceId === deviceId)
     ) {
       return;
     }
-    const opId = ++this.operationSeq;
+    const opId = ++this.trainerConnectionOpSeq;
     await this.ensureInitialized();
     this.clearReconnectTimeout();
     this.setState({
@@ -193,7 +217,7 @@ export class BleService implements BleServicePort {
       lastError: null
     }, reason);
     await this.adapter.connect(deviceId);
-    if (opId !== this.operationSeq) {
+    if (opId !== this.trainerConnectionOpSeq) {
       return;
     }
     const discoveredDevice = this.state.discoveredDevices.find((item) => item.id === deviceId);
@@ -203,7 +227,7 @@ export class BleService implements BleServicePort {
     });
     this.reconnectAttempts = 0;
     this.lastConnectedDeviceId = deviceId;
-    this.manualDisconnectInProgress = false;
+    this.manualDisconnectDeviceIds.delete(deviceId);
 
     let ftmsProfile: BleFtmsProfile | null = null;
     let ftmsError: string | null = null;
@@ -213,7 +237,7 @@ export class BleService implements BleServicePort {
       ftmsError = error instanceof Error ? error.message : "Unknown FTMS discovery error";
       console.error(`[BleService] FTMS discovery failed for device ${deviceId}:`, error);
     }
-    if (opId !== this.operationSeq) {
+    if (opId !== this.trainerConnectionOpSeq) {
       return;
     }
 
@@ -225,7 +249,7 @@ export class BleService implements BleServicePort {
         console.error(`[BleService] FTMS request control failed for device ${deviceId}:`, error);
       }
     }
-    if (opId !== this.operationSeq) {
+    if (opId !== this.trainerConnectionOpSeq) {
       return;
     }
 
@@ -238,8 +262,50 @@ export class BleService implements BleServicePort {
     }, "connected");
   }
 
+  private async connectHeartRateInternal(deviceId: string, reason = "connect-requested"): Promise<void> {
+    if (
+      this.state.hrLifecycle === "connecting" ||
+      (this.state.hrLifecycle === "connected" && this.state.connectedHrDeviceId === deviceId)
+    ) {
+      return;
+    }
+    const opId = ++this.hrConnectionOpSeq;
+    await this.ensureInitialized();
+    this.setState({
+      hrLifecycle: "connecting",
+      hrLastError: null
+    }, reason);
+    await this.adapter.connect(deviceId);
+    if (opId !== this.hrConnectionOpSeq) {
+      return;
+    }
+    this.manualDisconnectDeviceIds.delete(deviceId);
+
+    let hrError: string | null = null;
+    try {
+      await this.adapter.discoverHeartRateCharacteristics(deviceId);
+    } catch (error) {
+      hrError = error instanceof Error ? error.message : "Unknown heart rate discovery error";
+      console.error(`[BleService] heart rate discovery failed for device ${deviceId}:`, error);
+    }
+    if (opId !== this.hrConnectionOpSeq) {
+      return;
+    }
+
+    this.setState({
+      hrLifecycle: "connected",
+      connectedHrDeviceId: deviceId,
+      heartRate: null,
+      hrLastError: hrError
+    }, "hr-connected");
+  }
+
   async connect(deviceId: string): Promise<void> {
-    await this.connectInternal(deviceId, "connect-requested");
+    if (this.deviceKind(deviceId) === "heart_rate") {
+      await this.connectHeartRateInternal(deviceId, "connect-requested");
+      return;
+    }
+    await this.connectTrainerInternal(deviceId, "connect-requested");
   }
 
   listDevices(): BleDevice[] {
@@ -287,13 +353,13 @@ export class BleService implements BleServicePort {
     await this.adapter.stopOrPause(deviceId, mode);
   }
 
-  async disconnect(deviceId?: string): Promise<void> {
-    const opId = ++this.operationSeq;
-    this.manualDisconnectInProgress = true;
+  private async disconnectTrainerInternal(deviceId: string): Promise<void> {
+    const opId = ++this.trainerConnectionOpSeq;
+    this.manualDisconnectDeviceIds.add(deviceId);
     this.clearReconnectTimeout();
     this.setState({ lifecycle: "disconnecting", lastError: null }, "disconnect-requested");
     await this.adapter.disconnect(deviceId);
-    if (opId !== this.operationSeq) {
+    if (opId !== this.trainerConnectionOpSeq) {
       return;
     }
     this.reconnectAttempts = 0;
@@ -303,7 +369,39 @@ export class BleService implements BleServicePort {
       ftmsProfile: null,
       liveTelemetry: null
     }, "disconnected");
-    this.manualDisconnectInProgress = false;
+  }
+
+  private async disconnectHeartRateInternal(deviceId: string): Promise<void> {
+    const opId = ++this.hrConnectionOpSeq;
+    this.manualDisconnectDeviceIds.add(deviceId);
+    await this.adapter.disconnect(deviceId);
+    if (opId !== this.hrConnectionOpSeq) {
+      return;
+    }
+    this.setState({
+      hrLifecycle: "disconnected",
+      connectedHrDeviceId: null,
+      heartRate: null,
+      hrLastError: null
+    }, "hr-disconnected");
+  }
+
+  async disconnect(deviceId?: string): Promise<void> {
+    if (deviceId) {
+      if (deviceId === this.state.connectedHrDeviceId) {
+        await this.disconnectHeartRateInternal(deviceId);
+        return;
+      }
+      await this.disconnectTrainerInternal(deviceId);
+      return;
+    }
+
+    const trainerDeviceId = this.state.connectedDeviceId;
+    const hrDeviceId = this.state.connectedHrDeviceId;
+    await Promise.all([
+      trainerDeviceId ? this.disconnectTrainerInternal(trainerDeviceId) : Promise.resolve(),
+      hrDeviceId ? this.disconnectHeartRateInternal(hrDeviceId) : Promise.resolve()
+    ]);
   }
 
   getState(): BleState {
@@ -316,11 +414,13 @@ export class BleService implements BleServicePort {
       canConnect: true,
       canDisconnect: true,
       supportsFtmsDiscovery: true,
+      supportsHeartRateDiscovery: true,
       supportsBackgroundReconnect: true,
       knownLimitations: [
         "ERG execution is intentionally out of scope in this scaffold.",
         "BLE behavior may vary by macOS version and device firmware.",
-        "Reconnect policy is conservative (bounded retries) and does not guarantee recovery on all adapters."
+        "Reconnect policy is conservative (bounded retries) and does not guarantee recovery on all adapters.",
+        "Heart rate reconnection is manual only; a Whoop device can broadcast to a single BLE central at a time."
       ]
     };
   }
