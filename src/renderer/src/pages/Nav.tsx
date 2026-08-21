@@ -11,6 +11,17 @@ export const Nav = ({ page, onNavigate }: Props): ReactElement => (
     <span className="nav-brand" style={{ cursor: "pointer" }} onClick={() => onNavigate("home")}>
       FULLSEND
     </span>
+    <span
+      onClick={() => onNavigate("plan")}
+      aria-current={page === "plan" ? "page" : undefined}
+      style={{
+        cursor: "pointer",
+        fontSize: 14,
+        color: page === "plan" ? "var(--color-accent)" : "inherit"
+      }}
+    >
+      Plan
+    </span>
     <button
       className="btn btn-icon"
       style={{
