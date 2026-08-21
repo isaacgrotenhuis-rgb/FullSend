@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
 import {
-  bleRoles,
   type BleConnectionEntry,
   type BleRole,
   type BleState,
@@ -16,16 +15,16 @@ import {
   type WorkoutInterval,
   type WorkoutSessionState
 } from "@shared/ipc/contracts";
-import { formatClock, WorkoutTimelineChart } from "./WorkoutTimelineChart";
+import { Nav } from "./pages/Nav";
+import { HomePage } from "./pages/HomePage";
+import { PlanPage } from "./pages/PlanPage";
+import { RidePage } from "./pages/RidePage";
+import { ProfilePage, type SmokeCheck } from "./pages/ProfilePage";
+
+export type Page = "home" | "plan" | "profile";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-
-type SmokeCheck = {
-  name: string;
-  status: "pending" | "passed" | "failed" | "warning";
-  detail: string;
-};
 
 const defaultAvailability = (): DayAvailability[] =>
   dayLabels.map((_label, dayIndex) => ({
@@ -43,6 +42,8 @@ const todayIso = (): string => {
 };
 
 export const App = (): ReactElement => {
+  const [page, setPage] = useState<Page>("home");
+
   const [eventType, setEventType] = useState<EventType>("road-race");
   const [eventDate, setEventDate] = useState(todayIso());
   const [planLengthWeeks, setPlanLengthWeeks] = useState<PlanLengthWeeks>(12);
@@ -521,510 +522,107 @@ export const App = (): ReactElement => {
   };
 
   return (
-    <main className="app">
-      <h1>Event Plan Generator</h1>
-      <p>{status}</p>
+    <>
+      {activeIntervals === null ? <Nav page={page} onNavigate={setPage} /> : null}
 
-      <section>
-        <h2>Trainer connection</h2>
-        <p>
-          Status: {bleState?.lifecycle ?? "unknown"}
-          {connectedDevice
-            ? ` — connected to ${connectedDevice.name ?? connectedDevice.localName ?? connectedDevice.id}`
-            : ""}
-        </p>
-        {bleState?.lastError ? <p>Last error: {bleState.lastError}</p> : null}
-        <p>
-          Heart rate: {bleState?.connections.heart_rate.lifecycle ?? "unknown"}
-          {connectedHrDevice
-            ? ` — connected to ${connectedHrDevice.name ?? connectedHrDevice.localName ?? connectedHrDevice.id}`
-            : ""}
-          {bleState?.heartRate?.bpm != null ? ` — HR: ${bleState.heartRate.bpm} bpm` : ""}
-        </p>
-        {bleState?.connections.heart_rate.lastError ? (
-          <p>Heart rate error: {bleState.connections.heart_rate.lastError}</p>
-        ) : null}
-        <p>
-          Cadence: {bleState?.connections.cadence.lifecycle ?? "unknown"}
-          {connectedCadenceDevice
-            ? ` — connected to ${connectedCadenceDevice.name ?? connectedCadenceDevice.localName ?? connectedCadenceDevice.id}`
-            : ""}
-        </p>
-        {bleState?.connections.cadence.lastError ? (
-          <p>Cadence error: {bleState.connections.cadence.lastError}</p>
-        ) : null}
-        {bleActionError ? <p>Action error: {bleActionError}</p> : null}
-        <div className="row">
-          <button onClick={() => void scanForDevices()} disabled={bleActionPending || bleState?.scanning}>
-            {bleState?.scanning ? "Scanning..." : "Scan for devices"}
-          </button>
-          {bleState?.scanning ? (
-            <button onClick={() => void stopScanning()} disabled={bleActionPending}>
-              Stop scan
-            </button>
-          ) : null}
-          <button
-            onClick={() => void disconnectDevice()}
-            disabled={bleActionPending || !bleState?.connectedDeviceId}
-          >
-            Disconnect trainer
-          </button>
-          <button
-            onClick={() => void disconnectHrDevice()}
-            disabled={bleActionPending || !bleState?.connections.heart_rate.connectedDeviceId}
-          >
-            Disconnect heart rate
-          </button>
-          <button
-            onClick={() => void disconnectCadenceDevice()}
-            disabled={bleActionPending || !bleState?.connections.cadence.connectedDeviceId}
-          >
-            Disconnect cadence
-          </button>
-        </div>
-        {!bleState || bleState.discoveredDevices.length === 0 ? (
-          <p>No devices discovered yet. Click "Scan for devices".</p>
-        ) : (
-          <ul>
-            {bleState.discoveredDevices.map((device) => {
-              const rolesToOffer = device.roles.length > 0 ? device.roles : bleRoles;
-              return (
-                <li key={device.id}>
-                  {device.name ?? device.localName ?? "Unknown device"} ({device.id})
-                  {device.roles.length > 0 ? ` — ${device.roles.join(", ")}` : ""}
-                  {typeof device.rssi === "number" ? ` — RSSI ${device.rssi}` : ""}{" "}
-                  {rolesToOffer.map((role) => {
-                    const conn = getRoleConnection(bleState, role);
-                    const isConnected = conn.connectedDeviceId === device.id;
-                    const connectDisabled =
-                      bleActionPending ||
-                      isConnected ||
-                      conn.lifecycle === "connecting" ||
-                      (conn.connectedDeviceId !== null && !isConnected);
-                    return (
-                      <button
-                        key={role}
-                        onClick={() => void connectToDevice(device.id, role)}
-                        disabled={connectDisabled}
-                      >
-                        {isConnected ? `${roleLabel(role)}: connected` : `Connect as ${roleLabel(role)}`}
-                      </button>
-                    );
-                  })}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
-
-      {activeIntervals ? (
-        <section>
-          <h2>Live workout{activeWorkoutName ? `: ${activeWorkoutName}` : ""}</h2>
-          <p>
-            Status: {workoutSessionState?.lifecycle ?? "idle"} — elapsed{" "}
-            {formatClock(workoutSessionState?.elapsedSec ?? 0)} /{" "}
-            {formatClock(activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0))}
-          </p>
-          {workoutSessionState?.liveMetrics ? (
-            <p>
-              Current block: {workoutSessionState.liveMetrics.blockKind} — target{" "}
-              {workoutSessionState.liveMetrics.targetPowerWatts ?? "-"} W
-              {" · actual "}
-              {workoutSessionState.liveMetrics.actualPowerWatts ?? "-"} W
-              {workoutSessionState.liveMetrics.actualCadenceRpm !== null
-                ? ` · ${Math.round(workoutSessionState.liveMetrics.actualCadenceRpm)} rpm`
-                : ""}
-              {workoutSessionState.liveMetrics.targetResistancePercent !== null
-                ? ` / ${workoutSessionState.liveMetrics.targetResistancePercent}% resistance`
-                : ""}
-            </p>
-          ) : null}
-          {liveWorkoutError ? <p>Error: {liveWorkoutError}</p> : null}
-          {workoutSessionState?.lastError ? <p>Session error: {workoutSessionState.lastError}</p> : null}
-
-          <WorkoutTimelineChart
-            intervals={activeIntervals}
-            elapsedSec={workoutSessionState?.elapsedSec ?? 0}
-            currentIndex={workoutSessionState?.currentIntervalIndex ?? null}
-            actualPowerWatts={workoutSessionState?.liveMetrics?.actualPowerWatts ?? null}
-          />
-
-          <div className="row">
-            {workoutSessionState?.lifecycle === "running" ? (
-              <button onClick={() => void pauseWorkout()} disabled={liveWorkoutBusy}>
-                Pause
-              </button>
-            ) : null}
-            {workoutSessionState?.lifecycle === "paused" ? (
-              <button onClick={() => void resumeWorkout()} disabled={liveWorkoutBusy}>
-                Resume
-              </button>
-            ) : null}
-            {isWorkoutSessionActive ? (
-              <button onClick={() => void stopWorkout()} disabled={liveWorkoutBusy}>
-                End workout
-              </button>
-            ) : (
-              <button onClick={closeLiveWorkout} disabled={liveWorkoutBusy}>
-                Close
-              </button>
-            )}
-          </div>
-
-          <div className="row">
-            <span>Intensity: {Math.round((workoutSessionState?.intensityMultiplier ?? 1) * 100)}%</span>
-            <button onClick={() => void adjustIntensity(-0.05)} disabled={liveWorkoutBusy || !isWorkoutSessionActive}>
-              -5%
-            </button>
-            <button onClick={() => void adjustIntensity(0.05)} disabled={liveWorkoutBusy || !isWorkoutSessionActive}>
-              +5%
-            </button>
-          </div>
-
-          <div className="row">
-            <label>
-              Ramp-in duration (sec){" "}
-              <input
-                type="number"
-                min={0}
-                max={60}
-                value={rampDurationInput}
-                onChange={(event) => setRampDurationInput(event.target.value)}
-                disabled={liveWorkoutBusy || !isWorkoutSessionActive}
-              />
-            </label>
-            <button onClick={() => void applyRampDuration()} disabled={liveWorkoutBusy || !isWorkoutSessionActive}>
-              Apply
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      <section>
-        <h2>Release smoke workflow</h2>
-        <button onClick={() => void runSmokeWorkflow()} disabled={runningSmoke}>
-          {runningSmoke ? "Running..." : "Run smoke workflow"}
-        </button>
-        {smokeChecks.length === 0 ? (
-          <p>No smoke run yet.</p>
-        ) : (
-          <ul>
-            {smokeChecks.map((check) => (
-              <li key={check.name}>
-                [{check.status}] {check.name}: {check.detail}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <h2>Strava sync</h2>
-        <div className="row">
-          <button onClick={() => void refreshStravaStatus()}>Refresh Strava status</button>
-          <button onClick={() => void startStravaConnect()}>Connect Strava</button>
-          <button onClick={() => void disconnectStrava()}>Disconnect Strava</button>
-          <button onClick={() => void syncStrava()}>Sync completed workouts</button>
-        </div>
-        {stravaStatus ? (
-          <>
-            <p>
-              Connected: {stravaStatus.connected ? "yes" : "no"} | Configured:{" "}
-              {stravaStatus.hasConfig ? "yes" : "no"} | Athlete ID: {stravaStatus.athleteId ?? "N/A"}
-            </p>
-            <p>
-              Counts — pending {stravaStatus.counts.pending}, success {stravaStatus.counts.success}, failed{" "}
-              {stravaStatus.counts.failed}
-            </p>
-            <p>Token expiry: {stravaStatus.tokenExpiresAt ?? "N/A"}</p>
-          </>
-        ) : (
-          <p>No Strava status loaded yet.</p>
-        )}
-        <div className="row">
-          <label>
-            OAuth state <input value={stravaAuthState} onChange={(event) => setStravaAuthState(event.target.value)} />
-          </label>
-          <label>
-            Authorization code{" "}
-            <input value={stravaAuthCode} onChange={(event) => setStravaAuthCode(event.target.value)} />
-          </label>
-          <button onClick={() => void completeStravaConnect()}>Complete connect</button>
-        </div>
-        {stravaAuthUrl ? <p>Auth URL: {stravaAuthUrl}</p> : null}
-        {stravaStatus && stravaStatus.recentEvents.length > 0 ? (
-          <ul>
-            {stravaStatus.recentEvents.map((event) => (
-              <li key={event.id}>
-                [{event.syncStatus}] {event.eventType} / session {event.sessionId ?? "N/A"} / {event.message ?? "No message"}{" "}
-                {event.syncStatus === "failed" ? (
-                  <button onClick={() => void retryStrava(event)}>Retry</button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p>No sync events yet.</p>
-        )}
-      </section>
-
-      <section>
-        <h2>Progress dashboard</h2>
-        <button onClick={() => void refreshDashboard()}>Refresh metrics</button>
-        {!dashboard ? (
-          <p>No metrics loaded yet.</p>
-        ) : (
-          <>
-            <p>{dashboard.trendSummary}</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Completed workouts</td>
-                  <td>{dashboard.completedWorkoutsCount}</td>
-                </tr>
-                <tr>
-                  <td>Plan compliance %</td>
-                  <td>{dashboard.planCompliancePercent ?? "N/A"}</td>
-                </tr>
-                <tr>
-                  <td>Planned vs actual load variance %</td>
-                  <td>{dashboard.plannedVsActualLoadVariancePercent ?? "N/A"}</td>
-                </tr>
-              </tbody>
-            </table>
-            <h3>FTP trend</h3>
-            {dashboard.ftpTrend.length === 0 ? (
-              <p>No FTP snapshots yet.</p>
-            ) : (
-              <ul>
-                {dashboard.ftpTrend.map((point) => (
-                  <li key={point.capturedAt}>
-                    {point.capturedAt}: {point.ftpWatts ?? "N/A"} W
-                  </li>
-                ))}
-              </ul>
-            )}
-            <h3>Weekly load</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Week start</th>
-                  <th>Planned</th>
-                  <th>Actual</th>
-                  <th>Variance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dashboard.weeklyLoad.map((row) => (
-                  <tr key={row.weekStart}>
-                    <td>{row.weekStart}</td>
-                    <td>{row.plannedLoad}</td>
-                    <td>{row.actualLoad}</td>
-                    <td>{row.variance}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
-      </section>
-
-      <section>
-        <h2>Generate plan</h2>
-        <div className="row">
-          <label>
-            Event type{" "}
-            <select value={eventType} onChange={(event) => setEventType(event.target.value as EventType)}>
-              <option value="road-race">road-race</option>
-              <option value="time-trial">time-trial</option>
-              <option value="criterium">criterium</option>
-              <option value="gran-fondo">gran-fondo</option>
-            </select>
-          </label>
-          <label>
-            Event date <input type="date" value={eventDate} onChange={(event) => setEventDate(event.target.value)} />
-          </label>
-          <label>
-            Plan length{" "}
-            <select
-              value={planLengthWeeks}
-              onChange={(event) => setPlanLengthWeeks(Number(event.target.value) as PlanLengthWeeks)}
-            >
-              <option value={8}>8 weeks</option>
-              <option value={12}>12 weeks</option>
-              <option value={16}>16 weeks</option>
-            </select>
-          </label>
-          <label>
-            FTP{" "}
-            <input
-              type="number"
-              min={100}
-              max={600}
-              value={currentFtp}
-              onChange={(event) => setCurrentFtp(Number(event.target.value))}
-            />
-          </label>
-        </div>
-        <label>
-          Generation reason{" "}
-          <input value={reason} onChange={(event) => setReason(event.target.value)} />
-        </label>
-        <h3>Weekly availability</h3>
-        <table>
-          <thead>
-            <tr>
-              <th>Day</th>
-              <th>Train</th>
-              <th>Max min</th>
-            </tr>
-          </thead>
-          <tbody>
-            {weeklyAvailability.map((day) => (
-              <tr key={day.dayIndex}>
-                <td>{dayLabels[day.dayIndex]}</td>
-                <td>
-                  <input
-                    type="checkbox"
-                    checked={day.canTrain}
-                    onChange={(event) => updateAvailability(day.dayIndex, { canTrain: event.target.checked })}
-                  />
-                </td>
-                <td>
-                  <input
-                    type="number"
-                    min={20}
-                    max={360}
-                    value={day.maxDurationMin ?? ""}
-                    onChange={(event) =>
-                      updateAvailability(day.dayIndex, {
-                        maxDurationMin: event.target.value ? Number(event.target.value) : null
-                      })
-                    }
-                    disabled={!day.canTrain}
-                  />
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <button disabled={!canGenerate} onClick={() => void generatePlan()}>
-          Generate event plan
-        </button>
-      </section>
-
-      <section>
-        <h2>Adapt plan</h2>
-        <div className="row">
-          <label>
-            Adapt reason{" "}
-            <input value={adaptReason} onChange={(event) => setAdaptReason(event.target.value)} />
-          </label>
-          <label>
-            Prompt{" "}
-            <input
-              placeholder="e.g. fatigue this week, reduce load"
-              value={adaptationPrompt}
-              onChange={(event) => setAdaptationPrompt(event.target.value)}
-            />
-          </label>
-        </div>
-        <div className="row">
-          <label>
-            Override FTP{" "}
-            <input value={overrideFtp} onChange={(event) => setOverrideFtp(event.target.value)} placeholder="optional" />
-          </label>
-          <label>
-            Override event date{" "}
-            <input
-              type="date"
-              value={overrideDate}
-              onChange={(event) => setOverrideDate(event.target.value)}
-              placeholder="optional"
-            />
-          </label>
-        </div>
-        <button disabled={!planId} onClick={() => void adaptPlan()}>
-          Adapt current plan
-        </button>
-      </section>
-
-      <section>
-        <h2>Current weeks</h2>
-        {weeks.length === 0 ? (
-          <p>No generated plan yet.</p>
-        ) : (
-          weeks.map((week) => (
-            <article key={week.weekId}>
-              <h3>
-                Week {week.weekIndex + 1} ({week.startDate}) — {week.loadTag}
-              </h3>
-              <p>
-                Target {week.targetMinutes} min @ IF {week.targetIF}
-              </p>
-              <ul>
-                {week.days.map((day) => {
-                  const workoutId = day.workoutId;
-                  return (
-                    <li key={`${week.weekId}-${day.dayIndex}`}>
-                      {dayLabels[day.dayIndex]}:{" "}
-                      {day.workoutName
-                        ? `${day.workoutName} (${day.durationMin} min, IF ${day.targetIF ?? "-"})`
-                        : "Rest"}{" "}
-                      {workoutId ? (
-                        <button
-                          onClick={() => void startWorkoutForDay(workoutId, day.workoutName ?? "Workout")}
-                          disabled={liveWorkoutBusy || isWorkoutSessionActive || !bleState?.connectedDeviceId}
-                        >
-                          Start workout
-                        </button>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </article>
-          ))
-        )}
-      </section>
-
-      <section>
-        <h2>Version history</h2>
-        {versions.length === 0 ? (
-          <p>No versions yet.</p>
-        ) : (
-          <ul>
-            {versions.map((version) => (
-              <li key={version.id}>
-                v{version.versionNumber} {version.isCurrent ? "(current)" : ""} — {version.source} —{" "}
-                {version.reason} — {version.createdAt}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
-      <section>
-        <h2>Audit entries</h2>
-        {auditEntries.length === 0 ? (
-          <p>No audit entries yet.</p>
-        ) : (
-          <ul>
-            {auditEntries.map((entry) => (
-              <li key={entry.id}>
-                [{entry.action}] {entry.reason} ({entry.source}) — {entry.createdAt}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </main>
+      {activeIntervals !== null ? (
+        <RidePage
+          activeIntervals={activeIntervals}
+          activeWorkoutName={activeWorkoutName}
+          workoutSessionState={workoutSessionState}
+          liveWorkoutError={liveWorkoutError}
+          liveWorkoutBusy={liveWorkoutBusy}
+          isWorkoutSessionActive={isWorkoutSessionActive}
+          pauseWorkout={pauseWorkout}
+          resumeWorkout={resumeWorkout}
+          stopWorkout={stopWorkout}
+          closeLiveWorkout={closeLiveWorkout}
+          adjustIntensity={adjustIntensity}
+          rampDurationInput={rampDurationInput}
+          setRampDurationInput={setRampDurationInput}
+          applyRampDuration={applyRampDuration}
+        />
+      ) : page === "plan" ? (
+        <PlanPage
+          generate={{
+            eventType,
+            setEventType,
+            eventDate,
+            setEventDate,
+            planLengthWeeks,
+            setPlanLengthWeeks,
+            currentFtp,
+            setCurrentFtp,
+            reason,
+            setReason,
+            weeklyAvailability,
+            updateAvailability,
+            canGenerate,
+            generatePlan
+          }}
+          adapt={{
+            adaptReason,
+            setAdaptReason,
+            adaptationPrompt,
+            setAdaptationPrompt,
+            overrideFtp,
+            setOverrideFtp,
+            overrideDate,
+            setOverrideDate,
+            planId,
+            adaptPlan
+          }}
+          weeks={weeks}
+          liveWorkoutBusy={liveWorkoutBusy}
+          isWorkoutSessionActive={isWorkoutSessionActive}
+          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
+          startWorkoutForDay={startWorkoutForDay}
+        />
+      ) : page === "profile" ? (
+        <ProfilePage
+          smokeChecks={smokeChecks}
+          runningSmoke={runningSmoke}
+          runSmokeWorkflow={runSmokeWorkflow}
+          strava={{
+            stravaStatus,
+            stravaAuthCode,
+            setStravaAuthCode,
+            stravaAuthState,
+            setStravaAuthState,
+            stravaAuthUrl,
+            refreshStravaStatus,
+            startStravaConnect,
+            completeStravaConnect,
+            disconnectStrava,
+            syncStrava,
+            retryStrava
+          }}
+          versions={versions}
+          auditEntries={auditEntries}
+        />
+      ) : (
+        <HomePage
+          status={status}
+          ble={{
+            bleState,
+            connectedDevice,
+            connectedHrDevice,
+            connectedCadenceDevice,
+            actionError: bleActionError,
+            actionPending: bleActionPending,
+            scanForDevices,
+            stopScanning,
+            disconnectDevice,
+            disconnectHrDevice,
+            disconnectCadenceDevice,
+            getRoleConnection,
+            roleLabel,
+            connectToDevice
+          }}
+          dashboard={dashboard}
+          refreshDashboard={refreshDashboard}
+        />
+      )}
+    </>
   );
 };
