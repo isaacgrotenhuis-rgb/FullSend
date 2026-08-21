@@ -369,7 +369,7 @@ export const App = (): ReactElement => {
       await window.kickr.ble.startScan({ timeoutMs: 4000 });
       await sleep(4500);
       const devices = await window.kickr.ble.listDevices();
-      const trainer = devices.find((device) => device.kind === "trainer") ?? devices[0];
+      const trainer = devices.find((device) => device.kind === "trainer");
       if (!trainer) {
         pushCheck({
           name: "Connect trainer",
