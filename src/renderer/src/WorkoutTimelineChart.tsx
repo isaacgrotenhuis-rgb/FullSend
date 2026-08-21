@@ -2,10 +2,10 @@ import type { ReactElement } from "react";
 import type { WorkoutInterval, WorkoutIntervalKind } from "@shared/ipc/contracts";
 
 const blockColors: Record<WorkoutIntervalKind, string> = {
-  warmup: "#f59e0b",
-  work: "#ef4444",
-  recovery: "#38bdf8",
-  cooldown: "#22c55e"
+  warmup: "var(--color-neutral-400)",
+  work: "var(--color-accent)",
+  recovery: "var(--color-neutral-500)",
+  cooldown: "var(--color-neutral-600)"
 };
 
 export const formatClock = (totalSec: number): string => {
@@ -23,8 +23,8 @@ type Props = {
 
 const width = 1000;
 const height = 240;
-const topMargin = 20;
-const bottomMargin = 24;
+const topMargin = 12;
+const bottomMargin = 12;
 const plotHeight = height - topMargin - bottomMargin;
 
 export const WorkoutTimelineChart = ({
@@ -62,20 +62,8 @@ export const WorkoutTimelineChart = ({
       : null;
 
   return (
-    <svg
-      viewBox={`0 0 ${width} ${height}`}
-      className="workout-timeline"
-      role="img"
-      aria-label="Workout power timeline"
-    >
-      <line
-        x1={0}
-        y1={topMargin + plotHeight}
-        x2={width}
-        y2={topMargin + plotHeight}
-        stroke="#3a3f4b"
-        strokeWidth={1}
-      />
+    <svg viewBox={`0 0 ${width} ${height}`} className="workout-timeline" role="img" aria-label="Workout power timeline">
+      <line x1={0} y1={topMargin + plotHeight} x2={width} y2={topMargin + plotHeight} stroke="var(--color-divider)" strokeWidth={1} />
       {bars.map((bar) => (
         <rect
           key={bar.key}
@@ -84,22 +72,16 @@ export const WorkoutTimelineChart = ({
           width={bar.width}
           height={bar.height}
           fill={bar.color}
-          opacity={bar.isCurrent ? 0.95 : 0.55}
-          stroke={bar.isCurrent ? "#f3f4f6" : "none"}
+          opacity={bar.isCurrent ? 1 : 0.6}
+          stroke={bar.isCurrent ? "var(--color-text)" : "none"}
           strokeWidth={bar.isCurrent ? 2 : 0}
         />
       ))}
-      <rect x={0} y={topMargin} width={progressX} height={plotHeight} fill="#f3f4f6" opacity={0.08} />
-      <line x1={progressX} y1={topMargin} x2={progressX} y2={topMargin + plotHeight} stroke="#f3f4f6" strokeWidth={2} />
+      <rect x={0} y={topMargin} width={progressX} height={plotHeight} fill="color-mix(in srgb, var(--color-text) 6%, transparent)" />
+      <line x1={progressX} y1={topMargin} x2={progressX} y2={topMargin + plotHeight} stroke="var(--color-accent-700)" strokeWidth={2} />
       {actualY !== null ? (
-        <circle cx={progressX} cy={actualY} r={5} fill="#ffffff" stroke="#111827" strokeWidth={1.5} />
+        <circle cx={progressX} cy={actualY} r={5} fill="var(--color-bg)" stroke="var(--color-accent-700)" strokeWidth={2} />
       ) : null}
-      <text x={4} y={topMargin - 6} fill="#9ca3af" fontSize={14}>
-        {Math.round(maxWatts)} W
-      </text>
-      <text x={width - 4} y={height - 6} fill="#9ca3af" fontSize={14} textAnchor="end">
-        {formatClock(totalDurationSec)} total
-      </text>
     </svg>
   );
 };

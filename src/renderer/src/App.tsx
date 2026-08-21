@@ -367,6 +367,13 @@ export const App = (): ReactElement => {
     await refreshStravaStatus();
   };
 
+  const finishRide = async (postToStrava: boolean): Promise<void> => {
+    if (postToStrava) {
+      await syncStrava();
+    }
+    closeLiveWorkout();
+  };
+
   const retryStrava = async (event: StravaSyncEventSummary): Promise<void> => {
     setStatus(`Retrying sync for event ${event.id}...`);
     const result = await window.kickr.strava.retry({ eventId: event.id });
@@ -536,7 +543,7 @@ export const App = (): ReactElement => {
           pauseWorkout={pauseWorkout}
           resumeWorkout={resumeWorkout}
           stopWorkout={stopWorkout}
-          closeLiveWorkout={closeLiveWorkout}
+          finishRide={finishRide}
           adjustIntensity={adjustIntensity}
           rampDurationInput={rampDurationInput}
           setRampDurationInput={setRampDurationInput}
