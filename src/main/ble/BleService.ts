@@ -73,9 +73,13 @@ export class BleService implements BleServicePort {
 
     this.adapter.onError((error) => {
       console.error("[BleService] adapter error:", error);
+      const hrUpdate = this.state.connectedHrDeviceId
+        ? { hrLifecycle: "error" as const, hrLastError: error.message }
+        : {};
       this.setState({
         lifecycle: "error",
-        lastError: error.message
+        lastError: error.message,
+        ...hrUpdate
       }, "adapter-error");
     });
 
