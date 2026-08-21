@@ -90,7 +90,7 @@ export const registerIpcHandlers = (
   });
 
   safeHandle(ipcChannels.app.ping, emptySchema, pingResultSchema, () => ({
-    app: "kickr-desktop",
+    app: "full-send",
     ts: new Date().toISOString()
   }));
 

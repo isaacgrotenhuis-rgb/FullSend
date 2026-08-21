@@ -1,7 +1,8 @@
 {
-  "name": "kickr-desktop",
+  "name": "full-send",
+  "productName": "Full Send",
   "version": "0.1.0",
-  "description": "Standalone macOS-first KICKR training desktop foundation",
+  "description": "Full Send — a standalone macOS-first KICKR training desktop app",
   "private": true,
   "type": "module",
   "main": "out/main/index.cjs",

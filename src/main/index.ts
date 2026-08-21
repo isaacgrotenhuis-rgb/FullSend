@@ -14,6 +14,7 @@ const createWindow = async (): Promise<void> => {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    title: "Full Send",
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       contextIsolation: true,
@@ -30,6 +31,7 @@ const createWindow = async (): Promise<void> => {
 };
 
 const bootstrap = async (): Promise<void> => {
+  app.setName("Full Send");
   await app.whenReady();
 
   const databaseService = new DatabaseService();
