@@ -39,37 +39,24 @@ export type GeneratePlanSectionProps = {
   generatePlan: () => Promise<void>;
 };
 
-export type AdaptPlanSectionProps = {
-  adaptReason: string;
-  setAdaptReason: (value: string) => void;
-  adaptationPrompt: string;
-  setAdaptationPrompt: (value: string) => void;
-  overrideFtp: string;
-  setOverrideFtp: (value: string) => void;
-  overrideDate: string;
-  setOverrideDate: (value: string) => void;
-  planId: string;
-  adaptPlan: () => Promise<void>;
-};
-
 type Props = {
   generate: GeneratePlanSectionProps;
-  adapt: AdaptPlanSectionProps;
   weeks: EventPlanWeek[];
   liveWorkoutBusy: boolean;
   isWorkoutSessionActive: boolean;
   connectedTrainerDeviceId: string | null;
   startWorkoutForDay: (workoutId: string, workoutName: string) => Promise<void>;
+  onDeletePlan: () => Promise<void>;
 };
 
 export const PlanPage = ({
   generate,
-  adapt,
   weeks,
   liveWorkoutBusy,
   isWorkoutSessionActive,
   connectedTrainerDeviceId,
-  startWorkoutForDay
+  startWorkoutForDay,
+  onDeletePlan
 }: Props): ReactElement => {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
@@ -77,7 +64,8 @@ export const PlanPage = ({
   // weekly-hours target; see the plan's Follow-up work for wiring this up.
   const [ratioChoice, setRatioChoice] = useState<"2:1" | "3:1">("3:1");
   const [hoursPerWeek, setHoursPerWeek] = useState(8);
-  const [adaptOpen, setAdaptOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const hasPlan = weeks.length > 0;
 
@@ -102,9 +90,14 @@ export const PlanPage = ({
     setWizardOpen(false);
   };
 
-  const handleAdapt = async (): Promise<void> => {
-    await adapt.adaptPlan();
-    setAdaptOpen(false);
+  const handleDeletePlan = async (): Promise<void> => {
+    setDeleteBusy(true);
+    try {
+      await onDeletePlan();
+      setDeleteConfirmOpen(false);
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   return (
@@ -112,9 +105,14 @@ export const PlanPage = ({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "var(--space-4)", marginBottom: "var(--space-2)" }}>
         <h1 style={{ margin: 0 }}>Your plan</h1>
         {hasPlan ? (
-          <button className="btn btn-primary" onClick={() => setAdaptOpen(true)}>
-            Edit plan
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button className="btn btn-secondary" onClick={() => setDeleteConfirmOpen(true)}>
+              Delete plan
+            </button>
+            <button className="btn btn-primary" onClick={openWizard}>
+              Edit plan
+            </button>
+          </div>
         ) : null}
       </div>
 
@@ -377,45 +375,20 @@ export const PlanPage = ({
         </div>
       ) : null}
 
-      {adaptOpen ? (
-        <div className="dialog-backdrop" onClick={() => setAdaptOpen(false)} style={{ zIndex: 200 }}>
-          <div className="dialog" onClick={(event) => event.stopPropagation()} style={{ width: "min(480px, 100%)" }}>
-            <div className="dialog-title">Edit plan</div>
+      {deleteConfirmOpen ? (
+        <div className="dialog-backdrop" onClick={() => setDeleteConfirmOpen(false)} style={{ zIndex: 200 }}>
+          <div className="dialog" onClick={(event) => event.stopPropagation()} style={{ width: "min(420px, 100%)" }}>
+            <div className="dialog-title">Delete plan?</div>
             <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
-            <div className="field">
-              <label>Reason</label>
-              <input className="input" value={adapt.adaptReason} onChange={(event) => adapt.setAdaptReason(event.target.value)} />
-            </div>
-            <div className="field">
-              <label>Prompt (optional)</label>
-              <input
-                className="input"
-                placeholder="e.g. fatigue this week, reduce load"
-                value={adapt.adaptationPrompt}
-                onChange={(event) => adapt.setAdaptationPrompt(event.target.value)}
-              />
-            </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
-              <div className="field">
-                <label>Override FTP (optional)</label>
-                <input className="input" value={adapt.overrideFtp} onChange={(event) => adapt.setOverrideFtp(event.target.value)} />
-              </div>
-              <div className="field">
-                <label>Override event date (optional)</label>
-                <input
-                  className="input"
-                  type="date"
-                  value={adapt.overrideDate}
-                  onChange={(event) => adapt.setOverrideDate(event.target.value)}
-                />
-              </div>
-            </div>
+            <p style={{ margin: "0 0 var(--space-2)", color: "color-mix(in srgb, var(--color-text) 65%, transparent)" }}>
+              This removes your current training plan and its schedule. This can't be undone.
+            </p>
             <div className="dialog-actions">
-              <button className="btn btn-secondary" onClick={() => setAdaptOpen(false)}>
+              <button className="btn btn-secondary" onClick={() => setDeleteConfirmOpen(false)}>
                 Cancel
               </button>
-              <button className="btn btn-primary" disabled={!adapt.planId} onClick={() => void handleAdapt()}>
-                Save changes
+              <button className="btn btn-primary" disabled={deleteBusy} onClick={() => void handleDeletePlan()}>
+                Delete plan
               </button>
             </div>
           </div>

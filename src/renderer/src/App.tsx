@@ -75,11 +75,6 @@ export const App = (): ReactElement => {
   const [versions, setVersions] = useState<EventPlanVersion[]>([]);
   const [auditEntries, setAuditEntries] = useState<EventPlanAuditEntry[]>([]);
 
-  const [adaptReason, setAdaptReason] = useState("Adapt plan based on latest constraints");
-  const [adaptationPrompt, setAdaptationPrompt] = useState("");
-  const [overrideFtp, setOverrideFtp] = useState<string>("");
-  const [overrideDate, setOverrideDate] = useState("");
-
   const canGenerate = useMemo(
     () => weeklyAvailability.filter((day) => day.canTrain).length >= 2,
     [weeklyAvailability]
@@ -98,6 +93,11 @@ export const App = (): ReactElement => {
       if (current) {
         setPlanId(current.planId);
         setWeeks(current.weeks);
+        setEventType(current.input.eventType);
+        setEventDate(current.input.eventDate);
+        setPlanLengthWeeks(current.input.planLengthWeeks);
+        setCurrentFtp(current.input.currentFtp);
+        setWeeklyAvailability(current.input.weeklyAvailability);
         await refreshHistory(current.planId);
       }
     })();
@@ -283,28 +283,17 @@ export const App = (): ReactElement => {
     setStatus(`Generated plan ${result.planId}, version ${result.versionNumber}`);
   };
 
-  const adaptPlan = async (): Promise<void> => {
+  const deletePlan = async (): Promise<void> => {
     if (!planId) {
-      setStatus("Generate a plan first.");
       return;
     }
-    setStatus("Adapting plan...");
-    const result = await window.kickr.eventPlan.adapt({
-      planId,
-      reason: adaptReason,
-      source: "user",
-      adaptationPrompt: adaptationPrompt.trim() || undefined,
-      overrides:
-        overrideFtp || overrideDate
-          ? {
-              currentFtp: overrideFtp ? Number(overrideFtp) : undefined,
-              eventDate: overrideDate || undefined
-            }
-          : undefined
-    });
-    setWeeks(result.weeks);
-    await refreshHistory(planId);
-    setStatus(`Adapted to version ${result.versionNumber} using ${result.appliedStrategy}`);
+    setStatus("Deleting plan...");
+    await window.kickr.eventPlan.delete({ planId });
+    setPlanId("");
+    setWeeks([]);
+    setVersions([]);
+    setAuditEntries([]);
+    setStatus("Plan deleted");
   };
 
   const updateAvailability = (dayIndex: number, patch: Partial<DayAvailability>): void => {
@@ -565,23 +554,12 @@ export const App = (): ReactElement => {
             canGenerate,
             generatePlan
           }}
-          adapt={{
-            adaptReason,
-            setAdaptReason,
-            adaptationPrompt,
-            setAdaptationPrompt,
-            overrideFtp,
-            setOverrideFtp,
-            overrideDate,
-            setOverrideDate,
-            planId,
-            adaptPlan
-          }}
           weeks={weeks}
           liveWorkoutBusy={liveWorkoutBusy}
           isWorkoutSessionActive={isWorkoutSessionActive}
           connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
           startWorkoutForDay={startWorkoutForDay}
+          onDeletePlan={deletePlan}
         />
       ) : page === "profile" ? (
         <ProfilePage
