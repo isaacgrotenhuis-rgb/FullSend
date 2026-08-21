@@ -585,6 +585,7 @@ export const App = (): ReactElement => {
         />
       ) : page === "profile" ? (
         <ProfilePage
+          currentFtp={currentFtp}
           smokeChecks={smokeChecks}
           runningSmoke={runningSmoke}
           runSmokeWorkflow={runSmokeWorkflow}
