@@ -103,24 +103,6 @@ export const App = (): ReactElement => {
     })();
   }, []);
 
-  const connectedDevice = useMemo(
-    () => bleState?.discoveredDevices.find((device) => device.id === bleState.connectedDeviceId) ?? null,
-    [bleState]
-  );
-
-  const connectedHrDevice = useMemo(
-    () =>
-      bleState?.discoveredDevices.find((device) => device.id === bleState.connections.heart_rate.connectedDeviceId) ??
-      null,
-    [bleState]
-  );
-
-  const connectedCadenceDevice = useMemo(
-    () =>
-      bleState?.discoveredDevices.find((device) => device.id === bleState.connections.cadence.connectedDeviceId) ?? null,
-    [bleState]
-  );
-
   const getRoleConnection = (state: BleState, role: BleRole): BleConnectionEntry =>
     role === "power"
       ? {
@@ -334,6 +316,10 @@ export const App = (): ReactElement => {
     setDashboard(metrics);
   };
 
+  useEffect(() => {
+    void refreshDashboard();
+  }, []);
+
   const refreshStravaStatus = async (): Promise<void> => {
     const nextStatus = await window.kickr.strava.getStatus();
     setStravaStatus(nextStatus);
@@ -525,6 +511,20 @@ export const App = (): ReactElement => {
     <>
       {activeIntervals === null ? <Nav page={page} onNavigate={setPage} /> : null}
 
+      {status && activeIntervals === null ? (
+        <div
+          style={{
+            padding: "var(--space-2) var(--space-4)",
+            fontSize: 13,
+            color: "var(--color-accent-700)",
+            background: "var(--color-accent-100)",
+            borderBottom: "2px solid var(--color-divider)"
+          }}
+        >
+          {status}
+        </div>
+      ) : null}
+
       {activeIntervals !== null ? (
         <RidePage
           activeIntervals={activeIntervals}
@@ -602,12 +602,8 @@ export const App = (): ReactElement => {
         />
       ) : (
         <HomePage
-          status={status}
           ble={{
             bleState,
-            connectedDevice,
-            connectedHrDevice,
-            connectedCadenceDevice,
             actionError: bleActionError,
             actionPending: bleActionPending,
             scanForDevices,
@@ -620,7 +616,13 @@ export const App = (): ReactElement => {
             connectToDevice
           }}
           dashboard={dashboard}
-          refreshDashboard={refreshDashboard}
+          currentFtp={currentFtp}
+          eventDate={eventDate}
+          weeks={weeks}
+          liveWorkoutBusy={liveWorkoutBusy}
+          isWorkoutSessionActive={isWorkoutSessionActive}
+          startWorkoutForDay={startWorkoutForDay}
+          onNavigateToPlan={() => setPage("plan")}
         />
       )}
     </>

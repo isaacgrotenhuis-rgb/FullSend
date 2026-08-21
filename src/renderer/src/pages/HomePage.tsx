@@ -1,11 +1,15 @@
-import type { ReactElement } from "react";
-import { bleRoles, type BleConnectionEntry, type BleDevice, type BleRole, type BleState, type DashboardMetrics } from "@shared/ipc/contracts";
+import { useState, type ReactElement } from "react";
+import {
+  bleRoles,
+  type BleConnectionEntry,
+  type BleRole,
+  type BleState,
+  type DashboardMetrics,
+  type EventPlanWeek
+} from "@shared/ipc/contracts";
 
 export type BleSectionProps = {
   bleState: BleState | null;
-  connectedDevice: BleDevice | null;
-  connectedHrDevice: BleDevice | null;
-  connectedCadenceDevice: BleDevice | null;
   actionError: string | null;
   actionPending: boolean;
   scanForDevices: () => Promise<void>;
@@ -19,18 +23,49 @@ export type BleSectionProps = {
 };
 
 type Props = {
-  status: string;
   ble: BleSectionProps;
   dashboard: DashboardMetrics | null;
-  refreshDashboard: () => Promise<void>;
+  currentFtp: number;
+  eventDate: string;
+  weeks: EventPlanWeek[];
+  liveWorkoutBusy: boolean;
+  isWorkoutSessionActive: boolean;
+  startWorkoutForDay: (workoutId: string, workoutName: string) => Promise<void>;
+  onNavigateToPlan: () => void;
 };
 
-export const HomePage = ({ status, ble, dashboard, refreshDashboard }: Props): ReactElement => {
+const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const parseIsoDate = (iso: string): Date => new Date(`${iso}T00:00:00`);
+
+const addDaysToDate = (date: Date, days: number): Date => {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+};
+
+const formatShortDate = (date: Date): string => date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+
+const greetingForNow = (): string => {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 18) return "Good afternoon";
+  return "Good evening";
+};
+
+export const HomePage = ({
+  ble,
+  dashboard,
+  currentFtp,
+  eventDate,
+  weeks,
+  liveWorkoutBusy,
+  isWorkoutSessionActive,
+  startWorkoutForDay,
+  onNavigateToPlan
+}: Props): ReactElement => {
   const {
     bleState,
-    connectedDevice,
-    connectedHrDevice,
-    connectedCadenceDevice,
     actionError,
     actionPending,
     scanForDevices,
@@ -43,167 +78,423 @@ export const HomePage = ({ status, ble, dashboard, refreshDashboard }: Props): R
     connectToDevice
   } = ble;
 
+  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
+
+  const disconnectForRole: Record<BleRole, () => Promise<void>> = {
+    power: disconnectDevice,
+    heart_rate: disconnectHrDevice,
+    cadence: disconnectCadenceDevice
+  };
+
+  const lastErrorForRole = (role: BleRole): string | null => {
+    if (!bleState) return null;
+    return role === "power" ? bleState.lastError : bleState.connections[role].lastError;
+  };
+
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  let currentWeekIndex = -1;
+  const currentWeek =
+    weeks.find((week, index) => {
+      const start = parseIsoDate(week.startDate);
+      const end = addDaysToDate(start, 7);
+      const match = today >= start && today < end;
+      if (match) currentWeekIndex = index;
+      return match;
+    }) ?? null;
+
+  const daysUntilEvent = Math.round((parseIsoDate(eventDate).getTime() - today.getTime()) / 86400000);
+  const countdownLabel =
+    weeks.length === 0
+      ? null
+      : daysUntilEvent > 0
+        ? `${daysUntilEvent} day${daysUntilEvent === 1 ? "" : "s"} to event`
+        : daysUntilEvent === 0
+          ? "Event day"
+          : "Event completed";
+
+  const connectedTrainerDeviceId = bleState?.connectedDeviceId ?? null;
+  const selectedDay = currentWeek?.days.find((day) => day.dayIndex === selectedDayIndex) ?? null;
+
   return (
     <main className="app">
-      <h1>Event Plan Generator</h1>
-      <p>{status}</p>
+      <div style={{ marginBottom: "var(--space-6)" }}>
+        <h1 style={{ margin: "0 0 var(--space-2)" }}>{greetingForNow()}</h1>
+        {countdownLabel ? (
+          <button
+            onClick={onNavigateToPlan}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: "var(--space-2)",
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              color: "var(--color-accent-700)",
+              font: "inherit"
+            }}
+          >
+            <span style={{ fontSize: 14, fontWeight: 700 }}>{countdownLabel}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="8,3 18,12 8,21" />
+            </svg>
+          </button>
+        ) : null}
+      </div>
 
-      <section>
-        <h2>Trainer connection</h2>
-        <p>
-          Status: {bleState?.lifecycle ?? "unknown"}
-          {connectedDevice
-            ? ` — connected to ${connectedDevice.name ?? connectedDevice.localName ?? connectedDevice.id}`
-            : ""}
-        </p>
-        {bleState?.lastError ? <p>Last error: {bleState.lastError}</p> : null}
-        <p>
-          Heart rate: {bleState?.connections.heart_rate.lifecycle ?? "unknown"}
-          {connectedHrDevice
-            ? ` — connected to ${connectedHrDevice.name ?? connectedHrDevice.localName ?? connectedHrDevice.id}`
-            : ""}
-          {bleState?.heartRate?.bpm != null ? ` — HR: ${bleState.heartRate.bpm} bpm` : ""}
-        </p>
-        {bleState?.connections.heart_rate.lastError ? (
-          <p>Heart rate error: {bleState.connections.heart_rate.lastError}</p>
-        ) : null}
-        <p>
-          Cadence: {bleState?.connections.cadence.lifecycle ?? "unknown"}
-          {connectedCadenceDevice
-            ? ` — connected to ${connectedCadenceDevice.name ?? connectedCadenceDevice.localName ?? connectedCadenceDevice.id}`
-            : ""}
-        </p>
-        {bleState?.connections.cadence.lastError ? (
-          <p>Cadence error: {bleState.connections.cadence.lastError}</p>
-        ) : null}
-        {actionError ? <p>Action error: {actionError}</p> : null}
-        <div className="row">
-          <button onClick={() => void scanForDevices()} disabled={actionPending || bleState?.scanning}>
-            {bleState?.scanning ? "Scanning..." : "Scan for devices"}
-          </button>
-          {bleState?.scanning ? (
-            <button onClick={() => void stopScanning()} disabled={actionPending}>
-              Stop scan
-            </button>
-          ) : null}
-          <button onClick={() => void disconnectDevice()} disabled={actionPending || !bleState?.connectedDeviceId}>
-            Disconnect trainer
-          </button>
-          <button
-            onClick={() => void disconnectHrDevice()}
-            disabled={actionPending || !bleState?.connections.heart_rate.connectedDeviceId}
-          >
-            Disconnect heart rate
-          </button>
-          <button
-            onClick={() => void disconnectCadenceDevice()}
-            disabled={actionPending || !bleState?.connections.cadence.connectedDeviceId}
-          >
-            Disconnect cadence
-          </button>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 2,
+          background: "var(--color-divider)",
+          border: "2px solid var(--color-divider)",
+          marginBottom: "var(--space-8)"
+        }}
+      >
+        <div className="card" style={{ borderRadius: 0 }}>
+          <h6 style={{ marginBottom: "var(--space-2)" }}>Training status</h6>
+          <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
+          <div style={{ display: "flex", flexDirection: "column" }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                padding: "var(--space-2) 0",
+                borderBottom: "1px solid var(--color-divider)"
+              }}
+            >
+              <span className="card-meta">Current FTP</span>
+              <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>{currentFtp} W</span>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                padding: "var(--space-2) 0",
+                borderBottom: "1px solid var(--color-divider)"
+              }}
+            >
+              <span className="card-meta">Plan compliance</span>
+              <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+                {dashboard?.planCompliancePercent != null ? `${dashboard.planCompliancePercent}%` : "—"}
+              </span>
+            </div>
+            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "var(--space-2) 0" }}>
+              <span className="card-meta">Training block</span>
+              <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+                {currentWeek ? `Week ${currentWeekIndex + 1} / ${weeks.length}` : "—"}
+              </span>
+            </div>
+          </div>
         </div>
-        {!bleState || bleState.discoveredDevices.length === 0 ? (
-          <p>No devices discovered yet. Click "Scan for devices".</p>
-        ) : (
-          <ul>
-            {bleState.discoveredDevices.map((device) => {
-              const rolesToOffer = device.roles.length > 0 ? device.roles : bleRoles;
+
+        <div className="card" style={{ borderRadius: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
+            <h6 style={{ margin: 0 }}>Devices</h6>
+            <button
+              className="btn btn-secondary"
+              style={{ padding: "4px 10px", fontSize: 12 }}
+              disabled={actionPending}
+              onClick={() => void (bleState?.scanning ? stopScanning() : scanForDevices())}
+            >
+              {bleState?.scanning ? "Stop scan" : "Scan"}
+            </button>
+          </div>
+          <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
+          {actionError ? (
+            <p style={{ color: "var(--color-accent-700)", fontSize: 12, marginBottom: "var(--space-2)" }}>{actionError}</p>
+          ) : null}
+          <div style={{ display: "flex", flexDirection: "column", gap: 2, background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
+            {bleRoles.map((role) => {
+              const conn = bleState ? getRoleConnection(bleState, role) : null;
+              const connectedDeviceId = conn?.connectedDeviceId ?? null;
+              const device = connectedDeviceId
+                ? (bleState?.discoveredDevices.find((candidate) => candidate.id === connectedDeviceId) ?? null)
+                : null;
+              const isConnected = connectedDeviceId !== null;
+              const statusLabel = isConnected
+                ? `Connected — ${device?.name ?? device?.localName ?? connectedDeviceId}${
+                    role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
+                  }`
+                : conn?.lifecycle === "connecting"
+                  ? "Connecting…"
+                  : bleState?.scanning
+                    ? "Scanning…"
+                    : "Not connected";
+              const rowError = lastErrorForRole(role);
               return (
-                <li key={device.id}>
-                  {device.name ?? device.localName ?? "Unknown device"} ({device.id})
-                  {device.roles.length > 0 ? ` — ${device.roles.join(", ")}` : ""}
-                  {typeof device.rssi === "number" ? ` — RSSI ${device.rssi}` : ""}{" "}
-                  {rolesToOffer.map((role) => {
-                    const conn = getRoleConnection(bleState, role);
-                    const isConnected = conn.connectedDeviceId === device.id;
-                    const connectDisabled =
-                      actionPending ||
-                      isConnected ||
-                      conn.lifecycle === "connecting" ||
-                      (conn.connectedDeviceId !== null && !isConnected);
-                    return (
-                      <button
-                        key={role}
-                        onClick={() => void connectToDevice(device.id, role)}
-                        disabled={connectDisabled}
-                      >
-                        {isConnected ? `${roleLabel(role)}: connected` : `Connect as ${roleLabel(role)}`}
-                      </button>
-                    );
-                  })}
-                </li>
+                <div
+                  key={role}
+                  style={{
+                    background: "var(--color-bg)",
+                    padding: "var(--space-3)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "space-between",
+                    gap: "var(--space-3)"
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{roleLabel(role)}</div>
+                    <div className="card-meta">{statusLabel}</div>
+                    {rowError ? (
+                      <div className="card-meta" style={{ color: "var(--color-accent-700)" }}>
+                        {rowError}
+                      </div>
+                    ) : null}
+                  </div>
+                  {isConnected ? (
+                    <button
+                      className="btn btn-secondary"
+                      style={{ padding: "4px 10px", fontSize: 12 }}
+                      disabled={actionPending}
+                      onClick={() => void disconnectForRole[role]()}
+                    >
+                      Disconnect
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
-          </ul>
-        )}
-      </section>
+          </div>
+          {bleState && bleState.discoveredDevices.length > 0 ? (
+            <div style={{ marginTop: "var(--space-3)" }}>
+              <div className="card-meta" style={{ marginBottom: 6 }}>
+                Available devices
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                {bleState.discoveredDevices.map((device) => {
+                  const rolesToOffer = device.roles.length > 0 ? device.roles : bleRoles;
+                  return (
+                    <div
+                      key={device.id}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", fontSize: 12 }}
+                    >
+                      <span>
+                        {device.name ?? device.localName ?? "Unknown device"}
+                        {typeof device.rssi === "number" ? ` · RSSI ${device.rssi}` : ""}
+                      </span>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {rolesToOffer.map((role) => {
+                          const conn = getRoleConnection(bleState, role);
+                          const isConnected = conn.connectedDeviceId === device.id;
+                          const connectDisabled =
+                            actionPending ||
+                            isConnected ||
+                            conn.lifecycle === "connecting" ||
+                            (conn.connectedDeviceId !== null && !isConnected);
+                          return (
+                            <button
+                              key={role}
+                              className="btn btn-secondary"
+                              style={{ padding: "2px 8px", fontSize: 11 }}
+                              onClick={() => void connectToDevice(device.id, role)}
+                              disabled={connectDisabled}
+                            >
+                              {isConnected ? `${roleLabel(role)} ✓` : `+ ${roleLabel(role)}`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
 
-      <section>
-        <h2>Progress dashboard</h2>
-        <button onClick={() => void refreshDashboard()}>Refresh metrics</button>
-        {!dashboard ? (
-          <p>No metrics loaded yet.</p>
-        ) : (
-          <>
-            <p>{dashboard.trendSummary}</p>
-            <table>
-              <thead>
-                <tr>
-                  <th>Metric</th>
-                  <th>Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Completed workouts</td>
-                  <td>{dashboard.completedWorkoutsCount}</td>
-                </tr>
-                <tr>
-                  <td>Plan compliance %</td>
-                  <td>{dashboard.planCompliancePercent ?? "N/A"}</td>
-                </tr>
-                <tr>
-                  <td>Planned vs actual load variance %</td>
-                  <td>{dashboard.plannedVsActualLoadVariancePercent ?? "N/A"}</td>
-                </tr>
-              </tbody>
-            </table>
-            <h3>FTP trend</h3>
-            {dashboard.ftpTrend.length === 0 ? (
-              <p>No FTP snapshots yet.</p>
-            ) : (
-              <ul>
-                {dashboard.ftpTrend.map((point) => (
-                  <li key={point.capturedAt}>
-                    {point.capturedAt}: {point.ftpWatts ?? "N/A"} W
-                  </li>
-                ))}
-              </ul>
-            )}
-            <h3>Weekly load</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Week start</th>
-                  <th>Planned</th>
-                  <th>Actual</th>
-                  <th>Variance</th>
-                </tr>
-              </thead>
-              <tbody>
-                {dashboard.weeklyLoad.map((row) => (
-                  <tr key={row.weekStart}>
-                    <td>{row.weekStart}</td>
-                    <td>{row.plannedLoad}</td>
-                    <td>{row.actualLoad}</td>
-                    <td>{row.variance}</td>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--space-4)" }}>
+        <h2 style={{ margin: 0 }}>This week</h2>
+      </div>
+      <div className="hr" />
+      {currentWeek ? (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 0, border: "2px solid var(--color-divider)", marginBottom: "var(--space-8)" }}>
+          {currentWeek.days.map((day, index) => {
+            const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
+            const isToday = cellDate.getTime() === today.getTime();
+            const hasWorkout = day.workoutId !== null;
+            return (
+              <div
+                key={day.dayIndex}
+                onClick={hasWorkout ? () => setSelectedDayIndex(day.dayIndex) : undefined}
+                style={{
+                  padding: "var(--space-3)",
+                  borderRight: index < 6 ? "1px solid var(--color-divider)" : undefined,
+                  background: isToday ? "var(--color-accent-100)" : "var(--color-bg)",
+                  cursor: hasWorkout ? "pointer" : "default",
+                  minHeight: 96,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 4
+                }}
+              >
+                <h6 style={{ margin: 0, color: isToday ? "var(--color-accent-700)" : undefined }}>
+                  {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
+                </h6>
+                <div style={{ flex: 1, fontSize: 13, fontWeight: 600, overflowWrap: "break-word" }}>
+                  {day.workoutName ?? "Rest"}
+                </div>
+                {hasWorkout ? (
+                  <div className="card-meta">
+                    {day.durationMin} min{day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-muted" style={{ marginBottom: "var(--space-8)" }}>
+          No workouts scheduled for the current week.
+        </p>
+      )}
+
+      <h2>Recent activity</h2>
+      <div className="hr" />
+      <table className="table" style={{ marginBottom: "var(--space-8)" }}>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Workout</th>
+            <th>Duration</th>
+            <th>Avg power</th>
+            <th>Compliance</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td colSpan={5} className="text-muted">
+              No completed workouts recorded yet.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {dashboard ? (
+        <>
+          <h2>Training detail</h2>
+          <div className="hr" />
+          <p className="card-meta">{dashboard.trendSummary}</p>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Metric</th>
+                <th>Value</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Completed workouts</td>
+                <td>{dashboard.completedWorkoutsCount}</td>
+              </tr>
+              <tr>
+                <td>Planned vs actual load variance %</td>
+                <td>{dashboard.plannedVsActualLoadVariancePercent ?? "N/A"}</td>
+              </tr>
+            </tbody>
+          </table>
+          {dashboard.ftpTrend.length > 0 ? (
+            <>
+              <h3>FTP trend</h3>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Captured</th>
+                    <th>FTP</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
-        )}
-      </section>
+                </thead>
+                <tbody>
+                  {dashboard.ftpTrend.map((point) => (
+                    <tr key={point.capturedAt}>
+                      <td>{point.capturedAt}</td>
+                      <td>{point.ftpWatts ?? "N/A"} W</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          ) : null}
+          {dashboard.weeklyLoad.length > 0 ? (
+            <>
+              <h3>Weekly load</h3>
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Week start</th>
+                    <th>Planned</th>
+                    <th>Actual</th>
+                    <th>Variance</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {dashboard.weeklyLoad.map((row) => (
+                    <tr key={row.weekStart}>
+                      <td>{row.weekStart}</td>
+                      <td>{row.plannedLoad}</td>
+                      <td>{row.actualLoad}</td>
+                      <td>{row.variance}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          ) : null}
+        </>
+      ) : null}
+
+      {selectedDay && selectedDay.workoutId ? (
+        <div className="dialog-backdrop" onClick={() => setSelectedDayIndex(null)} style={{ zIndex: 100 }}>
+          <div className="dialog" onClick={(event) => event.stopPropagation()} style={{ width: "min(480px, 100%)" }}>
+            <div className="dialog-title">{selectedDay.workoutName}</div>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(3,1fr)",
+                gap: 2,
+                background: "var(--color-divider)",
+                border: "2px solid var(--color-divider)"
+              }}
+            >
+              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                <h6 style={{ fontSize: 11 }}>Duration</h6>
+                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18 }}>{selectedDay.durationMin} min</div>
+              </div>
+              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                <h6 style={{ fontSize: 11 }}>IF</h6>
+                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18 }}>{selectedDay.targetIF ?? "—"}</div>
+              </div>
+              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                <h6 style={{ fontSize: 11 }}>TSS</h6>
+                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18, opacity: 0.4 }}>—</div>
+              </div>
+            </div>
+            <div className="dialog-actions">
+              <button className="btn btn-secondary" onClick={() => setSelectedDayIndex(null)}>
+                Close
+              </button>
+              <button
+                className="btn btn-primary"
+                disabled={liveWorkoutBusy || isWorkoutSessionActive || !connectedTrainerDeviceId}
+                onClick={() => {
+                  const workoutId = selectedDay.workoutId as string;
+                  const workoutName = selectedDay.workoutName ?? "Workout";
+                  setSelectedDayIndex(null);
+                  void startWorkoutForDay(workoutId, workoutName);
+                }}
+              >
+                Start ride
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 };
