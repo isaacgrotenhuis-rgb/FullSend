@@ -19,8 +19,6 @@ import type {
   GetCurrentEventPlanResult,
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
-  DeleteEventPlanRequest,
-  DeleteEventPlanResult,
   PlanVersionsRequest,
   EventPlanVersion,
   PlanAuditEntriesRequest,
@@ -91,7 +89,6 @@ export interface KickrDesktopApi {
   eventPlan: {
     generate: (request: GenerateEventPlanRequest) => Promise<GenerateEventPlanResult>;
     adapt: (request: AdaptEventPlanRequest) => Promise<AdaptEventPlanResult>;
-    delete: (request: DeleteEventPlanRequest) => Promise<DeleteEventPlanResult>;
     listVersions: (request: PlanVersionsRequest) => Promise<EventPlanVersion[]>;
     listAuditEntries: (request: PlanAuditEntriesRequest) => Promise<EventPlanAuditEntry[]>;
     getCurrent: () => Promise<GetCurrentEventPlanResult>;

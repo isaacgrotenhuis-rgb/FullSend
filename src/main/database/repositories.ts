@@ -336,10 +336,6 @@ export class TrainingPlansRepository extends BaseRepository {
       )
       .run(input.name, input.notes, input.id);
   }
-
-  delete(planId: string): void {
-    this.db.prepare("DELETE FROM training_plans WHERE id = ?").run(planId);
-  }
 }
 
 export class PlanWeeksRepository extends BaseRepository {
