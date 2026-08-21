@@ -13,6 +13,7 @@
   a { color: var(--color-accent-700); text-decoration: none; }
   a:hover { color: var(--color-accent); text-decoration: underline; }
   ::-webkit-scrollbar { width: 0; height: 0; }
+  @keyframes dc-spin { to { transform: rotate(360deg); } }
 </style>
 </helmet>
 
@@ -22,29 +23,52 @@
     <div>
       <nav class="nav" style="background:var(--color-surface)">
         <span class="nav-brand" style="cursor:pointer" onClick="{{ goHome }}">FULLSEND</span>
-        <button class="btn btn-secondary" style="margin-left:auto" onClick="{{ openPlanWizard }}">{{ planButtonLabel }}</button>
-        <button class="btn btn-icon" style="background:var(--color-text);color:var(--color-bg);font-family:var(--font-heading);font-weight:800" onClick="{{ goProfile }}" aria-label="Profile">{{ avatarInitial }}</button>
+        <button class="btn btn-icon" style="margin-left:auto;background:var(--color-text);color:var(--color-bg);font-family:var(--font-heading);font-weight:800" onClick="{{ goProfile }}" aria-label="Profile">{{ avatarInitial }}</button>
       </nav>
 
       <div style="max-width:1120px;margin:0 auto;padding:var(--space-8) var(--space-6) 96px">
 
         <div style="margin-bottom:var(--space-6)">
-          <h6 style="color:var(--color-accent-700);margin-bottom:var(--space-1)">{{ eventCountdownLabel }}</h6>
-          <h1 style="margin:0">Good afternoon, {{ athleteName }}</h1>
+          <h1 style="margin:0 0 var(--space-2)">Good afternoon, {{ athleteName }}</h1>
+          <button onClick="{{ goPlan }}" style="display:flex;align-items:center;gap:var(--space-2);background:none;border:none;padding:0;cursor:pointer;color:var(--color-accent-700);font-family:inherit">
+            <span style="font-size:14px;font-weight:700">{{ eventCountdownLabel }}</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="8,3 18,12 8,21"></polygon></svg>
+          </button>
         </div>
 
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider);margin-bottom:var(--space-8)">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:2px;background:var(--color-divider);border:2px solid var(--color-divider);margin-bottom:var(--space-8)">
           <div class="card" style="border-radius:0">
-            <div class="card-kicker">Current FTP</div>
-            <div class="card-title" style="font-size:28px">{{ ftpWatts }} W</div>
+            <h6 style="margin-bottom:var(--space-2)">Training status</h6>
+            <div class="hr" style="margin:0 0 var(--space-3)"></div>
+            <div style="display:flex;flex-direction:column">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider)">
+                <span class="card-meta">Current FTP</span>
+                <span style="font-family:var(--font-heading);font-weight:800;font-size:22px">{{ ftpWatts }} W</span>
+              </div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;padding:var(--space-2) 0;border-bottom:1px solid var(--color-divider)">
+                <span class="card-meta">Plan compliance</span>
+                <span style="font-family:var(--font-heading);font-weight:800;font-size:22px">{{ compliancePercent }}%</span>
+              </div>
+              <div style="display:flex;align-items:baseline;justify-content:space-between;padding:var(--space-2) 0">
+                <span class="card-meta">Training block</span>
+                <span style="font-family:var(--font-heading);font-weight:800;font-size:22px">Week {{ planWeekNumber }} / {{ planTotalWeeks }}</span>
+              </div>
+            </div>
           </div>
           <div class="card" style="border-radius:0">
-            <div class="card-kicker">Plan compliance</div>
-            <div class="card-title" style="font-size:28px">{{ compliancePercent }}%</div>
-          </div>
-          <div class="card" style="border-radius:0">
-            <div class="card-kicker">Training block</div>
-            <div class="card-title" style="font-size:28px">Week {{ planWeekNumber }} / {{ planTotalWeeks }}</div>
+            <h6 style="margin-bottom:var(--space-2)">Devices</h6>
+            <div class="hr" style="margin:0 0 var(--space-3)"></div>
+            <div style="display:flex;flex-direction:column;gap:2px;background:var(--color-divider);border:2px solid var(--color-divider)">
+              <sc-for list="{{ deviceRows }}" as="row" hint-placeholder-count="3">
+                <div style="background:var(--color-bg);padding:var(--space-3);display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
+                  <div>
+                    <div style="font-size:13px;font-weight:700">{{ row.roleLabel }}</div>
+                    <div class="card-meta">{{ row.statusLabel }}</div>
+                  </div>
+                  <button class="{{ row.actionButtonClass }}" style="padding:4px 10px;font-size:12px" onClick="{{ row.onAction }}">{{ row.actionLabel }}</button>
+                </div>
+              </sc-for>
+            </div>
           </div>
         </div>
 
@@ -105,69 +129,122 @@
         </table>
 
       </div>
+    </div>
+  </sc-if>
 
-      <sc-if value="{{ hasSelectedWorkout }}" hint-placeholder-val="{{ false }}">
-        <div class="dialog-backdrop" onClick="{{ closeDayPopout }}" style="z-index:100">
-          <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(520px,100%)">
-            <div class="dialog-title">{{ selectedWorkout.name }}</div>
-            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider)">
-              <div style="background:var(--color-bg);padding:var(--space-3)">
-                <h6 style="font-size: 11px">Duration</h6>
-                <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.durationLabel }}</div>
-              </div>
-              <div style="background:var(--color-bg);padding:var(--space-3)">
-                <h6 style="font-size: 11px">TSS</h6>
-                <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.tss }}</div>
-              </div>
-              <div style="background:var(--color-bg);padding:var(--space-3)">
-                <h6 style="font-size: 11px">IF</h6>
-                <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.ifLabel }}</div>
-              </div>
-            </div>
-            <div style="display:flex;gap:var(--space-2);width:485px">
-              <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);display:flex;align-items:center;justify-content:center">Watts</div>
-              <div style="flex:1">
-                <div style="position:relative;height:176px;display:flex;border:2px solid var(--color-divider);background:var(--color-surface)">
-                  <div style="{{ selectedWorkout.avgLine.lineStyle }}"></div>
-                  <div style="{{ selectedWorkout.avgLine.labelStyle }}">{{ selectedWorkout.avgLine.label }}</div>
-                  <sc-for list="{{ selectedWorkout.blocks }}" as="block" hint-placeholder-count="6">
-                    <div style="{{ block.cellStyle }}"><div style="{{ block.fillStyle }}"></div></div>
-                  </sc-for>
-                </div>
-                <div style="display:flex;justify-content:space-between;margin-top:4px">
-                  <span style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">Time</span>
-                  <span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ selectedWorkout.durationLabel }} total</span>
-                </div>
-              </div>
-            </div>
-            <div class="dialog-body">{{ selectedWorkout.description }}</div>
-            <div class="dialog-actions">
-              <button class="btn btn-ghost" style="margin-right:auto" onClick="{{ editSelectedWorkout }}">Change workout</button>
-              <button class="btn btn-secondary" onClick="{{ closeDayPopout }}">Close</button>
-              <button class="btn btn-primary" onClick="{{ startSelectedWorkout }}">Start ride</button>
-            </div>
+  <sc-if value="{{ hasSelectedWorkout }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onClick="{{ closeDayPopout }}" style="z-index:100">
+      <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(520px,100%)">
+        <div class="dialog-title">{{ selectedWorkout.name }}</div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--color-divider);border:2px solid var(--color-divider)">
+          <div style="background:var(--color-bg);padding:var(--space-3)">
+            <h6 style="font-size: 11px">Duration</h6>
+            <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.durationLabel }}</div>
+          </div>
+          <div style="background:var(--color-bg);padding:var(--space-3)">
+            <h6 style="font-size: 11px">TSS</h6>
+            <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.tss }}</div>
+          </div>
+          <div style="background:var(--color-bg);padding:var(--space-3)">
+            <h6 style="font-size: 11px">IF</h6>
+            <div style="font-family: var(--font-heading); font-weight: 800; font-size: 18px">{{ selectedWorkout.ifLabel }}</div>
           </div>
         </div>
-      </sc-if>
-
-      <sc-if value="{{ hasPickerOpen }}" hint-placeholder-val="{{ false }}">
-        <div class="dialog-backdrop" onClick="{{ closePicker }}" style="z-index:100">
-          <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(480px,100%)">
-            <div class="dialog-title">Choose a workout · {{ pickerDayLabel }}</div>
-            <div style="display:flex;flex-direction:column;gap:6px">
-              <sc-for list="{{ pickerOptions }}" as="opt" hint-placeholder-count="5">
-                <button style="{{ opt.rowStyle }}" onClick="{{ opt.onSelect }}">
-                  <span style="font-family:var(--font-heading);font-weight:800;font-size:14px">{{ opt.name }}</span>
-                  <span class="card-meta">{{ opt.summary }}</span>
-                </button>
+        <div style="display:flex;gap:var(--space-2);width:485px">
+          <div style="writing-mode:vertical-rl;transform:rotate(180deg);font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent);display:flex;align-items:center;justify-content:center">Watts</div>
+          <div style="flex:1">
+            <div style="position:relative;height:176px;display:flex;border:2px solid var(--color-divider);background:var(--color-surface)">
+              <div style="{{ selectedWorkout.avgLine.lineStyle }}"></div>
+              <div style="{{ selectedWorkout.avgLine.labelStyle }}">{{ selectedWorkout.avgLine.label }}</div>
+              <sc-for list="{{ selectedWorkout.blocks }}" as="block" hint-placeholder-count="6">
+                <div style="{{ block.cellStyle }}"><div style="{{ block.fillStyle }}"></div></div>
               </sc-for>
             </div>
-            <div class="dialog-actions">
-              <button class="btn btn-secondary" onClick="{{ closePicker }}">Cancel</button>
+            <div style="display:flex;justify-content:space-between;margin-top:4px">
+              <span style="font-size:9px;letter-spacing:0.08em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">Time</span>
+              <span style="font-size:10px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ selectedWorkout.durationLabel }} total</span>
             </div>
           </div>
         </div>
-      </sc-if>
+        <div class="dialog-body">{{ selectedWorkout.description }}</div>
+        <div class="dialog-actions">
+          <button class="btn btn-ghost" style="margin-right:auto" onClick="{{ editSelectedWorkout }}">Change workout</button>
+          <button class="btn btn-secondary" onClick="{{ closeDayPopout }}">Close</button>
+          <button class="btn btn-primary" onClick="{{ startSelectedWorkout }}">Start ride</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ hasPickerOpen }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onClick="{{ closePicker }}" style="z-index:100">
+      <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(480px,100%)">
+        <div class="dialog-title">Choose a workout · {{ pickerDayLabel }}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <sc-for list="{{ pickerOptions }}" as="opt" hint-placeholder-count="5">
+            <button style="{{ opt.rowStyle }}" onClick="{{ opt.onSelect }}">
+              <span style="font-family:var(--font-heading);font-weight:800;font-size:14px">{{ opt.name }}</span>
+              <span class="card-meta">{{ opt.summary }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" onClick="{{ closePicker }}">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
+  <sc-if value="{{ isPlanPage }}" hint-placeholder-val="{{ false }}">
+    <div>
+      <nav class="nav" style="background:var(--color-surface)">
+        <span class="nav-brand" style="cursor:pointer" onClick="{{ goHome }}">FULLSEND</span>
+        <button class="btn btn-icon" style="margin-left:auto;background:var(--color-text);color:var(--color-bg);font-family:var(--font-heading);font-weight:800" onClick="{{ goProfile }}" aria-label="Profile">{{ avatarInitial }}</button>
+      </nav>
+
+      <div style="max-width:1120px;margin:0 auto;padding:var(--space-8) var(--space-6) 96px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-end;gap:var(--space-4);margin-bottom:var(--space-2)">
+          <h1 style="margin:0">Your plan</h1>
+          <sc-if value="{{ hasPlan }}" hint-placeholder-val="{{ true }}">
+            <button class="btn btn-primary" onClick="{{ openPlanWizard }}">Edit plan</button>
+          </sc-if>
+        </div>
+
+        <sc-if value="{{ hasPlan }}" hint-placeholder-val="{{ true }}">
+          <h6 style="color:var(--color-accent-700);margin-bottom:var(--space-6)">{{ eventCountdownLabel }}</h6>
+
+          <sc-for list="{{ planWeeks }}" as="week" hint-placeholder-count="4">
+            <div style="margin-bottom:var(--space-6)">
+              <div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:var(--space-1)">
+                <h4 style="margin:0">Week {{ week.weekNumber }}</h4>
+                <span style="font-size:13px;color:color-mix(in srgb, var(--color-text) 60%, transparent)">{{ week.dateRangeLabel }}</span>
+              </div>
+              <div class="hr" style="margin:0 0 var(--space-2)"></div>
+              <div style="display:flex;flex-direction:column;gap:2px;background:var(--color-divider);border:2px solid var(--color-divider)">
+                <sc-for list="{{ week.days }}" as="day" hint-placeholder-count="7">
+                  <div style="background:var(--color-bg);padding:var(--space-3) var(--space-4);display:flex;align-items:center;gap:var(--space-4);border-left:3px solid {{ day.accentColor }};cursor:pointer" onClick="{{ day.onClick }}">
+                    <div style="width:96px;flex-shrink:0">
+                      <div style="font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ day.dayLabel }}</div>
+                      <div style="font-size:12px;color:color-mix(in srgb, var(--color-text) 55%, transparent)">{{ day.dateLabel }}</div>
+                    </div>
+                    <div style="flex:1;font-size:14px;font-weight:600">{{ day.workoutName }}</div>
+                    <div class="card-meta">{{ day.metaLabel }}</div>
+                    <button class="btn btn-ghost" style="padding:2px 8px;font-size:11px" onClick="{{ day.onEditClick }}">{{ day.editLabel }}</button>
+                  </div>
+                </sc-for>
+              </div>
+            </div>
+          </sc-for>
+        </sc-if>
+
+        <sc-if value="{{ !hasPlan }}" hint-placeholder-val="{{ false }}">
+          <div style="border:2px solid var(--color-divider);padding:64px var(--space-6);text-align:center;margin-top:var(--space-6)">
+            <h2 style="margin-bottom:var(--space-2)">No training plan yet</h2>
+            <p style="max-width:420px;margin:0 auto var(--space-4);color:color-mix(in srgb, var(--color-text) 65%, transparent)">Tell us what event you're training for and we'll build a weekly schedule of workouts around it.</p>
+            <button class="btn btn-primary" onClick="{{ openPlanWizard }}">Create a plan</button>
+          </div>
+        </sc-if>
+      </div>
     </div>
   </sc-if>
 
@@ -315,8 +392,7 @@
     <div>
       <nav class="nav" style="background:var(--color-surface)">
         <span class="nav-brand" style="cursor:pointer" onClick="{{ goHome }}">FULLSEND</span>
-        <button class="btn btn-secondary" style="margin-left:auto" onClick="{{ openPlanWizard }}">{{ planButtonLabel }}</button>
-        <button class="btn btn-icon" style="background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-weight:800" aria-current="page" aria-label="Profile">{{ avatarInitial }}</button>
+        <button class="btn btn-icon" style="margin-left:auto;background:var(--color-accent);color:var(--color-bg);font-family:var(--font-heading);font-weight:800" aria-current="page" aria-label="Profile">{{ avatarInitial }}</button>
       </nav>
 
 
@@ -498,6 +574,52 @@
     </div>
   </sc-if>
 
+  <sc-if value="{{ showConnectModal }}" hint-placeholder-val="{{ false }}">
+    <div class="dialog-backdrop" onClick="{{ closeConnectModal }}" style="z-index:200">
+      <div class="dialog" onClick="{{ stopPropagation }}" style="width:min(420px,100%)">
+        <div class="dialog-title">Connect {{ connectModalRoleLabel }}</div>
+        <div class="hr" style="margin:0 0 var(--space-4)"></div>
+
+        <sc-if value="{{ connectModalIsSearching }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:var(--space-2);padding:var(--space-2) 0">
+            <span style="{{ connectModalSpinnerStyle }}"></span>
+            <span style="font-size:13px">Searching for nearby {{ connectModalRoleLabel }} devices…</span>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ connectModalIsFound }}" hint-placeholder-val="{{ false }}">
+          <div class="card-meta" style="margin-bottom:6px">{{ connectModalFoundCountLabel }}</div>
+          <div style="display:flex;flex-direction:column;gap:4px">
+            <sc-for list="{{ connectModalFoundDevices }}" as="fd" hint-placeholder-count="2">
+              <button class="btn btn-secondary btn-block" style="justify-content:space-between;display:flex" onClick="{{ fd.onSelect }}">
+                <span>{{ fd.name }}</span>
+                <span class="card-meta">{{ fd.signalLabel }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ connectModalIsNotFound }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
+            <span style="font-size:13px">No {{ connectModalRoleLabel }} devices found nearby.</span>
+            <button class="btn btn-secondary" onClick="{{ connectModalRetry }}">Search again</button>
+          </div>
+        </sc-if>
+
+        <sc-if value="{{ connectModalIsError }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:var(--space-3)">
+            <span style="font-size:13px;color:var(--color-accent-700)">Connection failed — Bluetooth signal lost.</span>
+            <button class="btn btn-secondary" onClick="{{ connectModalRetry }}">Retry</button>
+          </div>
+        </sc-if>
+
+        <div class="dialog-actions">
+          <button class="btn btn-secondary" onClick="{{ closeConnectModal }}">Cancel</button>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+
 </div>
 
 </x-dc>
@@ -601,6 +723,16 @@ const CURRENT_WEEK_MONDAY = new Date(2026, 7, 17);
 const MONTH_LABELS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const fmtDate = (d) => `${MONTH_LABELS[d.getMonth()]} ${d.getDate()}`;
 const TODAY_DATE = new Date(2026, 7, 19);
+const DEVICE_ROLES = [
+  { role: "power", label: "Power (trainer)", sublabel: "Smart trainer or power meter", mock: [{ name: "Wahoo KICKR CORE", signal: "Strong signal" }, { name: "Wahoo KICKR BIKE", signal: "Good signal" }] },
+  { role: "hr", label: "Heart rate monitor", sublabel: "Chest strap or wrist HR sensor", mock: [{ name: "Wahoo TICKR", signal: "Strong signal" }, { name: "Polar H10", signal: "Good signal" }] },
+  { role: "cadence", label: "Cadence", sublabel: "Can also come from your trainer", mock: [{ name: "Garmin Cadence 2", signal: "Strong signal" }, { name: "Wahoo RPM", signal: "Good signal" }] }
+];
+function deviceOutcomeFor(role, attempt) {
+  if (role === "power") return "found";
+  if (role === "hr") return attempt === 1 ? "notfound" : "found";
+  return attempt === 1 ? "error" : "found";
+}
 const EVENT_TYPES = ["Gran Fondo", "Century Ride", "Gravel Race", "XC Mountain Bike", "Criterium", "Road Race", "Time Trial", "Custom"];
 const EVENT_EMPHASIS = { "Gran Fondo": "endurance", "Century Ride": "endurance", "Gravel Race": "endurance", "XC Mountain Bike": "vo2max", "Criterium": "vo2max", "Road Race": "vo2max", "Time Trial": "threshold", "Custom": "endurance" };
 function tierForHours(h) { return h <= 5 ? "low" : h <= 8 ? "mid" : "high"; }
@@ -644,6 +776,14 @@ class Component extends DCLogic {
     draftHoursPerWeek: 6,
     generatedPlan: { eventName: "Gran Fondo", weeksCount: 12, daysUntil: 42, hoursPerWeek: 6, ratio: "2:1", baseWeekNumber: 6 },
     hasPlan: true,
+    showConnectModal: false,
+    deviceFlow: null,
+    deviceFlowAttempts: {},
+    devices: {
+      power: { connected: true, name: "Wahoo KICKR CORE" },
+      hr: { connected: false, name: null },
+      cadence: { connected: false, name: null }
+    },
     isEditing: false,
     draftName: "Isaac Grotenhuis",
     draftEmail: "isaac@example.com",
@@ -730,6 +870,92 @@ class Component extends DCLogic {
       weekPlanKeys[i] = key;
       return { weekPlanKeys, pickerDayIndex: null };
     });
+  }
+
+  startConnect(role) {
+    const attempt = (this.state.deviceFlowAttempts[role] || 0) + 1;
+    this.setState((s) => ({ showConnectModal: true, deviceFlow: { role, status: "searching" }, deviceFlowAttempts: { ...s.deviceFlowAttempts, [role]: attempt } }));
+    setTimeout(() => {
+      this.setState((s) => (s.deviceFlow && s.deviceFlow.role === role ? { deviceFlow: { role, status: deviceOutcomeFor(role, attempt) } } : {}));
+    }, 1400);
+  }
+
+  selectFoundDevice(role, name) {
+    this.setState((s) => ({
+      devices: { ...s.devices, [role]: { connected: true, name } },
+      showConnectModal: false,
+      deviceFlow: null
+    }));
+  }
+
+  disconnectDevice(role) {
+    this.setState((s) => ({ devices: { ...s.devices, [role]: { connected: false, name: null } } }));
+  }
+
+  deviceVals() {
+    const s = this.state;
+    const deviceRows = DEVICE_ROLES.map((r) => {
+      const dev = s.devices[r.role];
+      return {
+        roleLabel: r.label,
+        statusLabel: dev.connected ? dev.name : "Not connected",
+        actionLabel: dev.connected ? "Disconnect" : "Connect",
+        actionButtonClass: dev.connected ? "btn btn-ghost" : "btn btn-primary",
+        onAction: dev.connected ? () => this.disconnectDevice(r.role) : () => this.startConnect(r.role)
+      };
+    });
+
+    const flow = s.deviceFlow;
+    const roleInfo = flow ? DEVICE_ROLES.find((r) => r.role === flow.role) : null;
+    const spinnerStyle = "width:12px;height:12px;border:2px solid var(--color-divider);border-top-color:var(--color-accent);border-radius:50%;animation:dc-spin 0.8s linear infinite;display:inline-block";
+
+    return {
+      deviceRows,
+      showConnectModal: s.showConnectModal,
+      closeConnectModal: () => this.setState({ showConnectModal: false, deviceFlow: null }),
+      connectModalRoleLabel: roleInfo ? roleInfo.label : "",
+      connectModalSpinnerStyle: spinnerStyle,
+      connectModalIsSearching: !!flow && flow.status === "searching",
+      connectModalIsFound: !!flow && flow.status === "found",
+      connectModalFoundCountLabel: roleInfo ? `${roleInfo.mock.length} device${roleInfo.mock.length === 1 ? "" : "s"} found` : "",
+      connectModalFoundDevices: roleInfo ? roleInfo.mock.map((m) => ({ name: m.name, signalLabel: m.signal, onSelect: () => this.selectFoundDevice(roleInfo.role, m.name) })) : [],
+      connectModalIsNotFound: !!flow && flow.status === "notfound",
+      connectModalIsError: !!flow && flow.status === "error",
+      connectModalRetry: flow ? () => this.startConnect(flow.role) : () => {}
+    };
+  }
+
+  buildPlanWeeks() {
+    const gp = this.state.generatedPlan;
+    const weekLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+    const planStart = new Date(CURRENT_WEEK_MONDAY);
+    planStart.setDate(planStart.getDate() - (gp.baseWeekNumber - 1) * 7);
+    const weeks = [];
+    for (let w = 0; w < gp.weeksCount; w++) {
+      const weekStart = new Date(planStart);
+      weekStart.setDate(weekStart.getDate() + w * 7);
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekEnd.getDate() + 6);
+      const days = weekLabels.map((label, i) => {
+        const dayDate = new Date(weekStart);
+        dayDate.setDate(dayDate.getDate() + i);
+        const key = this.state.weekPlanKeys[i];
+        const workout = key ? WORKOUT_LIBRARY[key] : null;
+        const isToday = dayDate.toDateString() === TODAY_DATE.toDateString();
+        return {
+          dayLabel: label,
+          dateLabel: fmtDate(dayDate),
+          workoutName: workout ? workout.name : "Rest day",
+          metaLabel: workout ? `${Math.round(workout.blocksPct.reduce((sum, b) => sum + b.durationSec, 0) / 60)} min · TSS ${workout.tss}` : "",
+          accentColor: isToday ? "var(--color-accent)" : "transparent",
+          editLabel: workout ? "Swap" : "Add",
+          onClick: workout ? () => this.setState({ selectedDayIndex: i }) : () => this.setState({ pickerDayIndex: i }),
+          onEditClick: (e) => { e.stopPropagation(); this.setState({ pickerDayIndex: i, selectedDayIndex: null }); }
+        };
+      });
+      weeks.push({ weekNumber: w + 1, dateRangeLabel: `${fmtDate(weekStart)} – ${fmtDate(weekEnd)}`, days });
+    }
+    return weeks;
   }
 
   generatePlan() {
@@ -931,9 +1157,13 @@ class Component extends DCLogic {
       isHome: this.state.screen === "home",
       isRide: this.state.screen === "ride",
       isProfile: this.state.screen === "profile",
+      isPlanPage: this.state.screen === "plan",
       goHome: () => this.setState({ screen: "home" }),
       goRide: () => this.setState({ screen: "ride" }),
       goProfile: () => this.setState({ screen: "profile" }),
+      goPlan: () => this.setState({ screen: "plan" }),
+      hasPlan: this.state.hasPlan,
+      planWeeks: this.state.hasPlan ? this.buildPlanWeeks() : [],
       startTodayWorkout: () => this.startWorkout(this.state.weekPlanKeys[TODAY_INDEX]),
       endWorkout: () =>
         this.setState({
@@ -1002,6 +1232,7 @@ class Component extends DCLogic {
 
       showPlanWizard: this.state.showPlanWizard,
       planButtonLabel: this.state.hasPlan ? "Edit plan" : "Add plan",
+      ...this.deviceVals(),
       openPlanWizard: () => this.setState({ showPlanWizard: true, wizardStep: 0 }),
       closePlanWizard: () => this.setState({ showPlanWizard: false }),
       wizardStepNumber: wizardStep + 1,
