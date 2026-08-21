@@ -1,12 +1,21 @@
 import { NobleBleAdapter } from "@main/ble/NobleBleAdapter";
 import {
+  BleRoleServiceNotFoundError,
   createInitialBleState,
   type BleAdapter,
   type BleDeviceStore,
   type BleService as BleServicePort,
   type BleTransitionStore
 } from "@main/ble/types";
-import type { BleCapabilities, BleDevice, BleDeviceKind, BleFtmsProfile, BleState } from "@shared/ipc/contracts";
+import {
+  bleRoles,
+  type BleCapabilities,
+  type BleConnectionEntry,
+  type BleDevice,
+  type BleFtmsProfile,
+  type BleRole,
+  type BleState
+} from "@shared/ipc/contracts";
 
 export class BleService implements BleServicePort {
   private state: BleState = createInitialBleState();
@@ -18,8 +27,7 @@ export class BleService implements BleServicePort {
   private listeners = new Set<(state: BleState) => void>();
   private initialized = false;
   private scanOperationSeq = 0;
-  private trainerConnectionOpSeq = 0;
-  private hrConnectionOpSeq = 0;
+  private connectionOpSeq: Record<BleRole, number> = { power: 0, heart_rate: 0, cadence: 0 };
   private manualDisconnectDeviceIds = new Set<string>();
   private reconnectAttempts = 0;
   private readonly maxReconnectAttempts = 2;
@@ -44,43 +52,44 @@ export class BleService implements BleServicePort {
 
     this.adapter.onDisconnected((deviceId) => {
       const wasManualDisconnect = this.manualDisconnectDeviceIds.delete(deviceId);
-
-      if (this.state.connectedDeviceId === deviceId) {
-        const droppedDeviceId = deviceId;
-        this.setState({
-          lifecycle: "disconnected",
-          connectedDeviceId: null,
-          ftmsProfile: null,
-          liveTelemetry: null,
-          scanning: false,
-          lastError: wasManualDisconnect ? null : "BLE signal lost; disconnected"
-        }, "adapter-disconnected");
-        if (!wasManualDisconnect) {
-          this.scheduleReconnect(droppedDeviceId);
+      for (const role of bleRoles) {
+        if (this.getConnection(role).connectedDeviceId !== deviceId) {
+          continue;
         }
-        return;
-      }
-
-      if (this.state.connectedHrDeviceId === deviceId) {
-        this.setState({
-          hrLifecycle: "disconnected",
-          connectedHrDeviceId: null,
-          heartRate: null,
-          hrLastError: wasManualDisconnect ? null : "BLE signal lost; disconnected"
-        }, "hr-adapter-disconnected");
+        const resetExtra: Partial<BleState> | undefined =
+          role === "power"
+            ? { ftmsProfile: null, liveTelemetry: null, scanning: false }
+            : role === "heart_rate"
+              ? { heartRate: null }
+              : undefined;
+        this.patchConnection(
+          role,
+          {
+            lifecycle: "disconnected",
+            connectedDeviceId: null,
+            lastError: wasManualDisconnect ? null : "BLE signal lost; disconnected"
+          },
+          `${role}-adapter-disconnected`,
+          resetExtra
+        );
+        if (role === "power" && !wasManualDisconnect) {
+          this.scheduleReconnect(deviceId);
+        }
       }
     });
 
     this.adapter.onError((error) => {
       console.error("[BleService] adapter error:", error);
-      const hrUpdate = this.state.connectedHrDeviceId
-        ? { hrLifecycle: "error" as const, hrLastError: error.message }
-        : {};
-      this.setState({
-        lifecycle: "error",
-        lastError: error.message,
-        ...hrUpdate
-      }, "adapter-error");
+      this.setState({ lifecycle: "error", lastError: error.message }, "adapter-error");
+      for (const role of bleRoles) {
+        if (role === "power") {
+          continue; // already covered by the setState above (power is mirrored at top level)
+        }
+        if (this.getConnection(role).connectedDeviceId === null) {
+          continue;
+        }
+        this.patchConnection(role, { lifecycle: "error", lastError: error.message }, "adapter-error");
+      }
     });
 
     this.adapter.onLiveTelemetry((deviceId, sample) => {
@@ -91,7 +100,7 @@ export class BleService implements BleServicePort {
     });
 
     this.adapter.onHeartRateTelemetry((deviceId, sample) => {
-      if (this.state.connectedHrDeviceId !== deviceId) {
+      if (this.state.connections.heart_rate.connectedDeviceId !== deviceId) {
         return;
       }
       this.setState({ heartRate: sample });
@@ -116,7 +125,7 @@ export class BleService implements BleServicePort {
         return;
       }
       this.reconnectAttempts = reconnectAttempt;
-      void this.connectTrainerInternal(deviceId, "auto-reconnect").catch((error: unknown) => {
+      void this.connectInternal(deviceId, "power", "auto-reconnect").catch((error: unknown) => {
         const message = error instanceof Error ? error.message : "Unknown reconnect error";
         console.error(`[BleService] auto-reconnect failed for device ${deviceId}:`, error);
         this.setState({ lastError: message }, "reconnect-failed");
@@ -156,13 +165,49 @@ export class BleService implements BleServicePort {
 
   private upsertDevice(device: BleDevice): void {
     const devices = new Map(this.state.discoveredDevices.map((item) => [item.id, item]));
+    const existing = devices.get(device.id);
+    const mergedRoles = Array.from(new Set([...(existing?.roles ?? []), ...(device.roles ?? [])]));
     devices.set(device.id, {
-      ...devices.get(device.id),
-      ...device
+      ...existing,
+      ...device,
+      roles: mergedRoles
     });
     this.setState({
       discoveredDevices: Array.from(devices.values())
     });
+  }
+
+  // Read-only structural view of a role's connection status. For "power" this is a
+  // superset (BleLifecycle) of the 6-state BleConnectionLifecycle; nothing writes a
+  // power-only value (e.g. "initializing") through patchConnection for another role.
+  private getConnection(role: BleRole): BleConnectionEntry {
+    if (role === "power") {
+      return {
+        lifecycle: this.state.lifecycle as BleConnectionEntry["lifecycle"],
+        connectedDeviceId: this.state.connectedDeviceId,
+        lastError: this.state.lastError
+      };
+    }
+    return this.state.connections[role];
+  }
+
+  private patchConnection(
+    role: BleRole,
+    patch: Partial<BleConnectionEntry>,
+    reason: string,
+    extraTopLevel?: Partial<BleState>
+  ): void {
+    if (role === "power") {
+      this.setState({ ...patch, ...extraTopLevel }, reason);
+      return;
+    }
+    this.setState(
+      {
+        connections: { ...this.state.connections, [role]: { ...this.state.connections[role], ...patch } },
+        ...extraTopLevel
+      },
+      reason
+    );
   }
 
   async startScan(timeoutMs: number): Promise<void> {
@@ -202,114 +247,132 @@ export class BleService implements BleServicePort {
     }, "scan-stopped");
   }
 
-  private deviceKind(deviceId: string): BleDeviceKind | undefined {
-    return this.state.discoveredDevices.find((item) => item.id === deviceId)?.kind;
-  }
-
-  private async connectTrainerInternal(deviceId: string, reason = "connect-requested"): Promise<void> {
-    if (
-      this.state.lifecycle === "connecting" ||
-      (this.state.lifecycle === "connected" && this.state.connectedDeviceId === deviceId)
-    ) {
-      return;
-    }
-    const opId = ++this.trainerConnectionOpSeq;
-    await this.ensureInitialized();
-    this.clearReconnectTimeout();
-    this.setState({
-      lifecycle: "connecting",
-      lastError: null
-    }, reason);
-    await this.adapter.connect(deviceId);
-    if (opId !== this.trainerConnectionOpSeq) {
-      return;
-    }
-    const discoveredDevice = this.state.discoveredDevices.find((item) => item.id === deviceId);
-    this.deviceStore?.upsert({
-      id: deviceId,
-      name: discoveredDevice?.name ?? discoveredDevice?.localName ?? null
-    });
-    this.reconnectAttempts = 0;
-    this.lastConnectedDeviceId = deviceId;
-    this.manualDisconnectDeviceIds.delete(deviceId);
-
-    let ftmsProfile: BleFtmsProfile | null = null;
-    let ftmsError: string | null = null;
-    try {
-      ftmsProfile = await this.adapter.discoverFtmsCharacteristics(deviceId);
-    } catch (error) {
-      ftmsError = error instanceof Error ? error.message : "Unknown FTMS discovery error";
-      console.error(`[BleService] FTMS discovery failed for device ${deviceId}:`, error);
-    }
-    if (opId !== this.trainerConnectionOpSeq) {
-      return;
-    }
-
-    if (ftmsProfile?.ergControlAvailable) {
+  // Preserves today's graceful degradation: an ordinary discovery error (a real
+  // trainer/HR/cadence device with a characteristic-level hiccup) still reports
+  // "connected" with the error stashed in lastError. Only a BleRoleServiceNotFoundError
+  // (the requested role's GATT service isn't present at all) propagates to the caller,
+  // which treats it as a hard failure rather than a fake "connected".
+  private async runRoleDiscovery(
+    deviceId: string,
+    role: BleRole
+  ): Promise<{ error: string | null; extra?: Partial<BleState> }> {
+    if (role === "power") {
+      let ftmsProfile: BleFtmsProfile | null = null;
       try {
-        await this.adapter.requestControl(deviceId);
+        ftmsProfile = await this.adapter.discoverFtmsCharacteristics(deviceId);
       } catch (error) {
-        ftmsError = error instanceof Error ? error.message : "Unknown FTMS request-control error";
-        console.error(`[BleService] FTMS request control failed for device ${deviceId}:`, error);
+        if (error instanceof BleRoleServiceNotFoundError) {
+          throw error;
+        }
+        const message = error instanceof Error ? error.message : "Unknown FTMS discovery error";
+        console.error(`[BleService] FTMS discovery failed for device ${deviceId}:`, error);
+        return { error: message, extra: { ftmsProfile: null } };
       }
+      if (ftmsProfile.ergControlAvailable) {
+        try {
+          await this.adapter.requestControl(deviceId);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unknown FTMS request-control error";
+          console.error(`[BleService] FTMS request control failed for device ${deviceId}:`, error);
+          return { error: message, extra: { ftmsProfile } };
+        }
+      }
+      return { error: null, extra: { ftmsProfile } };
     }
-    if (opId !== this.trainerConnectionOpSeq) {
-      return;
+    if (role === "heart_rate") {
+      try {
+        await this.adapter.discoverHeartRateCharacteristics(deviceId);
+      } catch (error) {
+        if (error instanceof BleRoleServiceNotFoundError) {
+          throw error;
+        }
+        console.error(`[BleService] heart rate discovery failed for device ${deviceId}:`, error);
+        return { error: error instanceof Error ? error.message : "Unknown heart rate discovery error" };
+      }
+      return { error: null };
     }
-
-    this.setState({
-      lifecycle: "connected",
-      connectedDeviceId: deviceId,
-      ftmsProfile,
-      liveTelemetry: null,
-      lastError: ftmsError
-    }, "connected");
+    try {
+      await this.adapter.discoverCadenceCharacteristics(deviceId);
+    } catch (error) {
+      if (error instanceof BleRoleServiceNotFoundError) {
+        throw error;
+      }
+      console.error(`[BleService] cadence discovery failed for device ${deviceId}:`, error);
+      return { error: error instanceof Error ? error.message : "Unknown cadence discovery error" };
+    }
+    return { error: null };
   }
 
-  private async connectHeartRateInternal(deviceId: string, reason = "connect-requested"): Promise<void> {
-    if (
-      this.state.hrLifecycle === "connecting" ||
-      (this.state.hrLifecycle === "connected" && this.state.connectedHrDeviceId === deviceId)
-    ) {
+  private async connectInternal(deviceId: string, role: BleRole, reason = "connect-requested"): Promise<void> {
+    const current = this.getConnection(role);
+    if (current.lifecycle === "connecting" || (current.lifecycle === "connected" && current.connectedDeviceId === deviceId)) {
       return;
     }
-    const opId = ++this.hrConnectionOpSeq;
+    const opId = ++this.connectionOpSeq[role];
     await this.ensureInitialized();
-    this.setState({
-      hrLifecycle: "connecting",
-      hrLastError: null
-    }, reason);
+    if (role === "power") {
+      this.clearReconnectTimeout();
+    }
+    this.patchConnection(role, { lifecycle: "connecting", lastError: null }, reason);
+
     await this.adapter.connect(deviceId);
-    if (opId !== this.hrConnectionOpSeq) {
+    if (opId !== this.connectionOpSeq[role]) {
       return;
+    }
+
+    if (role === "power") {
+      const discoveredDevice = this.state.discoveredDevices.find((item) => item.id === deviceId);
+      this.deviceStore?.upsert({
+        id: deviceId,
+        name: discoveredDevice?.name ?? discoveredDevice?.localName ?? null
+      });
+      this.reconnectAttempts = 0;
+      this.lastConnectedDeviceId = deviceId;
     }
     this.manualDisconnectDeviceIds.delete(deviceId);
 
-    let hrError: string | null = null;
+    let outcome: { error: string | null; extra?: Partial<BleState> };
     try {
-      await this.adapter.discoverHeartRateCharacteristics(deviceId);
+      outcome = await this.runRoleDiscovery(deviceId, role);
     } catch (error) {
-      hrError = error instanceof Error ? error.message : "Unknown heart rate discovery error";
-      console.error(`[BleService] heart rate discovery failed for device ${deviceId}:`, error);
+      if (opId !== this.connectionOpSeq[role]) {
+        return;
+      }
+      if (error instanceof BleRoleServiceNotFoundError) {
+        // Bug fix: the requested role's GATT service isn't actually present -> fail
+        // cleanly instead of reporting "connected". Advertisement-time role hints
+        // (device.roles) are just a UI hint, not authoritative.
+        await this.adapter.disconnect(deviceId).catch(() => {});
+        this.patchConnection(
+          role,
+          { lifecycle: "error", connectedDeviceId: null, lastError: error.message },
+          `${role}-role-not-verified`
+        );
+        return;
+      }
+      throw error;
     }
-    if (opId !== this.hrConnectionOpSeq) {
+    if (opId !== this.connectionOpSeq[role]) {
       return;
     }
 
-    this.setState({
-      hrLifecycle: "connected",
-      connectedHrDeviceId: deviceId,
-      heartRate: null,
-      hrLastError: hrError
-    }, "hr-connected");
+    const resetExtra: Partial<BleState> | undefined =
+      role === "power"
+        ? { ftmsProfile: outcome.extra?.ftmsProfile ?? null, liveTelemetry: null }
+        : role === "heart_rate"
+          ? { heartRate: null }
+          : undefined;
+
+    this.patchConnection(
+      role,
+      { lifecycle: "connected", connectedDeviceId: deviceId, lastError: outcome.error },
+      `${role}-connected`,
+      resetExtra
+    );
   }
 
-  async connect(deviceId: string): Promise<void> {
-    if (this.deviceKind(deviceId) === "heart_rate") {
-      await this.connectHeartRateInternal(deviceId, "connect-requested");
-      return;
-    }
-    await this.connectTrainerInternal(deviceId, "connect-requested");
+  async connect(deviceId: string, role: BleRole): Promise<void> {
+    await this.connectInternal(deviceId, role, "connect-requested");
   }
 
   listDevices(): BleDevice[] {
@@ -357,55 +420,43 @@ export class BleService implements BleServicePort {
     await this.adapter.stopOrPause(deviceId, mode);
   }
 
-  private async disconnectTrainerInternal(deviceId: string): Promise<void> {
-    const opId = ++this.trainerConnectionOpSeq;
+  private async disconnectInternal(deviceId: string, role: BleRole): Promise<void> {
+    const opId = ++this.connectionOpSeq[role];
     this.manualDisconnectDeviceIds.add(deviceId);
-    this.clearReconnectTimeout();
-    this.setState({ lifecycle: "disconnecting", lastError: null }, "disconnect-requested");
-    await this.adapter.disconnect(deviceId);
-    if (opId !== this.trainerConnectionOpSeq) {
-      return;
+    if (role === "power") {
+      this.clearReconnectTimeout();
     }
-    this.reconnectAttempts = 0;
-    this.setState({
-      lifecycle: "disconnected",
-      connectedDeviceId: null,
-      ftmsProfile: null,
-      liveTelemetry: null
-    }, "disconnected");
-  }
+    this.patchConnection(role, { lifecycle: "disconnecting", lastError: null }, `${role}-disconnect-requested`);
 
-  private async disconnectHeartRateInternal(deviceId: string): Promise<void> {
-    const opId = ++this.hrConnectionOpSeq;
-    this.manualDisconnectDeviceIds.add(deviceId);
     await this.adapter.disconnect(deviceId);
-    if (opId !== this.hrConnectionOpSeq) {
+    if (opId !== this.connectionOpSeq[role]) {
       return;
     }
-    this.setState({
-      hrLifecycle: "disconnected",
-      connectedHrDeviceId: null,
-      heartRate: null,
-      hrLastError: null
-    }, "hr-disconnected");
+
+    if (role === "power") {
+      this.reconnectAttempts = 0;
+    }
+    const resetExtra: Partial<BleState> | undefined =
+      role === "power" ? { ftmsProfile: null, liveTelemetry: null } : role === "heart_rate" ? { heartRate: null } : undefined;
+    this.patchConnection(
+      role,
+      { lifecycle: "disconnected", connectedDeviceId: null, lastError: null },
+      `${role}-disconnected`,
+      resetExtra
+    );
   }
 
   async disconnect(deviceId?: string): Promise<void> {
     if (deviceId) {
-      if (deviceId === this.state.connectedHrDeviceId) {
-        await this.disconnectHeartRateInternal(deviceId);
-        return;
-      }
-      await this.disconnectTrainerInternal(deviceId);
+      const roles = bleRoles.filter((role) => this.getConnection(role).connectedDeviceId === deviceId);
+      await Promise.all(roles.map((role) => this.disconnectInternal(deviceId, role)));
       return;
     }
 
-    const trainerDeviceId = this.state.connectedDeviceId;
-    const hrDeviceId = this.state.connectedHrDeviceId;
-    await Promise.all([
-      trainerDeviceId ? this.disconnectTrainerInternal(trainerDeviceId) : Promise.resolve(),
-      hrDeviceId ? this.disconnectHeartRateInternal(hrDeviceId) : Promise.resolve()
-    ]);
+    const active = bleRoles
+      .map((role) => ({ role, id: this.getConnection(role).connectedDeviceId }))
+      .filter((entry): entry is { role: BleRole; id: string } => entry.id !== null);
+    await Promise.all(active.map(({ role, id }) => this.disconnectInternal(id, role)));
   }
 
   getState(): BleState {

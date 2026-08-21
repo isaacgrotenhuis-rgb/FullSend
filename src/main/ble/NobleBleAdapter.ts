@@ -1,4 +1,4 @@
-import type { BleAdapter } from "@main/ble/types";
+import { CSC_SERVICE_UUID } from "@main/ble/csc";
 import {
   FTMS_CONTROL_POINT_UUID,
   FTMS_INDOOR_BIKE_DATA_UUID,
@@ -8,7 +8,8 @@ import {
   parseIndoorBikeData
 } from "@main/ble/ftms";
 import { HR_MEASUREMENT_UUID, HR_SERVICE_UUID, parseHeartRateMeasurement } from "@main/ble/hr";
-import type { BleDevice, BleDeviceKind, BleFtmsProfile, BleHeartRateSample, BleLiveTelemetry } from "@shared/ipc/contracts";
+import { BleRoleServiceNotFoundError, type BleAdapter } from "@main/ble/types";
+import type { BleDevice, BleFtmsProfile, BleHeartRateSample, BleLiveTelemetry, BleRole } from "@shared/ipc/contracts";
 
 type NobleLike = {
   state?: string;
@@ -46,17 +47,20 @@ type NoblePeripheralLike = {
 
 const normalizeUuid = (value: string): string => value.toLowerCase().replace(/-/g, "");
 
-const inferDeviceKind = (peripheral: NoblePeripheralLike): BleDeviceKind => {
+const inferDeviceRoles = (peripheral: NoblePeripheralLike): BleRole[] => {
   const advertised = new Set((peripheral.advertisement?.serviceUuids ?? []).map(normalizeUuid));
-  const hasFtms = advertised.has(normalizeUuid(FTMS_SERVICE_UUID));
-  const hasHeartRate = advertised.has(normalizeUuid(HR_SERVICE_UUID));
-  if (hasFtms) {
-    return "trainer";
+  const roles: BleRole[] = [];
+  if (advertised.has(normalizeUuid(FTMS_SERVICE_UUID))) {
+    // FTMS's Indoor Bike Data already carries cadence over the same connection.
+    roles.push("power", "cadence");
   }
-  if (hasHeartRate) {
-    return "heart_rate";
+  if (advertised.has(normalizeUuid(HR_SERVICE_UUID))) {
+    roles.push("heart_rate");
   }
-  return "unknown";
+  if (advertised.has(normalizeUuid(CSC_SERVICE_UUID)) && !roles.includes("cadence")) {
+    roles.push("cadence");
+  }
+  return roles;
 };
 
 export class NobleBleAdapter implements BleAdapter {
@@ -117,7 +121,32 @@ export class NobleBleAdapter implements BleAdapter {
         name: peripheral.advertisement?.localName,
         localName: peripheral.advertisement?.localName,
         rssi: peripheral.rssi,
-        kind: inferDeviceKind(peripheral)
+        roles: inferDeviceRoles(peripheral)
+      });
+    });
+
+    await this.waitForPoweredOn();
+  }
+
+  private async waitForPoweredOn(): Promise<void> {
+    if (!this.noble || this.noble.state === "poweredOn") {
+      return;
+    }
+    await new Promise<void>((resolve, reject) => {
+      const timeoutMs = 10000;
+      const timeout = setTimeout(() => {
+        reject(
+          new Error(
+            `Bluetooth adapter did not power on within ${timeoutMs}ms (state: ${this.noble?.state ?? "unknown"}); check macOS Bluetooth permission for this app`
+          )
+        );
+      }, timeoutMs);
+      this.noble?.on("stateChange", (...args: unknown[]) => {
+        const state = args[0] as string | undefined;
+        if (state === "poweredOn") {
+          clearTimeout(timeout);
+          resolve();
+        }
       });
     });
   }
@@ -126,7 +155,7 @@ export class NobleBleAdapter implements BleAdapter {
     if (!this.noble) {
       throw new Error("BLE adapter is not initialized");
     }
-    await this.noble.startScanningAsync?.([FTMS_SERVICE_UUID, HR_SERVICE_UUID], true);
+    await this.noble.startScanningAsync?.([FTMS_SERVICE_UUID, HR_SERVICE_UUID, CSC_SERVICE_UUID], true);
   }
 
   async stopScan(): Promise<void> {
@@ -150,7 +179,7 @@ export class NobleBleAdapter implements BleAdapter {
       name: peripheral.advertisement?.localName,
       localName: peripheral.advertisement?.localName,
       rssi: peripheral.rssi,
-      kind: inferDeviceKind(peripheral)
+      roles: inferDeviceRoles(peripheral)
     }));
   }
 
@@ -160,7 +189,15 @@ export class NobleBleAdapter implements BleAdapter {
       throw new Error(`Device not discovered: ${deviceId}`);
     }
 
-    const discovery = await peripheral.discoverSomeServicesAndCharacteristicsAsync?.([FTMS_SERVICE_UUID], []);
+    let discovery: { characteristics?: NobleCharacteristicLike[] } | undefined;
+    try {
+      discovery = await peripheral.discoverSomeServicesAndCharacteristicsAsync?.([FTMS_SERVICE_UUID], []);
+    } catch {
+      discovery = undefined;
+    }
+    if (!discovery?.characteristics || discovery.characteristics.length === 0) {
+      throw new BleRoleServiceNotFoundError(deviceId, "power");
+    }
     const characteristicUuids = discovery?.characteristics?.flatMap((item) => {
       if (!item.uuid) {
         return [];
@@ -249,14 +286,42 @@ export class NobleBleAdapter implements BleAdapter {
       throw new Error(`Device not discovered: ${deviceId}`);
     }
 
-    const discovery = await peripheral.discoverSomeServicesAndCharacteristicsAsync?.([HR_SERVICE_UUID], []);
-    const measurementCharacteristic = discovery?.characteristics?.find(
+    let discovery: { characteristics?: NobleCharacteristicLike[] } | undefined;
+    try {
+      discovery = await peripheral.discoverSomeServicesAndCharacteristicsAsync?.([HR_SERVICE_UUID], []);
+    } catch {
+      discovery = undefined;
+    }
+    if (!discovery?.characteristics || discovery.characteristics.length === 0) {
+      throw new BleRoleServiceNotFoundError(deviceId, "heart_rate");
+    }
+    const measurementCharacteristic = discovery.characteristics.find(
       (item) => item.uuid?.toLowerCase() === HR_MEASUREMENT_UUID
     );
     if (measurementCharacteristic?.properties?.includes("notify") && !this.heartRateMeasurementSubscribed.has(deviceId)) {
       this.heartRateMeasurementSubscribed.add(deviceId);
       await this.subscribeHeartRateMeasurement(deviceId, measurementCharacteristic);
     }
+  }
+
+  async discoverCadenceCharacteristics(deviceId: string): Promise<void> {
+    const peripheral = this.peripherals.get(deviceId);
+    if (!peripheral) {
+      throw new Error(`Device not discovered: ${deviceId}`);
+    }
+
+    let discovery: { characteristics?: NobleCharacteristicLike[] } | undefined;
+    try {
+      discovery = await peripheral.discoverSomeServicesAndCharacteristicsAsync?.([CSC_SERVICE_UUID], []);
+    } catch {
+      discovery = undefined;
+    }
+    if (!discovery?.characteristics || discovery.characteristics.length === 0) {
+      throw new BleRoleServiceNotFoundError(deviceId, "cadence");
+    }
+    // Phase 2 (out of scope): subscribe to CSC Measurement (0x2a5b) and emit
+    // parsed cadence via a new onCadenceTelemetry listener, mirroring
+    // subscribeHeartRateMeasurement.
   }
 
   private async subscribeHeartRateMeasurement(deviceId: string, characteristic: NobleCharacteristicLike): Promise<void> {

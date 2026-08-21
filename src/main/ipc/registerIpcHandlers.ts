@@ -119,7 +119,7 @@ export const registerIpcHandlers = (
     bleConnectRequestSchema,
     okResultSchema,
     async (_event, input) => {
-      await bleService.connect(input.deviceId);
+      await bleService.connect(input.deviceId, input.role);
       return { ok: true };
     }
   );
