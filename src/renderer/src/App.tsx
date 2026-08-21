@@ -553,8 +553,6 @@ export const App = (): ReactElement => {
             setPlanLengthWeeks,
             currentFtp,
             setCurrentFtp,
-            reason,
-            setReason,
             weeklyAvailability,
             updateAvailability,
             canGenerate,
