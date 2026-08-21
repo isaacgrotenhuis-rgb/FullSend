@@ -560,7 +560,7 @@ export const dashboardMetricsResultSchema = dashboardMetricsSchema;
 export const stravaSyncEventsSchema = z.array(stravaSyncEventSummarySchema);
 
 export const pingResultSchema = z.object({
-  app: z.literal("kickr-desktop"),
+  app: z.literal("full-send"),
   ts: z.string()
 });
 

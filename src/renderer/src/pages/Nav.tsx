@@ -9,7 +9,7 @@ type Props = {
 export const Nav = ({ page, onNavigate }: Props): ReactElement => (
   <nav className="nav">
     <span className="nav-brand" style={{ cursor: "pointer" }} onClick={() => onNavigate("home")}>
-      KICKR
+      FULLSEND
     </span>
     <button
       className="btn btn-icon"

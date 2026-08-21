@@ -1,6 +1,6 @@
-# KICKR Desktop (Standalone Foundation)
+# Full Send (Standalone Foundation)
 
-macOS-first standalone Electron desktop foundation for KICKR training workflows, independent of SportCoach.
+Full Send is a macOS-first standalone Electron desktop app for KICKR training workflows, independent of SportCoach.
 
 ## Stack and OSS choices
 

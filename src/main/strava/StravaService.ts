@@ -262,12 +262,12 @@ export class StravaService {
     });
 
     const payload = new URLSearchParams({
-      name: row.workout_name?.trim() || `KICKR Session ${row.id.slice(0, 8)}`,
+      name: row.workout_name?.trim() || `Full Send Session ${row.id.slice(0, 8)}`,
       sport_type: "Ride",
       start_date_local: formatStravaDate(row.started_at),
       elapsed_time: `${this.toElapsedSeconds(row)}`,
       trainer: "1",
-      description: `KICKR desktop session ${row.id}${row.workout_id ? ` (workout ${row.workout_id})` : ""}`
+      description: `Full Send session ${row.id}${row.workout_id ? ` (workout ${row.workout_id})` : ""}`
     });
 
     try {
