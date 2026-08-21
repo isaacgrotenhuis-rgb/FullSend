@@ -74,14 +74,17 @@ export const bleLifecycleSchema = z.enum([
   "error"
 ]);
 
-export const bleDeviceKindSchema = z.enum(["trainer", "heart_rate", "unknown"]);
+export const bleRoleSchema = z.enum(["power", "heart_rate", "cadence"]);
+export const bleRoles: readonly z.infer<typeof bleRoleSchema>[] = ["power", "heart_rate", "cadence"] as const;
+
+export const bleDeviceRolesSchema = z.array(bleRoleSchema);
 
 export const bleDeviceSchema = z.object({
   id: z.string().min(1),
   name: z.string().optional(),
   rssi: z.number().int().optional(),
   localName: z.string().optional(),
-  kind: bleDeviceKindSchema.optional()
+  roles: bleDeviceRolesSchema.default([])
 });
 
 export const bleCapabilitiesSchema = z.object({
@@ -94,7 +97,29 @@ export const bleCapabilitiesSchema = z.object({
   knownLimitations: z.array(z.string())
 });
 
-export const bleHrLifecycleSchema = z.enum(["idle", "connecting", "connected", "disconnected", "error"]);
+export const bleConnectionLifecycleSchema = z.enum([
+  "idle",
+  "connecting",
+  "connected",
+  "disconnecting",
+  "disconnected",
+  "error"
+]);
+
+export const bleConnectionEntrySchema = z.object({
+  lifecycle: bleConnectionLifecycleSchema,
+  connectedDeviceId: z.string().nullable(),
+  lastError: z.string().nullable()
+});
+
+// Only heart_rate and cadence live here; the "power" role's connection status stays
+// on BleState's flat lifecycle/connectedDeviceId/lastError fields (see bleStateSchema
+// below) because that lifecycle enum is already dual-purpose as the adapter's global
+// status, and splitting that apart is out of scope for the role-model change.
+export const bleConnectionsSchema = z.object({
+  heart_rate: bleConnectionEntrySchema,
+  cadence: bleConnectionEntrySchema
+});
 
 export const bleHeartRateSampleSchema = z.object({
   bpm: z.number().nullable(),
@@ -122,16 +147,16 @@ export const bleLiveTelemetrySchema = z.object({
 });
 
 export const bleStateSchema = z.object({
+  // These four fields double as the "power" role's connection status (see
+  // bleConnectionsSchema above for why power isn't folded into `connections`).
   lifecycle: bleLifecycleSchema,
-  scanning: z.boolean(),
   connectedDeviceId: z.string().nullable(),
   lastError: z.string().nullable(),
-  discoveredDevices: z.array(bleDeviceSchema),
   ftmsProfile: bleFtmsProfileSchema.nullable(),
+  scanning: z.boolean(),
+  discoveredDevices: z.array(bleDeviceSchema),
   liveTelemetry: bleLiveTelemetrySchema.nullable(),
-  connectedHrDeviceId: z.string().nullable(),
-  hrLifecycle: bleHrLifecycleSchema,
-  hrLastError: z.string().nullable(),
+  connections: bleConnectionsSchema,
   heartRate: bleHeartRateSampleSchema.nullable()
 });
 
@@ -140,7 +165,8 @@ export const bleScanRequestSchema = z.object({
 });
 
 export const bleConnectRequestSchema = z.object({
-  deviceId: z.string().min(1)
+  deviceId: z.string().min(1),
+  role: bleRoleSchema
 });
 
 export const bleDisconnectRequestSchema = z.object({
@@ -539,10 +565,12 @@ export const pingResultSchema = z.object({
 });
 
 export type BleLifecycle = z.infer<typeof bleLifecycleSchema>;
-export type BleDeviceKind = z.infer<typeof bleDeviceKindSchema>;
+export type BleRole = z.infer<typeof bleRoleSchema>;
 export type BleDevice = z.infer<typeof bleDeviceSchema>;
 export type BleCapabilities = z.infer<typeof bleCapabilitiesSchema>;
-export type BleHrLifecycle = z.infer<typeof bleHrLifecycleSchema>;
+export type BleConnectionLifecycle = z.infer<typeof bleConnectionLifecycleSchema>;
+export type BleConnectionEntry = z.infer<typeof bleConnectionEntrySchema>;
+export type BleConnections = z.infer<typeof bleConnectionsSchema>;
 export type BleHeartRateSample = z.infer<typeof bleHeartRateSampleSchema>;
 export type BleFtmsCharacteristic = z.infer<typeof bleFtmsCharacteristicSchema>;
 export type BleFtmsProfile = z.infer<typeof bleFtmsProfileSchema>;
