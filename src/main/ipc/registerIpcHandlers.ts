@@ -34,8 +34,6 @@ import {
   stravaSyncRequestSchema,
   stravaSyncResultSchema,
   createWorkoutRequestSchema,
-  deleteEventPlanRequestSchema,
-  deleteEventPlanResultSchema,
   deleteIntervalRequestSchema,
   deleteWorkoutRequestSchema,
   ipcChannels,
@@ -332,15 +330,6 @@ export const registerIpcHandlers = (
         ...input,
         source: input.source ?? "user"
       })
-  );
-  safeHandle(
-    ipcChannels.eventPlan.delete,
-    deleteEventPlanRequestSchema,
-    deleteEventPlanResultSchema,
-    (_event, input) => {
-      eventPlanService.deletePlan(input.planId);
-      return { ok: true };
-    }
   );
   safeHandle(
     ipcChannels.eventPlan.listVersions,

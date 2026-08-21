@@ -718,19 +718,8 @@ export class EventPlanService {
     const snapshot = JSON.parse(latestVersion.snapshot_json) as PlanSnapshot;
     return {
       planId: latestPlan.id,
-      weeks: snapshot.weeks as EventPlanWeek[],
-      input: snapshot.input
+      weeks: snapshot.weeks as EventPlanWeek[]
     };
-  }
-
-  deletePlan(planId: string): void {
-    this.repositories.transaction(() => {
-      const plan = this.repositories.trainingPlans.getById(planId);
-      if (!plan) {
-        throw new Error(`Plan ${planId} not found`);
-      }
-      this.repositories.trainingPlans.delete(planId);
-    });
   }
 
   listPlanVersions(planId: string): EventPlanVersion[] {
