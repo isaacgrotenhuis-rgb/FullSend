@@ -5,7 +5,8 @@ import type {
   StartWorkoutSessionRequest,
   WorkoutLiveMetrics,
   WorkoutSessionLifecycle,
-  WorkoutSessionState
+  WorkoutSessionState,
+  WorkoutSessionSummary
 } from "@shared/ipc/contracts";
 
 type WorkoutPersistence = {
@@ -24,6 +25,7 @@ type WorkoutPersistence = {
       endedAt?: string | null;
       summaryJson?: string;
     }) => void;
+    deleteById: (id: string) => void;
   };
   workoutSessionEvents: {
     append: (input: {
@@ -47,6 +49,11 @@ type WorkoutPersistence = {
       actualHeartRateBpm: number | null;
       payloadJson: string;
     }) => void;
+    getAverages: (sessionId: string) => {
+      avgPowerWatts: number | null;
+      avgCadenceRpm: number | null;
+      avgHeartRateBpm: number | null;
+    };
   };
 };
 
@@ -91,6 +98,8 @@ export class ErgWorkoutEngine {
   private forceRampReset = false;
   private latestTelemetry: { powerWatts: number | null; cadenceRpm: number | null } | null = null;
   private latestHeartRateBpm: number | null = null;
+  private lastEndReason: string | null = null;
+  private readonly terminalLifecycles = new Set<WorkoutSessionLifecycle>(["stopped", "completed", "degraded", "error"]);
   private listeners = new Set<(state: WorkoutSessionState) => void>();
 
   constructor(bleService: BleService, persistence: WorkoutPersistence) {
@@ -205,6 +214,7 @@ export class ErgWorkoutEngine {
     this.stopTicking();
     this.expectedNextTickAtMs = null;
     this.tickInFlight = false;
+    this.lastEndReason = reason;
     const endedAt = new Date().toISOString();
     this.persistence.workoutSessions.updateStatus({
       id: this.state.sessionId,
@@ -399,6 +409,7 @@ export class ErgWorkoutEngine {
     this.rampBlockIndex = null;
     this.rampFromWatts = null;
     this.forceRampReset = false;
+    this.lastEndReason = null;
 
     this.persistence.workoutSessions.create({
       id: sessionId,
@@ -511,6 +522,51 @@ export class ErgWorkoutEngine {
     await this.completeSession("stopped", "manual-stop");
     await this.safeErgStop();
     this.scheduler = null;
+  }
+
+  finalizeSession(sessionId: string): WorkoutSessionSummary {
+    this.requireActiveSession(sessionId);
+    if (!this.terminalLifecycles.has(this.state.lifecycle)) {
+      throw new Error("Session must have ended before it can be saved");
+    }
+    const averages = this.persistence.workoutSessionTelemetry.getAverages(sessionId);
+    const avgPowerWatts = averages.avgPowerWatts !== null ? Math.round(averages.avgPowerWatts) : null;
+    const avgCadenceRpm = averages.avgCadenceRpm !== null ? Math.round(averages.avgCadenceRpm) : null;
+    const avgHeartRateBpm = averages.avgHeartRateBpm !== null ? Math.round(averages.avgHeartRateBpm) : null;
+
+    this.persistence.workoutSessions.updateStatus({
+      id: sessionId,
+      status: "completed",
+      summaryJson: JSON.stringify({
+        endReason: this.lastEndReason ?? "unknown",
+        elapsedSec: this.state.elapsedSec,
+        currentIntervalIndex: this.state.currentIntervalIndex,
+        avgPowerWatts,
+        avgCadenceRpm,
+        avgHeartRateBpm,
+        savedAt: new Date().toISOString()
+      })
+    });
+    this.persistEvent("session-saved", { avgPowerWatts, avgCadenceRpm, avgHeartRateBpm });
+    this.patchState({ lifecycle: "completed" });
+
+    return {
+      sessionId,
+      durationSec: this.state.elapsedSec,
+      avgPowerWatts,
+      avgCadenceRpm,
+      avgHeartRateBpm
+    };
+  }
+
+  discardSession(sessionId: string): void {
+    this.requireActiveSession(sessionId);
+    if (!this.terminalLifecycles.has(this.state.lifecycle)) {
+      throw new Error("Session must have ended before it can be discarded");
+    }
+    this.persistence.workoutSessions.deleteById(sessionId);
+    this.lastEndReason = null;
+    this.emitState(createIdleState());
   }
 
   getState(): WorkoutSessionState {

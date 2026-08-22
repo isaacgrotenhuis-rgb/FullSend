@@ -22,6 +22,8 @@ export const ipcChannels = {
     pauseSession: "workout:pause-session",
     resumeSession: "workout:resume-session",
     stopSession: "workout:stop-session",
+    saveSession: "workout:save-session",
+    discardSession: "workout:discard-session",
     setIntensity: "workout:set-intensity",
     setRampDuration: "workout:set-ramp-duration",
     getSessionState: "workout:get-session-state",
@@ -257,6 +259,14 @@ export const workoutSessionStateSchema = z.object({
 export const workoutSessionStartResultSchema = z.object({
   ok: z.literal(true),
   sessionId: z.string().min(1)
+});
+
+export const workoutSessionSummarySchema = z.object({
+  sessionId: z.string().min(1),
+  durationSec: z.number().int().min(0),
+  avgPowerWatts: z.number().nullable(),
+  avgCadenceRpm: z.number().nullable(),
+  avgHeartRateBpm: z.number().nullable()
 });
 
 export const workoutSummarySchema = z.object({
@@ -594,6 +604,7 @@ export type WorkoutSessionLifecycle = z.infer<typeof workoutSessionLifecycleSche
 export type WorkoutLiveMetrics = z.infer<typeof workoutLiveMetricsSchema>;
 export type WorkoutSessionState = z.infer<typeof workoutSessionStateSchema>;
 export type WorkoutSessionStartResult = z.infer<typeof workoutSessionStartResultSchema>;
+export type WorkoutSessionSummary = z.infer<typeof workoutSessionSummarySchema>;
 export type WorkoutSummary = z.infer<typeof workoutSummarySchema>;
 export type CreateWorkoutRequest = z.infer<typeof createWorkoutRequestSchema>;
 export type UpdateWorkoutRequest = z.infer<typeof updateWorkoutRequestSchema>;

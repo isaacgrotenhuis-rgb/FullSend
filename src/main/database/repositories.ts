@@ -257,6 +257,11 @@ export class WorkoutSessionsRepository extends BaseRepository {
       )
       .get(sessionId) as Row | undefined;
   }
+
+  deleteById(id: string): void {
+    this.db.prepare("DELETE FROM strava_sync_events WHERE session_id = ?").run(id);
+    this.db.prepare("DELETE FROM workout_sessions WHERE id = ?").run(id);
+  }
 }
 
 export class WorkoutSessionEventsRepository extends BaseRepository {
@@ -307,6 +312,26 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
         input.actualHeartRateBpm,
         input.payloadJson
       );
+  }
+
+  getAverages(sessionId: string): {
+    avgPowerWatts: number | null;
+    avgCadenceRpm: number | null;
+    avgHeartRateBpm: number | null;
+  } {
+    return this.db
+      .prepare(
+        `SELECT AVG(actual_power_watts) AS avgPowerWatts,
+                AVG(actual_cadence_rpm) AS avgCadenceRpm,
+                AVG(actual_heart_rate_bpm) AS avgHeartRateBpm
+         FROM workout_session_telemetry
+         WHERE session_id = ?`
+      )
+      .get(sessionId) as {
+      avgPowerWatts: number | null;
+      avgCadenceRpm: number | null;
+      avgHeartRateBpm: number | null;
+    };
   }
 }
 

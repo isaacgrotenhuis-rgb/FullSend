@@ -1,5 +1,5 @@
-import { useState, type ReactElement } from "react";
-import type { WorkoutInterval, WorkoutSessionState } from "@shared/ipc/contracts";
+import { useEffect, useState, type ReactElement } from "react";
+import type { WorkoutInterval, WorkoutSessionState, WorkoutSessionSummary } from "@shared/ipc/contracts";
 import { formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
 
 type Props = {
@@ -12,6 +12,8 @@ type Props = {
   pauseWorkout: () => Promise<void>;
   resumeWorkout: () => Promise<void>;
   stopWorkout: () => Promise<void>;
+  saveWorkout: () => Promise<WorkoutSessionSummary | null>;
+  discardWorkout: () => Promise<void>;
   finishRide: (postToStrava: boolean) => Promise<void>;
   adjustIntensity: (deltaFraction: number) => Promise<void>;
   rampDurationInput: string;
@@ -31,6 +33,8 @@ export const RidePage = ({
   pauseWorkout,
   resumeWorkout,
   stopWorkout,
+  saveWorkout,
+  discardWorkout,
   finishRide,
   adjustIntensity,
   rampDurationInput,
@@ -38,6 +42,8 @@ export const RidePage = ({
   applyRampDuration
 }: Props): ReactElement => {
   const [postToStrava, setPostToStrava] = useState(true);
+  const [summaryStage, setSummaryStage] = useState<"none" | "pending" | "saved">("none");
+  const [savedSummary, setSavedSummary] = useState<WorkoutSessionSummary | null>(null);
 
   const totalDurationSec = activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0);
   const elapsedSec = workoutSessionState?.elapsedSec ?? 0;
@@ -55,7 +61,26 @@ export const RidePage = ({
     workoutSessionState?.lifecycle === "completed" ||
     workoutSessionState?.lifecycle === "degraded" ||
     workoutSessionState?.lifecycle === "error";
-  const showEndSummary = activeIntervals.length > 0 && hasEndedLifecycle;
+
+  useEffect(() => {
+    if (hasEndedLifecycle && summaryStage === "none") {
+      setSummaryStage("pending");
+    }
+  }, [hasEndedLifecycle, summaryStage]);
+
+  const showEndSummary = activeIntervals.length > 0 && summaryStage !== "none";
+
+  const handleDiscard = async (): Promise<void> => {
+    await discardWorkout();
+  };
+
+  const handleSave = async (): Promise<void> => {
+    const summary = await saveWorkout();
+    if (summary) {
+      setSavedSummary(summary);
+      setSummaryStage("saved");
+    }
+  };
 
   return (
     <main className="app">
@@ -238,46 +263,74 @@ export const RidePage = ({
         <div className="dialog-backdrop" style={{ zIndex: 100 }}>
           <div className="dialog" style={{ width: "min(480px, 100%)" }}>
             <div className="dialog-title">{activeWorkoutName ?? "Workout"}</div>
-            <div className="card-meta">Completed · {formatClock(elapsedSec)}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 2, background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6>Duration</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>{formatClock(elapsedSec)}</div>
-              </div>
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6>Avg power</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20, opacity: 0.4 }}>—</div>
-              </div>
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6>Avg cadence</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20, opacity: 0.4 }}>—</div>
-              </div>
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6>TSS</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20, opacity: 0.4 }}>—</div>
-              </div>
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6>IF</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20, opacity: 0.4 }}>—</div>
-              </div>
-            </div>
+            <div className="card-meta">{summaryStage === "saved" ? "Saved" : "Ended"} · {formatClock(elapsedSec)}</div>
 
-            <div className="hr" style={{ margin: "var(--space-2) 0" }} />
-            <label className="radio" style={{ gap: 10 }}>
-              <input
-                type="checkbox"
-                checked={postToStrava}
-                onChange={(event) => setPostToStrava(event.target.checked)}
-                style={{ position: "static", opacity: 1, width: 16, height: 16, pointerEvents: "auto" }}
-              />
-              <span style={{ fontSize: 13 }}>Post this workout to Strava</span>
-            </label>
+            {summaryStage === "pending" ? (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2, background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
+                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                    <h6>Duration</h6>
+                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>{formatClock(elapsedSec)}</div>
+                  </div>
+                </div>
 
-            <div className="dialog-actions">
-              <button className="btn btn-primary" disabled={liveWorkoutBusy} onClick={() => void finishRide(postToStrava)}>
-                Done
-              </button>
-            </div>
+                <div className="hr" style={{ margin: "var(--space-2) 0" }} />
+                <div className="dialog-actions">
+                  <button className="btn btn-secondary" disabled={liveWorkoutBusy} onClick={() => void handleDiscard()}>
+                    Discard
+                  </button>
+                  <button className="btn btn-primary" disabled={liveWorkoutBusy} onClick={() => void handleSave()}>
+                    Save Workout
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 2, background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
+                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                    <h6>Duration</h6>
+                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
+                      {formatClock(savedSummary?.durationSec ?? elapsedSec)}
+                    </div>
+                  </div>
+                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                    <h6>Avg power</h6>
+                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
+                      {savedSummary?.avgPowerWatts != null ? `${savedSummary.avgPowerWatts} W` : "—"}
+                    </div>
+                  </div>
+                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                    <h6>Avg cadence</h6>
+                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
+                      {savedSummary?.avgCadenceRpm != null ? `${savedSummary.avgCadenceRpm} rpm` : "—"}
+                    </div>
+                  </div>
+                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                    <h6>Avg HR</h6>
+                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
+                      {savedSummary?.avgHeartRateBpm != null ? `${savedSummary.avgHeartRateBpm} bpm` : "—"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="hr" style={{ margin: "var(--space-2) 0" }} />
+                <label className="radio" style={{ gap: 10 }}>
+                  <input
+                    type="checkbox"
+                    checked={postToStrava}
+                    onChange={(event) => setPostToStrava(event.target.checked)}
+                    style={{ position: "static", opacity: 1, width: 16, height: 16, pointerEvents: "auto" }}
+                  />
+                  <span style={{ fontSize: 13 }}>Post this workout to Strava</span>
+                </label>
+
+                <div className="dialog-actions">
+                  <button className="btn btn-primary" disabled={liveWorkoutBusy} onClick={() => void finishRide(postToStrava)}>
+                    Done
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       ) : null}

@@ -13,7 +13,8 @@ import {
   type StravaStatus,
   type StravaSyncEventSummary,
   type WorkoutInterval,
-  type WorkoutSessionState
+  type WorkoutSessionState,
+  type WorkoutSessionSummary
 } from "@shared/ipc/contracts";
 import { Nav } from "./pages/Nav";
 import { HomePage } from "./pages/HomePage";
@@ -226,6 +227,34 @@ export const App = (): ReactElement => {
       return;
     }
     await runWorkoutAction(() => window.kickr.workout.stopSession({ sessionId }));
+  };
+
+  const saveWorkout = async (): Promise<WorkoutSessionSummary | null> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return null;
+    }
+    setLiveWorkoutBusy(true);
+    setLiveWorkoutError(null);
+    try {
+      return await window.kickr.workout.saveSession({ sessionId });
+    } catch (error) {
+      console.error("[workout action]", error);
+      setLiveWorkoutError(error instanceof Error ? error.message : "Unknown workout error");
+      return null;
+    } finally {
+      setLiveWorkoutBusy(false);
+    }
+  };
+
+  const discardWorkout = async (): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      closeLiveWorkout();
+      return;
+    }
+    await runWorkoutAction(() => window.kickr.workout.discardSession({ sessionId }));
+    closeLiveWorkout();
   };
 
   const adjustIntensity = async (deltaFraction: number): Promise<void> => {
@@ -543,6 +572,8 @@ export const App = (): ReactElement => {
           pauseWorkout={pauseWorkout}
           resumeWorkout={resumeWorkout}
           stopWorkout={stopWorkout}
+          saveWorkout={saveWorkout}
+          discardWorkout={discardWorkout}
           finishRide={finishRide}
           adjustIntensity={adjustIntensity}
           rampDurationInput={rampDurationInput}

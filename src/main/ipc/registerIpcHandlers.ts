@@ -56,6 +56,7 @@ import {
   workoutSessionSetRampDurationRequestSchema,
   workoutSessionStartResultSchema,
   workoutSessionStateSchema,
+  workoutSessionSummarySchema,
   workoutSummariesSchema
 } from "@shared/ipc/contracts";
 import { safeHandle } from "@main/ipc/safeHandle";
@@ -179,6 +180,21 @@ export const registerIpcHandlers = (
     okResultSchema,
     async (_event, input) => {
       await workoutEngine.stop(input.sessionId);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.workout.saveSession,
+    workoutSessionControlRequestSchema,
+    workoutSessionSummarySchema,
+    async (_event, input) => workoutEngine.finalizeSession(input.sessionId)
+  );
+  safeHandle(
+    ipcChannels.workout.discardSession,
+    workoutSessionControlRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      workoutEngine.discardSession(input.sessionId);
       return { ok: true };
     }
   );
