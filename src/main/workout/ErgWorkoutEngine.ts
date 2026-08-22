@@ -71,7 +71,7 @@ const createIdleState = (): WorkoutSessionState => ({
   lastError: null,
   liveMetrics: null,
   intensityMultiplier: 1,
-  rampDurationSec: 15
+  rampDurationSec: 10
 });
 
 export class ErgWorkoutEngine {
