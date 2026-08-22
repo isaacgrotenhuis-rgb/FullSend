@@ -273,6 +273,29 @@ describe("BleService cadence role", () => {
     expect(adapter.disconnectedDeviceIds).toContain(AMBIGUOUS_ID);
   });
 
+  it("does not disconnect an already-connected power role when a second role on the same device fails verification", async () => {
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter });
+    adapter.emitDiscovered({ id: DUAL_ID, roles: ["power", "cadence"] });
+    adapter.missingRoleServices.set(DUAL_ID, ["cadence"]);
+
+    await service.connect(DUAL_ID, "power");
+    expect(service.getState().connectedDeviceId).toBe(DUAL_ID);
+
+    await service.connect(DUAL_ID, "cadence");
+
+    const state = service.getState();
+    expect(state.connections.cadence).toEqual({
+      lifecycle: "error",
+      connectedDeviceId: null,
+      lastError: expect.stringContaining(DUAL_ID)
+    });
+    // The power role is still using this physical connection -> must not be torn down.
+    expect(state.connectedDeviceId).toBe(DUAL_ID);
+    expect(state.lifecycle).toBe("connected");
+    expect(adapter.disconnectedDeviceIds).not.toContain(DUAL_ID);
+  });
+
   it("still reports connected with a stashed error when discovery fails for a reason other than a missing service", async () => {
     const adapter = new FakeBleAdapter();
     const service = new BleService({ adapter });

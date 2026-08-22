@@ -342,7 +342,18 @@ export class BleService implements BleServicePort {
         // Bug fix: the requested role's GATT service isn't actually present -> fail
         // cleanly instead of reporting "connected". Advertisement-time role hints
         // (device.roles) are just a UI hint, not authoritative.
-        await this.adapter.disconnect(deviceId).catch(() => {});
+        //
+        // Only tear down the physical peripheral if no other role is still relying
+        // on it -- a single deviceId's connection can now be shared across roles
+        // (e.g. a trainer connected for "power" that a user also tries as
+        // "cadence"), and disconnecting it here would kill that other role's
+        // already-working connection too.
+        const otherRoleStillConnected = bleRoles.some(
+          (otherRole) => otherRole !== role && this.getConnection(otherRole).connectedDeviceId === deviceId
+        );
+        if (!otherRoleStillConnected) {
+          await this.adapter.disconnect(deviceId).catch(() => {});
+        }
         this.patchConnection(
           role,
           { lifecycle: "error", connectedDeviceId: null, lastError: error.message },

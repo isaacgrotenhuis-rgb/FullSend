@@ -296,12 +296,24 @@ export class ErgWorkoutEngine {
         actualHeartRateBpm: this.latestHeartRateBpm
       };
 
-      await this.applyTargets(metrics);
+      let applyTargetsError: string | null = null;
+      try {
+        await this.applyTargets(metrics);
+      } catch (error) {
+        // A failed/timed-out target push (flaky control-point write) shouldn't stop
+        // reporting live power/cadence/elapsed time, which arrive independently over
+        // the indoor-bike-data notification stream.
+        applyTargetsError = error instanceof Error ? error.message : "Unknown ERG target error";
+        console.error("[ErgWorkoutEngine] apply targets failed:", error);
+        this.persistEvent("apply-targets-failed", { message: applyTargetsError });
+      }
+
       this.persistTelemetry(metrics);
       this.patchState({
         elapsedSec,
         currentIntervalIndex: cursor.index,
-        liveMetrics: metrics
+        liveMetrics: metrics,
+        lastError: applyTargetsError
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown workout engine error";

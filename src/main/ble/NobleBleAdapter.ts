@@ -47,6 +47,24 @@ type NoblePeripheralLike = {
 
 const normalizeUuid = (value: string): string => value.toLowerCase().replace(/-/g, "");
 
+const FTMS_CONTROL_POINT_WRITE_TIMEOUT_MS = 5000;
+
+// A GATT write that never gets an ATT-level ack (seen intermittently with some
+// trainers' FTMS control point) leaves noble's writeAsync promise pending forever.
+// Left unbounded, that permanently wedges ErgWorkoutEngine.start()/tick(), since
+// they await this call before ever creating the tick timer.
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    clearTimeout(timer!);
+  }
+};
+
 const inferDeviceRoles = (peripheral: NoblePeripheralLike): BleRole[] => {
   const advertised = new Set((peripheral.advertisement?.serviceUuids ?? []).map(normalizeUuid));
   const roles: BleRole[] = [];
@@ -350,7 +368,11 @@ export class NobleBleAdapter implements BleAdapter {
     if (!writeControl) {
       throw new Error("FTMS control point is unavailable; run FTMS discovery after connecting.");
     }
-    await writeControl(payload);
+    await withTimeout(
+      writeControl(payload),
+      FTMS_CONTROL_POINT_WRITE_TIMEOUT_MS,
+      `FTMS control point write timed out for device ${deviceId}`
+    );
   }
 
   async applyErgTarget(

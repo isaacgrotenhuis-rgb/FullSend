@@ -217,15 +217,21 @@ export const HomePage = ({
                 ? (bleState?.discoveredDevices.find((candidate) => candidate.id === connectedDeviceId) ?? null)
                 : null;
               const isConnected = connectedDeviceId !== null;
+              // The power connection already streams cadence for FTMS trainers (Indoor
+              // Bike Data), so a bare cadence role never needs its own connection there.
+              const cadenceProvidedByPower =
+                role === "cadence" && !isConnected && bleState?.liveTelemetry?.cadenceRpm != null;
               const statusLabel = isConnected
                 ? `Connected — ${device?.name ?? device?.localName ?? connectedDeviceId}${
                     role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
                   }`
-                : conn?.lifecycle === "connecting"
-                  ? "Connecting…"
-                  : bleState?.scanning
-                    ? "Scanning…"
-                    : "Not connected";
+                : cadenceProvidedByPower
+                  ? "Provided by trainer connection"
+                  : conn?.lifecycle === "connecting"
+                    ? "Connecting…"
+                    : bleState?.scanning
+                      ? "Scanning…"
+                      : "Not connected";
               const rowError = lastErrorForRole(role);
               return (
                 <div
@@ -269,7 +275,14 @@ export const HomePage = ({
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 {bleState.discoveredDevices.map((device) => {
-                  const rolesToOffer = device.roles.length > 0 ? device.roles : bleRoles;
+                  // A device that serves the power role over FTMS already streams cadence
+                  // on that same connection (Indoor Bike Data) -- offering a separate
+                  // "Cadence" connect button for it invites connecting the same device
+                  // twice, which tears down the working power connection when the
+                  // device's standalone CSC cadence service (if any) doesn't verify.
+                  const rolesToOffer = (device.roles.length > 0 ? device.roles : bleRoles).filter(
+                    (role) => !(role === "cadence" && device.roles.includes("power"))
+                  );
                   return (
                     <div
                       key={device.id}

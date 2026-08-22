@@ -50,7 +50,12 @@ export const RidePage = ({
     currentIndex !== null && activeIntervals.length > 0 ? `Interval ${currentIndex + 1} of ${activeIntervals.length}` : "";
 
   const isPaused = workoutSessionState?.lifecycle === "paused";
-  const showEndSummary = activeIntervals.length > 0 && !isWorkoutSessionActive;
+  const hasEndedLifecycle =
+    workoutSessionState?.lifecycle === "stopped" ||
+    workoutSessionState?.lifecycle === "completed" ||
+    workoutSessionState?.lifecycle === "degraded" ||
+    workoutSessionState?.lifecycle === "error";
+  const showEndSummary = activeIntervals.length > 0 && hasEndedLifecycle;
 
   return (
     <main className="app">
@@ -83,7 +88,7 @@ export const RidePage = ({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
+          gridTemplateColumns: "1fr 1fr 1fr 1fr",
           gap: 2,
           background: "var(--color-divider)",
           border: "2px solid var(--color-divider)",
@@ -92,25 +97,34 @@ export const RidePage = ({
       >
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <h6>Target power</h6>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 64, lineHeight: 1 }}>
+          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1 }}>
             {liveMetrics?.targetPowerWatts ?? "—"}
-            <span style={{ fontSize: 22, fontWeight: 600 }}>W</span>
+            <span style={{ fontSize: 18, fontWeight: 600 }}>W</span>
           </div>
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <h6>Actual power</h6>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 64, lineHeight: 1, color: "var(--color-accent)" }}>
+          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1, color: "var(--color-accent)" }}>
             {liveMetrics?.actualPowerWatts ?? "—"}
-            <span style={{ fontSize: 22, fontWeight: 600 }}>W</span>
+            <span style={{ fontSize: 18, fontWeight: 600 }}>W</span>
           </div>
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <h6>Cadence</h6>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 64, lineHeight: 1 }}>
+          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1 }}>
             {liveMetrics?.actualCadenceRpm !== null && liveMetrics?.actualCadenceRpm !== undefined
               ? Math.round(liveMetrics.actualCadenceRpm)
               : "—"}
-            <span style={{ fontSize: 22, fontWeight: 600 }}>rpm</span>
+            <span style={{ fontSize: 18, fontWeight: 600 }}>rpm</span>
+          </div>
+        </div>
+        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
+          <h6>Heart rate</h6>
+          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1, color: "var(--color-accent-2)" }}>
+            {liveMetrics?.actualHeartRateBpm !== null && liveMetrics?.actualHeartRateBpm !== undefined
+              ? Math.round(liveMetrics.actualHeartRateBpm)
+              : "—"}
+            <span style={{ fontSize: 18, fontWeight: 600 }}>bpm</span>
           </div>
         </div>
       </div>
