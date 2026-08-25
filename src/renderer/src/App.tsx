@@ -45,6 +45,8 @@ const todayIso = (): string => {
 export const App = (): ReactElement => {
   const [page, setPage] = useState<Page>("home");
 
+  const [planName, setPlanName] = useState("");
+  const [currentPlanName, setCurrentPlanName] = useState<string | null>(null);
   const [eventType, setEventType] = useState<EventType>("road-race");
   const [eventDate, setEventDate] = useState(todayIso());
   const [planLengthWeeks, setPlanLengthWeeks] = useState<PlanLengthWeeks>(12);
@@ -99,6 +101,7 @@ export const App = (): ReactElement => {
       if (current) {
         setPlanId(current.planId);
         setWeeks(current.weeks);
+        setCurrentPlanName(current.name);
         await refreshHistory(current.planId);
       }
     })();
@@ -298,6 +301,7 @@ export const App = (): ReactElement => {
   const generatePlan = async (): Promise<void> => {
     setStatus("Generating event plan...");
     const result = await window.kickr.eventPlan.generate({
+      name: planName.trim() || undefined,
       eventType,
       eventDate,
       planLengthWeeks,
@@ -308,8 +312,9 @@ export const App = (): ReactElement => {
     });
     setPlanId(result.planId);
     setWeeks(result.weeks);
+    setCurrentPlanName(result.name);
     await refreshHistory(result.planId);
-    setStatus(`Generated plan ${result.planId}, version ${result.versionNumber}`);
+    setStatus(`Generated plan "${result.name}", version ${result.versionNumber}`);
   };
 
   const adaptPlan = async (): Promise<void> => {
@@ -332,6 +337,7 @@ export const App = (): ReactElement => {
           : undefined
     });
     setWeeks(result.weeks);
+    setCurrentPlanName(result.name);
     await refreshHistory(planId);
     setStatus(`Adapted to version ${result.versionNumber} using ${result.appliedStrategy}`);
   };
@@ -596,6 +602,8 @@ export const App = (): ReactElement => {
       ) : page === "plan" ? (
         <PlanPage
           generate={{
+            planName,
+            setPlanName,
             eventType,
             setEventType,
             eventDate,
@@ -622,6 +630,7 @@ export const App = (): ReactElement => {
             adaptPlan
           }}
           weeks={weeks}
+          currentPlanName={currentPlanName}
           liveWorkoutBusy={liveWorkoutBusy}
           isWorkoutSessionActive={isWorkoutSessionActive}
           connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
