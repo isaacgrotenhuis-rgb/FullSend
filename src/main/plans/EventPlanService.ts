@@ -273,7 +273,7 @@ export class EventPlanService {
   ) {}
 
   private createPlanTitle(input: EventPlanInput): string {
-    return `${input.eventType} ${input.eventDate} (${input.planLengthWeeks}w)`;
+    return input.name?.trim() || `${input.eventType} ${input.eventDate} (${input.planLengthWeeks}w)`;
   }
 
   private distributeMinutes(
@@ -606,11 +606,12 @@ export class EventPlanService {
   generatePlan(request: GenerateEventPlanRequest): GenerateEventPlanResult {
     return this.repositories.transaction(() => {
       const planId = randomUUID();
+      const planTitle = this.createPlanTitle(request);
       const draftWeeks = this.buildWeekDrafts(request, { intensityBias: 0, volumeBias: 0 });
       const weeks = this.upsertPlanProjection(
         planId,
         request.currentFtp,
-        this.createPlanTitle(request),
+        planTitle,
         `Event ${request.eventType} on ${request.eventDate}`,
         draftWeeks
       );
@@ -641,6 +642,7 @@ export class EventPlanService {
       return {
         ok: true,
         planId,
+        name: planTitle,
         versionId: version.versionId,
         versionNumber: version.versionNumber,
         weeks
@@ -657,11 +659,12 @@ export class EventPlanService {
       const latestSnapshot = JSON.parse(latest.snapshot_json) as PlanSnapshot;
       const baseInput = latestSnapshot.input;
       const adaptation = this.adaptationService.adapt(baseInput, request);
+      const planTitle = this.createPlanTitle(adaptation.nextInput);
       const draftWeeks = this.buildWeekDrafts(adaptation.nextInput, adaptation.tuning);
       const weeks = this.upsertPlanProjection(
         request.planId,
         adaptation.nextInput.currentFtp,
-        this.createPlanTitle(adaptation.nextInput),
+        planTitle,
         `Event ${adaptation.nextInput.eventType} on ${adaptation.nextInput.eventDate}`,
         draftWeeks
       );
@@ -698,6 +701,7 @@ export class EventPlanService {
       return {
         ok: true,
         planId: request.planId,
+        name: planTitle,
         versionId: version.versionId,
         versionNumber: version.versionNumber,
         weeks,
@@ -718,6 +722,7 @@ export class EventPlanService {
     const snapshot = JSON.parse(latestVersion.snapshot_json) as PlanSnapshot;
     return {
       planId: latestPlan.id,
+      name: latestPlan.name,
       weeks: snapshot.weeks as EventPlanWeek[]
     };
   }

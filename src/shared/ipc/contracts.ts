@@ -395,6 +395,7 @@ export const eventPlanWeekSchema = z.object({
 });
 
 export const eventPlanInputSchema = z.object({
+  name: z.string().trim().min(1).max(120).optional(),
   eventType: eventTypeSchema,
   eventDate: isoDateSchema,
   planLengthWeeks: planLengthWeeksSchema,
@@ -453,6 +454,7 @@ export const eventPlanAuditEntrySchema = z.object({
 export const generateEventPlanResultSchema = z.object({
   ok: z.literal(true),
   planId: z.string().min(1),
+  name: z.string().min(1),
   versionId: z.string().min(1),
   versionNumber: z.number().int().min(1),
   weeks: z.array(eventPlanWeekSchema)
@@ -461,6 +463,7 @@ export const generateEventPlanResultSchema = z.object({
 export const getCurrentEventPlanResultSchema = z
   .object({
     planId: z.string().min(1),
+    name: z.string().min(1),
     weeks: z.array(eventPlanWeekSchema)
   })
   .nullable();
@@ -468,6 +471,7 @@ export const getCurrentEventPlanResultSchema = z
 export const adaptEventPlanResultSchema = z.object({
   ok: z.literal(true),
   planId: z.string().min(1),
+  name: z.string().min(1),
   versionId: z.string().min(1),
   versionNumber: z.number().int().min(1),
   weeks: z.array(eventPlanWeekSchema),

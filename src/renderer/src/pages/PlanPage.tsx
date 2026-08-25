@@ -25,6 +25,8 @@ const addDaysToDate = (date: Date, days: number): Date => {
 const formatShortDate = (date: Date): string => date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 export type GeneratePlanSectionProps = {
+  planName: string;
+  setPlanName: (value: string) => void;
   eventType: EventType;
   setEventType: (value: EventType) => void;
   eventDate: string;
@@ -56,6 +58,7 @@ type Props = {
   generate: GeneratePlanSectionProps;
   adapt: AdaptPlanSectionProps;
   weeks: EventPlanWeek[];
+  currentPlanName: string | null;
   liveWorkoutBusy: boolean;
   isWorkoutSessionActive: boolean;
   connectedTrainerDeviceId: string | null;
@@ -66,6 +69,7 @@ export const PlanPage = ({
   generate,
   adapt,
   weeks,
+  currentPlanName,
   liveWorkoutBusy,
   isWorkoutSessionActive,
   connectedTrainerDeviceId,
@@ -110,7 +114,7 @@ export const PlanPage = ({
   return (
     <main className="app">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "var(--space-4)", marginBottom: "var(--space-2)" }}>
-        <h1 style={{ margin: 0 }}>Your plan</h1>
+        <h1 style={{ margin: 0 }}>{hasPlan && currentPlanName ? currentPlanName : "Your plan"}</h1>
         {hasPlan ? (
           <button className="btn btn-primary" onClick={() => setAdaptOpen(true)}>
             Edit plan
@@ -214,6 +218,17 @@ export const PlanPage = ({
 
             {wizardStep === 0 ? (
               <>
+                <div className="field" style={{ marginBottom: "var(--space-3)" }}>
+                  <label>Plan name (optional)</label>
+                  <input
+                    className="input"
+                    type="text"
+                    placeholder="e.g. Fall road race build"
+                    maxLength={120}
+                    value={generate.planName}
+                    onChange={(event) => generate.setPlanName(event.target.value)}
+                  />
+                </div>
                 <h6 style={{ marginBottom: "var(--space-3)" }}>What are you training for?</h6>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
                   {eventTypeOptions.map((opt) => {
