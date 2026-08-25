@@ -706,6 +706,16 @@ export class EventPlanService {
     });
   }
 
+  deletePlan(planId: string): void {
+    this.repositories.transaction(() => {
+      const existing = this.repositories.trainingPlans.getById(planId) as PlanRow | undefined;
+      if (!existing) {
+        throw new Error(`Plan ${planId} not found`);
+      }
+      this.repositories.trainingPlans.delete(planId);
+    });
+  }
+
   getCurrentPlan(): GetCurrentEventPlanResult {
     const [latestPlan] = this.repositories.trainingPlans.list() as PlanRow[];
     if (!latestPlan) {

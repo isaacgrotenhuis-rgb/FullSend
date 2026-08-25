@@ -60,6 +60,7 @@ type Props = {
   isWorkoutSessionActive: boolean;
   connectedTrainerDeviceId: string | null;
   startWorkoutForDay: (workoutId: string, workoutName: string) => Promise<void>;
+  onDeletePlan: () => Promise<void>;
 };
 
 export const PlanPage = ({
@@ -69,7 +70,8 @@ export const PlanPage = ({
   liveWorkoutBusy,
   isWorkoutSessionActive,
   connectedTrainerDeviceId,
-  startWorkoutForDay
+  startWorkoutForDay,
+  onDeletePlan
 }: Props): ReactElement => {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
@@ -78,6 +80,8 @@ export const PlanPage = ({
   const [ratioChoice, setRatioChoice] = useState<"2:1" | "3:1">("3:1");
   const [hoursPerWeek, setHoursPerWeek] = useState(8);
   const [adaptOpen, setAdaptOpen] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   const hasPlan = weeks.length > 0;
 
@@ -105,6 +109,17 @@ export const PlanPage = ({
   const handleAdapt = async (): Promise<void> => {
     await adapt.adaptPlan();
     setAdaptOpen(false);
+  };
+
+  const handleDeletePlan = async (): Promise<void> => {
+    setDeleteBusy(true);
+    try {
+      await onDeletePlan();
+      setDeleteConfirmOpen(false);
+      setAdaptOpen(false);
+    } finally {
+      setDeleteBusy(false);
+    }
   };
 
   return (
@@ -410,12 +425,42 @@ export const PlanPage = ({
                 />
               </div>
             </div>
+            <div className="dialog-actions" style={{ justifyContent: "space-between" }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}
+                onClick={() => setDeleteConfirmOpen(true)}
+              >
+                Delete plan
+              </button>
+              <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                <button className="btn btn-secondary" onClick={() => setAdaptOpen(false)}>
+                  Cancel
+                </button>
+                <button className="btn btn-primary" disabled={!adapt.planId} onClick={() => void handleAdapt()}>
+                  Save changes
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {deleteConfirmOpen ? (
+        <div className="dialog-backdrop" onClick={() => setDeleteConfirmOpen(false)} style={{ zIndex: 210 }}>
+          <div className="dialog" onClick={(event) => event.stopPropagation()} style={{ width: "min(420px, 100%)" }}>
+            <div className="dialog-title">Delete plan?</div>
+            <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
+            <p style={{ margin: "0 0 var(--space-2)", color: "color-mix(in srgb, var(--color-text) 65%, transparent)" }}>
+              This removes your current training plan and its schedule. This can&apos;t be undone.
+            </p>
             <div className="dialog-actions">
-              <button className="btn btn-secondary" onClick={() => setAdaptOpen(false)}>
+              <button className="btn btn-secondary" disabled={deleteBusy} onClick={() => setDeleteConfirmOpen(false)}>
                 Cancel
               </button>
-              <button className="btn btn-primary" disabled={!adapt.planId} onClick={() => void handleAdapt()}>
-                Save changes
+              <button className="btn btn-primary" disabled={deleteBusy} onClick={() => void handleDeletePlan()}>
+                {deleteBusy ? "Deleting..." : "Delete plan"}
               </button>
             </div>
           </div>
