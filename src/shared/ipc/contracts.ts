@@ -48,6 +48,7 @@ export const ipcChannels = {
   eventPlan: {
     generate: "event-plan:generate",
     adapt: "event-plan:adapt",
+    delete: "event-plan:delete",
     listVersions: "event-plan:list-versions",
     listAuditEntries: "event-plan:list-audit-entries",
     getCurrent: "event-plan:get-current"
@@ -421,6 +422,10 @@ export const adaptEventPlanRequestSchema = z.object({
     .optional()
 });
 
+export const deleteEventPlanRequestSchema = z.object({
+  planId: z.string().min(1)
+});
+
 export const planVersionsRequestSchema = z.object({
   planId: z.string().min(1)
 });
@@ -632,6 +637,7 @@ export type EventPlanWeek = z.infer<typeof eventPlanWeekSchema>;
 export type EventPlanInput = z.infer<typeof eventPlanInputSchema>;
 export type GenerateEventPlanRequest = z.infer<typeof generateEventPlanRequestSchema>;
 export type AdaptEventPlanRequest = z.infer<typeof adaptEventPlanRequestSchema>;
+export type DeleteEventPlanRequest = z.infer<typeof deleteEventPlanRequestSchema>;
 export type PlanVersionsRequest = z.infer<typeof planVersionsRequestSchema>;
 export type PlanAuditEntriesRequest = z.infer<typeof planAuditEntriesRequestSchema>;
 export type EventPlanVersion = z.infer<typeof eventPlanVersionSchema>;

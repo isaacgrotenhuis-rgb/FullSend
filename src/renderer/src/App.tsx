@@ -336,6 +336,19 @@ export const App = (): ReactElement => {
     setStatus(`Adapted to version ${result.versionNumber} using ${result.appliedStrategy}`);
   };
 
+  const deletePlan = async (): Promise<void> => {
+    if (!planId) {
+      return;
+    }
+    setStatus("Deleting plan...");
+    await window.kickr.eventPlan.delete({ planId });
+    setPlanId("");
+    setWeeks([]);
+    setVersions([]);
+    setAuditEntries([]);
+    setStatus("Plan deleted");
+  };
+
   const updateAvailability = (dayIndex: number, patch: Partial<DayAvailability>): void => {
     setWeeklyAvailability((prev) => prev.map((day) => (day.dayIndex === dayIndex ? { ...day, ...patch } : day)));
   };
@@ -613,6 +626,7 @@ export const App = (): ReactElement => {
           isWorkoutSessionActive={isWorkoutSessionActive}
           connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
           startWorkoutForDay={startWorkoutForDay}
+          onDeletePlan={deletePlan}
         />
       ) : page === "profile" ? (
         <ProfilePage
