@@ -1,5 +1,6 @@
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import type { DayAvailability, EventPlanWeek, EventType, PlanLengthWeeks } from "@shared/ipc/contracts";
+import { addDaysToDate, findCurrentWeekIndex, formatShortDate, parseIsoDate } from "../lib/planWeeks";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -13,16 +14,6 @@ const eventTypeOptions: { value: EventType; label: string }[] = [
 const planLengthOptions: PlanLengthWeeks[] = [8, 12, 16];
 
 const wizardStepLabels = ["Event", "Timeline", "Ratio", "Hours"];
-
-const parseIsoDate = (iso: string): Date => new Date(`${iso}T00:00:00`);
-
-const addDaysToDate = (date: Date, days: number): Date => {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-};
-
-const formatShortDate = (date: Date): string => date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 export type GeneratePlanSectionProps = {
   eventType: EventType;
@@ -78,11 +69,23 @@ export const PlanPage = ({
   const [ratioChoice, setRatioChoice] = useState<"2:1" | "3:1">("3:1");
   const [hoursPerWeek, setHoursPerWeek] = useState(8);
   const [adaptOpen, setAdaptOpen] = useState(false);
+  const [selectedWeekIndex, setSelectedWeekIndex] = useState<number | null>(null);
 
   const hasPlan = weeks.length > 0;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const currentWeekIndex = findCurrentWeekIndex(weeks, today);
+  const planHasStarted = weeks.length > 0 && today >= parseIsoDate(weeks[0].startDate);
+  const defaultWeekIndex = currentWeekIndex >= 0 ? currentWeekIndex : planHasStarted ? weeks.length - 1 : 0;
+  const activeWeekIndex = Math.min(selectedWeekIndex ?? defaultWeekIndex, Math.max(weeks.length - 1, 0));
+  const activeWeek = weeks[activeWeekIndex] ?? null;
+  const activeChipRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    activeChipRef.current?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [activeWeekIndex]);
+
   const daysUntilEvent = Math.round((parseIsoDate(generate.eventDate).getTime() - today.getTime()) / 86400000);
   const countdownLabel = hasPlan
     ? daysUntilEvent > 0
@@ -118,17 +121,53 @@ export const PlanPage = ({
         ) : null}
       </div>
 
-      {hasPlan ? (
+      {hasPlan && activeWeek ? (
         <>
           {countdownLabel ? (
-            <h6 style={{ color: "var(--color-accent-700)", marginBottom: "var(--space-6)" }}>{countdownLabel}</h6>
+            <h6 style={{ color: "var(--color-accent-700)", marginBottom: "var(--space-4)" }}>{countdownLabel}</h6>
           ) : null}
 
-          {weeks.map((week) => {
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", marginBottom: "var(--space-6)" }}>
+            <button
+              className="btn btn-secondary"
+              style={{ flexShrink: 0 }}
+              disabled={activeWeekIndex === 0}
+              onClick={() => setSelectedWeekIndex(activeWeekIndex - 1)}
+            >
+              ‹
+            </button>
+            <div style={{ display: "flex", gap: 6, overflowX: "auto", flexWrap: "nowrap", padding: 2 }}>
+              {weeks.map((week, index) => (
+                <button
+                  key={week.weekId}
+                  ref={index === activeWeekIndex ? activeChipRef : undefined}
+                  className={index === activeWeekIndex ? "btn btn-primary" : "btn btn-secondary"}
+                  style={{ flexShrink: 0, flexDirection: "column", gap: 0, padding: "6px 10px" }}
+                  onClick={() => setSelectedWeekIndex(index)}
+                >
+                  <span>Week {week.weekIndex + 1}</span>
+                  <span style={{ fontSize: 10, fontWeight: 400, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.8 }}>
+                    {week.loadTag}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <button
+              className="btn btn-secondary"
+              style={{ flexShrink: 0 }}
+              disabled={activeWeekIndex === weeks.length - 1}
+              onClick={() => setSelectedWeekIndex(activeWeekIndex + 1)}
+            >
+              ›
+            </button>
+          </div>
+
+          {(() => {
+            const week = activeWeek;
             const weekStart = parseIsoDate(week.startDate);
             const weekEnd = addDaysToDate(weekStart, 6);
             return (
-              <div key={week.weekId} style={{ marginBottom: "var(--space-6)" }}>
+              <div>
                 <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "var(--space-1)" }}>
                   <h4 style={{ margin: 0 }}>
                     Week {week.weekIndex + 1} · {week.loadTag}
@@ -180,7 +219,7 @@ export const PlanPage = ({
                 </div>
               </div>
             );
-          })}
+          })()}
         </>
       ) : (
         <div style={{ border: "2px solid var(--color-divider)", padding: "64px var(--space-6)", textAlign: "center", marginTop: "var(--space-6)" }}>

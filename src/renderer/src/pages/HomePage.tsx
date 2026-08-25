@@ -7,6 +7,7 @@ import {
   type DashboardMetrics,
   type EventPlanWeek
 } from "@shared/ipc/contracts";
+import { addDaysToDate, findCurrentWeekIndex, formatShortDate, parseIsoDate } from "../lib/planWeeks";
 
 export type BleSectionProps = {
   bleState: BleState | null;
@@ -35,16 +36,6 @@ type Props = {
 };
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-const parseIsoDate = (iso: string): Date => new Date(`${iso}T00:00:00`);
-
-const addDaysToDate = (date: Date, days: number): Date => {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
-};
-
-const formatShortDate = (date: Date): string => date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
 const greetingForNow = (): string => {
   const hour = new Date().getHours();
@@ -94,15 +85,8 @@ export const HomePage = ({
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  let currentWeekIndex = -1;
-  const currentWeek =
-    weeks.find((week, index) => {
-      const start = parseIsoDate(week.startDate);
-      const end = addDaysToDate(start, 7);
-      const match = today >= start && today < end;
-      if (match) currentWeekIndex = index;
-      return match;
-    }) ?? null;
+  const currentWeekIndex = findCurrentWeekIndex(weeks, today);
+  const currentWeek = currentWeekIndex >= 0 ? weeks[currentWeekIndex] : null;
 
   const daysUntilEvent = Math.round((parseIsoDate(eventDate).getTime() - today.getTime()) / 86400000);
   const countdownLabel =
