@@ -1,0 +1,33 @@
+name: TrainerSimulator
+options:
+  bundleIdPrefix: com.fullsend
+  deploymentTarget:
+    iOS: "16.0"
+  autogenerateSchemes: true
+targets:
+  TrainerSimulator:
+    type: application
+    platform: iOS
+    sources:
+      - Sources
+    info:
+      path: Sources/Info.plist
+      properties:
+        UILaunchScreen: {}
+        NSBluetoothAlwaysUsageDescription: "TrainerSimulator advertises fake indoor-bike data over Bluetooth so FullSend can be developed and tested without a real trainer."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.fullsend.trainersimulator
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+schemes:
+  TrainerSimulator:
+    build:
+      targets:
+        TrainerSimulator: all
+    run:
+      config: Debug
+    archive:
+      config: Release
