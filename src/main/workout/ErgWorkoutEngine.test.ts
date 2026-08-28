@@ -25,10 +25,10 @@ class FakeBleService implements BleService {
   private state: BleState = createInitialBleState();
   private listener: ((state: BleState) => void) | null = null;
 
-  setTelemetry(powerWatts: number | null, cadenceRpm: number | null): void {
+  setTelemetry(powerWatts: number | null, cadenceRpm: number | null, speedKmh: number | null = null): void {
     this.state = {
       ...this.state,
-      liveTelemetry: { powerWatts, cadenceRpm, timestamp: new Date().toISOString() }
+      liveTelemetry: { powerWatts, cadenceRpm, speedKmh, timestamp: new Date().toISOString() }
     };
     this.listener?.(this.state);
   }

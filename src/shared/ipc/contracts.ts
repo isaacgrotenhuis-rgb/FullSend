@@ -146,6 +146,7 @@ export const bleFtmsProfileSchema = z.object({
 export const bleLiveTelemetrySchema = z.object({
   powerWatts: z.number().nullable(),
   cadenceRpm: z.number().nullable(),
+  speedKmh: z.number().nullable(),
   timestamp: z.string()
 });
 
@@ -237,7 +238,8 @@ export const workoutLiveMetricsSchema = z.object({
   targetResistancePercent: z.number().nullable(),
   actualPowerWatts: z.number().nullable(),
   actualCadenceRpm: z.number().nullable(),
-  actualHeartRateBpm: z.number().nullable()
+  actualHeartRateBpm: z.number().nullable(),
+  actualSpeedKmh: z.number().nullable()
 });
 
 export const workoutSessionStateSchema = z.object({

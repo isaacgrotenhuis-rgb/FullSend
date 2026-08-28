@@ -23,6 +23,17 @@ type Props = {
 
 const blockKindLabel = (kind: string): string => kind.charAt(0).toUpperCase() + kind.slice(1);
 
+type SpeedUnit = "mph" | "kph";
+const SPEED_UNIT_STORAGE_KEY = "fullsend.speedUnit";
+const KMH_TO_MPH = 0.621371;
+
+const readStoredSpeedUnit = (): SpeedUnit => {
+  if (typeof window === "undefined") {
+    return "mph";
+  }
+  return window.localStorage.getItem(SPEED_UNIT_STORAGE_KEY) === "kph" ? "kph" : "mph";
+};
+
 export const RidePage = ({
   activeIntervals,
   activeWorkoutName,
@@ -44,12 +55,21 @@ export const RidePage = ({
   const [postToStrava, setPostToStrava] = useState(true);
   const [summaryStage, setSummaryStage] = useState<"none" | "pending" | "saved">("none");
   const [savedSummary, setSavedSummary] = useState<WorkoutSessionSummary | null>(null);
+  const [speedUnit, setSpeedUnit] = useState<SpeedUnit>(readStoredSpeedUnit);
+
+  useEffect(() => {
+    window.localStorage.setItem(SPEED_UNIT_STORAGE_KEY, speedUnit);
+  }, [speedUnit]);
 
   const totalDurationSec = activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0);
   const elapsedSec = workoutSessionState?.elapsedSec ?? 0;
   const currentIndex = workoutSessionState?.currentIntervalIndex ?? null;
   const liveMetrics = workoutSessionState?.liveMetrics ?? null;
   const maxWatts = Math.max(50, ...activeIntervals.map((interval) => interval.targetPowerWatts ?? 0));
+
+  const speedKmh = liveMetrics?.actualSpeedKmh ?? null;
+  const displaySpeed =
+    speedKmh !== null ? (speedUnit === "mph" ? (speedKmh * KMH_TO_MPH).toFixed(1) : speedKmh.toFixed(1)) : "—";
 
   const currentKind = liveMetrics?.blockKind ?? (currentIndex !== null ? activeIntervals[currentIndex]?.kind : undefined);
   const intervalPositionLabel =
@@ -113,7 +133,7 @@ export const RidePage = ({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr 1fr",
+          gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr",
           gap: 2,
           background: "var(--color-divider)",
           border: "2px solid var(--color-divider)",
@@ -150,6 +170,41 @@ export const RidePage = ({
               ? Math.round(liveMetrics.actualHeartRateBpm)
               : "—"}
             <span style={{ fontSize: 18, fontWeight: 600 }}>bpm</span>
+          </div>
+        </div>
+        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+            <h6 style={{ margin: 0 }}>Speed</h6>
+            <div style={{ display: "flex", gap: 2 }}>
+              <button
+                className="btn btn-secondary"
+                style={{
+                  padding: "1px 6px",
+                  fontSize: 10,
+                  fontWeight: speedUnit === "mph" ? 800 : 500,
+                  opacity: speedUnit === "mph" ? 1 : 0.5
+                }}
+                onClick={() => setSpeedUnit("mph")}
+              >
+                MPH
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{
+                  padding: "1px 6px",
+                  fontSize: 10,
+                  fontWeight: speedUnit === "kph" ? 800 : 500,
+                  opacity: speedUnit === "kph" ? 1 : 0.5
+                }}
+                onClick={() => setSpeedUnit("kph")}
+              >
+                KPH
+              </button>
+            </div>
+          </div>
+          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1 }}>
+            {displaySpeed}
+            <span style={{ fontSize: 18, fontWeight: 600 }}>{speedUnit}</span>
           </div>
         </div>
       </div>

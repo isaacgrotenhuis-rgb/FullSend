@@ -96,7 +96,8 @@ export class ErgWorkoutEngine {
   private rampBlockIndex: number | null = null;
   private rampFromWatts: number | null = null;
   private forceRampReset = false;
-  private latestTelemetry: { powerWatts: number | null; cadenceRpm: number | null } | null = null;
+  private latestTelemetry: { powerWatts: number | null; cadenceRpm: number | null; speedKmh: number | null } | null =
+    null;
   private latestHeartRateBpm: number | null = null;
   private lastEndReason: string | null = null;
   private readonly terminalLifecycles = new Set<WorkoutSessionLifecycle>(["stopped", "completed", "degraded", "error"]);
@@ -107,7 +108,11 @@ export class ErgWorkoutEngine {
     this.persistence = persistence;
     this.bleService.subscribeState((bleState) => {
       this.latestTelemetry = bleState.liveTelemetry
-        ? { powerWatts: bleState.liveTelemetry.powerWatts, cadenceRpm: bleState.liveTelemetry.cadenceRpm }
+        ? {
+            powerWatts: bleState.liveTelemetry.powerWatts,
+            cadenceRpm: bleState.liveTelemetry.cadenceRpm,
+            speedKmh: bleState.liveTelemetry.speedKmh
+          }
         : null;
       this.latestHeartRateBpm = bleState.heartRate?.bpm ?? null;
       if (
@@ -303,7 +308,8 @@ export class ErgWorkoutEngine {
         targetResistancePercent: scaledTargetResistancePercent,
         actualPowerWatts: this.latestTelemetry?.powerWatts ?? null,
         actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null,
-        actualHeartRateBpm: this.latestHeartRateBpm
+        actualHeartRateBpm: this.latestHeartRateBpm,
+        actualSpeedKmh: this.latestTelemetry?.speedKmh ?? null
       };
 
       let applyTargetsError: string | null = null;

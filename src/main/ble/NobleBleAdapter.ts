@@ -260,6 +260,7 @@ export class NobleBleAdapter implements BleAdapter {
         this.onLiveTelemetryListener?.(deviceId, {
           powerWatts: sample.powerWatts,
           cadenceRpm: sample.cadenceRpm,
+          speedKmh: sample.speedKmh,
           timestamp: new Date().toISOString()
         });
       });
