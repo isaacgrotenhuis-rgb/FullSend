@@ -151,7 +151,7 @@ describe("BleService concurrent trainer + heart rate connections", () => {
     await service.connect(TRAINER_ID, "power");
     await service.connect(HR_ID, "heart_rate");
 
-    const telemetry: BleLiveTelemetry = { powerWatts: 220, cadenceRpm: 90, timestamp: new Date().toISOString() };
+    const telemetry: BleLiveTelemetry = { powerWatts: 220, cadenceRpm: 90, speedKmh: 32, timestamp: new Date().toISOString() };
     adapter.emitLiveTelemetry(TRAINER_ID, telemetry);
 
     await service.disconnect(HR_ID);
@@ -173,7 +173,7 @@ describe("BleService concurrent trainer + heart rate connections", () => {
     await service.connect(TRAINER_ID, "power");
     await service.connect(HR_ID, "heart_rate");
 
-    const telemetry: BleLiveTelemetry = { powerWatts: 180, cadenceRpm: 85, timestamp: new Date().toISOString() };
+    const telemetry: BleLiveTelemetry = { powerWatts: 180, cadenceRpm: 85, speedKmh: 28, timestamp: new Date().toISOString() };
     adapter.emitLiveTelemetry(TRAINER_ID, telemetry);
     adapter.emitHeartRateTelemetry(HR_ID, { bpm: 142, timestamp: new Date().toISOString() });
 
@@ -248,7 +248,7 @@ describe("BleService cadence role", () => {
     expect(state.connectedDeviceId).toBe(DUAL_ID);
     expect(state.connections.cadence.connectedDeviceId).toBeNull();
 
-    const telemetry: BleLiveTelemetry = { powerWatts: 200, cadenceRpm: 88, timestamp: new Date().toISOString() };
+    const telemetry: BleLiveTelemetry = { powerWatts: 200, cadenceRpm: 88, speedKmh: 30, timestamp: new Date().toISOString() };
     adapter.emitLiveTelemetry(DUAL_ID, telemetry);
     expect(service.getState().liveTelemetry?.cadenceRpm).toBe(88);
 
