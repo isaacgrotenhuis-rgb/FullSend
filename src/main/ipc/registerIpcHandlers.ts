@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { BleService } from "@main/ble/types";
 import type { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import type { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
+import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import type { EventPlanService } from "@main/plans/EventPlanService";
 import type { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
 import type { StravaService } from "@main/strava/StravaService";
@@ -34,6 +35,15 @@ import {
   stravaSyncRequestSchema,
   stravaSyncResultSchema,
   createWorkoutRequestSchema,
+  archiveBankWorkoutRequestSchema,
+  bankWorkoutDetailSchema,
+  bankWorkoutIdResultSchema,
+  bankWorkoutSummariesSchema,
+  createBankWorkoutRequestSchema,
+  getBankWorkoutRequestSchema,
+  listBankWorkoutsRequestSchema,
+  startAdhocBankWorkoutRequestSchema,
+  updateBankWorkoutRequestSchema,
   deleteEventPlanRequestSchema,
   deleteIntervalRequestSchema,
   deleteWorkoutRequestSchema,
@@ -68,6 +78,7 @@ export const registerIpcHandlers = (
   bleService: BleService,
   workoutEngine: ErgWorkoutEngine,
   workoutLibraryService: WorkoutLibraryService,
+  workoutBankService: WorkoutBankService,
   eventPlanService: EventPlanService,
   progressDashboardService: ProgressDashboardService,
   stravaService: StravaService
@@ -326,6 +337,59 @@ export const registerIpcHandlers = (
   );
   safeHandle(ipcChannels.workoutLibrary.listPlanWeeks, emptySchema, planWeekSummariesSchema, () =>
     workoutLibraryService.listPlanWeeks()
+  );
+
+  safeHandle(
+    ipcChannels.workoutBank.list,
+    listBankWorkoutsRequestSchema,
+    bankWorkoutSummariesSchema,
+    (_event, input) => workoutBankService.listBankWorkouts(input)
+  );
+  safeHandle(
+    ipcChannels.workoutBank.get,
+    getBankWorkoutRequestSchema,
+    bankWorkoutDetailSchema,
+    (_event, input) => workoutBankService.getBankWorkout(input.id)
+  );
+  safeHandle(
+    ipcChannels.workoutBank.create,
+    createBankWorkoutRequestSchema,
+    bankWorkoutIdResultSchema,
+    (_event, input) => ({ ok: true, id: workoutBankService.createBankWorkout(input.document).id })
+  );
+  safeHandle(
+    ipcChannels.workoutBank.update,
+    updateBankWorkoutRequestSchema,
+    bankWorkoutIdResultSchema,
+    (_event, input) => ({ ok: true, id: workoutBankService.updateBankWorkout(input.id, input.document).id })
+  );
+  safeHandle(
+    ipcChannels.workoutBank.archive,
+    archiveBankWorkoutRequestSchema,
+    okResultSchema,
+    (_event, input) => {
+      workoutBankService.archiveBankWorkout(input.id);
+      return { ok: true as const };
+    }
+  );
+  safeHandle(
+    ipcChannels.workoutBank.startAdhoc,
+    startAdhocBankWorkoutRequestSchema,
+    workoutSessionStartResultSchema,
+    async (_event, input) => {
+      const { workoutId, intervals } = workoutBankService.compileAndPersist({
+        bankWorkoutId: input.bankWorkoutId,
+        ftp: input.ftp,
+        name: input.name
+      });
+      const sessionId = await workoutEngine.start({
+        workoutId,
+        deviceId: input.deviceId,
+        intervals,
+        metadata: { bankWorkoutId: input.bankWorkoutId, source: "workout-bank-adhoc" }
+      });
+      return { ok: true, sessionId };
+    }
   );
   safeHandle(
     ipcChannels.eventPlan.generate,

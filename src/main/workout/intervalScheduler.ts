@@ -5,6 +5,32 @@ export type IntervalCursor = {
   interval: WorkoutInterval;
   elapsedInIntervalSec: number;
   remainingInIntervalSec: number;
+  /**
+   * Power target resolved for this instant. For a ramp interval
+   * (`targetPowerWattsEnd != null`) this is the linear interpolation between
+   * start and end across the interval; for a flat block it is `targetPowerWatts`.
+   * `null` when the interval has no power target (e.g. free-ride).
+   */
+  targetPowerWatts: number | null;
+};
+
+const resolveTargetPowerWatts = (
+  interval: WorkoutInterval,
+  elapsedInIntervalSec: number
+): number | null => {
+  const start = interval.targetPowerWatts;
+  if (start === null || start === undefined) {
+    return null;
+  }
+  const end = interval.targetPowerWattsEnd;
+  if (end === null || end === undefined) {
+    return start;
+  }
+  const progress =
+    interval.durationSec > 0
+      ? Math.min(1, Math.max(0, elapsedInIntervalSec / interval.durationSec))
+      : 0;
+  return start + (end - start) * progress;
 };
 
 export class IntervalScheduler {
@@ -42,7 +68,8 @@ export class IntervalScheduler {
           index,
           interval,
           elapsedInIntervalSec,
-          remainingInIntervalSec: interval.durationSec - elapsedInIntervalSec
+          remainingInIntervalSec: interval.durationSec - elapsedInIntervalSec,
+          targetPowerWatts: resolveTargetPowerWatts(interval, elapsedInIntervalSec)
         };
       }
     }

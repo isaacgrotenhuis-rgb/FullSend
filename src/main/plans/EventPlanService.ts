@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Repositories } from "@main/database/repositories";
 import type { AdaptationDecision, PlanAdaptationService } from "@main/plans/PlanAdaptationService";
+import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import type {
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
@@ -16,6 +17,8 @@ import type {
   GetCurrentEventPlanResult,
   LoadTag,
   SessionType,
+  TrainingPhase,
+  TrainingZone,
   WorkoutInterval
 } from "@shared/ipc/contracts";
 
@@ -50,6 +53,7 @@ type AuditEntryRow = {
 type DayDraft = {
   dayIndex: number;
   sessionType: SessionType | null;
+  zone: TrainingZone | null;
   durationMin: number;
   targetIF: number | null;
 };
@@ -57,6 +61,7 @@ type DayDraft = {
 type WeekDraft = {
   weekIndex: number;
   startDate: string;
+  phase: TrainingPhase;
   loadTag: LoadTag;
   targetMinutes: number;
   targetIF: number;
@@ -102,16 +107,70 @@ const startOfWeekSunday = (isoDate: string): string => {
   return toIsoDate(date);
 };
 
-const sessionTypeForEvent = (eventType: EventType): SessionType => {
-  switch (eventType) {
-    case "time-trial":
-      return "threshold";
-    case "criterium":
-      return "vo2";
-    case "road-race":
-      return "threshold";
-    case "gran-fondo":
-      return "tempo";
+type EventProfile = { zone: TrainingZone; tags: string[]; sessionType: SessionType };
+
+// Event type -> peak-phase target zone + tag set (doc §7.1).
+const EVENT_PROFILE: Record<EventType, EventProfile> = {
+  "road-race": { zone: "threshold", tags: ["variable", "race-sim"], sessionType: "threshold" },
+  "time-trial": { zone: "threshold", tags: ["sustained", "pacing"], sessionType: "threshold" },
+  criterium: { zone: "anaerobic", tags: ["repeated-surge"], sessionType: "anaerobic" },
+  "gran-fondo": { zone: "tempo", tags: ["long", "climbing"], sessionType: "tempo" },
+  "xc-mtb": { zone: "threshold", tags: ["xc-mtb", "race-specific", "surges"], sessionType: "threshold" },
+  "marathon-mtb": {
+    zone: "tempo",
+    tags: ["marathon-mtb", "long", "race-specific"],
+    sessionType: "tempo"
+  }
+};
+
+// Phase from position in the plan (doc §7.1): base = first ~1/3, taper = last 1-2 wk,
+// peak = final ~1/4 before taper, build = the middle.
+const derivePhase = (weekIndex: number, planLengthWeeks: number): TrainingPhase => {
+  if (weekIndex >= planLengthWeeks - 2) {
+    return "taper";
+  }
+  if (weekIndex < planLengthWeeks / 3) {
+    return "base";
+  }
+  if (weekIndex >= Math.ceil(planLengthWeeks * 0.75)) {
+    return "peak";
+  }
+  return "build";
+};
+
+type DayRole = "key" | "secondary" | "long";
+
+// Phase-aware session matrix (doc §7.1): (phase, dayRole) -> session type + zone.
+const phaseMatrix = (
+  phase: TrainingPhase,
+  role: DayRole,
+  event: EventProfile,
+  weekIndex: number
+): { sessionType: SessionType; zone: TrainingZone } => {
+  if (role === "long") {
+    return { sessionType: "endurance", zone: "endurance" };
+  }
+  switch (phase) {
+    case "base":
+      return role === "key"
+        ? { sessionType: "sweet-spot", zone: "sweet-spot" }
+        : { sessionType: "tempo", zone: "tempo" };
+    case "build":
+      if (role === "key") {
+        return weekIndex % 2 === 0
+          ? { sessionType: "threshold", zone: "threshold" }
+          : { sessionType: "vo2", zone: "vo2" };
+      }
+      return { sessionType: "sweet-spot", zone: "sweet-spot" };
+    case "peak":
+      return role === "key"
+        ? { sessionType: event.sessionType, zone: event.zone }
+        : { sessionType: "anaerobic", zone: "anaerobic" };
+    case "taper":
+    default:
+      return role === "key"
+        ? { sessionType: "threshold", zone: "threshold" }
+        : { sessionType: "neuromuscular", zone: "neuromuscular" };
   }
 };
 
@@ -199,6 +258,62 @@ const templateIntervals = (
     return intervals;
   }
 
+  if (sessionType === "sweet-spot") {
+    const reps = 3;
+    const recover = 4;
+    const rep = Math.max(8, Math.floor((mainMin - recover * (reps - 1)) / reps));
+    const intervals: WorkoutInterval[] = [
+      { kind: "warmup", durationSec: warmup * 60, targetPowerWatts: watts(0.55), targetResistancePercent: null }
+    ];
+    for (let i = 0; i < reps; i += 1) {
+      intervals.push({
+        kind: "work",
+        durationSec: rep * 60,
+        targetPowerWatts: watts(clamp(targetIF, 0.86, 0.94)),
+        targetResistancePercent: null
+      });
+      if (i < reps - 1) {
+        intervals.push({
+          kind: "recovery",
+          durationSec: recover * 60,
+          targetPowerWatts: watts(0.55),
+          targetResistancePercent: null
+        });
+      }
+    }
+    intervals.push({
+      kind: "cooldown",
+      durationSec: cooldown * 60,
+      targetPowerWatts: watts(0.5),
+      targetResistancePercent: null
+    });
+    return intervals;
+  }
+
+  if (sessionType === "anaerobic" || sessionType === "neuromuscular") {
+    const isNeuro = sessionType === "neuromuscular";
+    const onSec = isNeuro ? 15 : 40;
+    const offSec = isNeuro ? 225 : 60;
+    const power = isNeuro ? 1.6 : 1.2;
+    const repeats = Math.max(6, Math.min(12, Math.floor((mainMin * 60) / (onSec + offSec))));
+    const intervals: WorkoutInterval[] = [
+      { kind: "warmup", durationSec: warmup * 60, targetPowerWatts: watts(0.6), targetResistancePercent: null }
+    ];
+    for (let i = 0; i < repeats; i += 1) {
+      intervals.push({ kind: "work", durationSec: onSec, targetPowerWatts: watts(power), targetResistancePercent: null });
+      if (i < repeats - 1) {
+        intervals.push({ kind: "recovery", durationSec: offSec, targetPowerWatts: watts(0.5), targetResistancePercent: null });
+      }
+    }
+    intervals.push({
+      kind: "cooldown",
+      durationSec: cooldown * 60,
+      targetPowerWatts: watts(0.5),
+      targetResistancePercent: null
+    });
+    return intervals;
+  }
+
   const hardRep = 3;
   const hardRecover = 3;
   const repeats = Math.max(4, Math.min(6, Math.floor(mainMin / (hardRep + hardRecover))));
@@ -269,7 +384,8 @@ const summarizeChanges = (beforeWeeks: EventPlanWeek[], afterWeeks: EventPlanWee
 export class EventPlanService {
   constructor(
     private readonly repositories: Repositories,
-    private readonly adaptationService: PlanAdaptationService
+    private readonly adaptationService: PlanAdaptationService,
+    private readonly workoutBankService: WorkoutBankService
   ) {}
 
   private createPlanTitle(input: EventPlanInput): string {
@@ -349,7 +465,7 @@ export class EventPlanService {
 
     const planEndWeek = startOfWeekSunday(input.eventDate);
     const planStartWeek = addDays(planEndWeek, -7 * (input.planLengthWeeks - 1));
-    const eventSpecificKey = sessionTypeForEvent(input.eventType);
+    const eventProfile = EVENT_PROFILE[input.eventType];
     const preferredOrder = [2, 4, 6, 0, 3, 1, 5];
     const selectedDays = preferredOrder.filter((day) => availableDays.includes(day)).slice(0, 5);
     const sessionsPerWeek = clamp(selectedDays.length, 2, 5);
@@ -365,6 +481,7 @@ export class EventPlanService {
     for (let weekIndex = 0; weekIndex < input.planLengthWeeks; weekIndex += 1) {
       const isRecovery = (weekIndex + 1) % 4 === 0;
       const isTaper = weekIndex >= input.planLengthWeeks - 2;
+      const phase = derivePhase(weekIndex, input.planLengthWeeks);
       const loadTag: LoadTag = isTaper ? "taper" : isRecovery ? "recovery" : "build";
       if (weekIndex > 0 && !isRecovery && !isTaper) {
         const growth = weekIndex % 4 === 0 ? 1.04 : 1.07;
@@ -372,25 +489,26 @@ export class EventPlanService {
       }
 
       const tunedMinutes = baseMinutes * (1 + tuning.volumeBias);
+      // Taper fix (doc §7.3): cut volume 40-70%, hold targetIF (no intensity drop).
+      const taperVolumeFactor = weekIndex === input.planLengthWeeks - 1 ? 0.45 : 0.6;
       const targetMinutes = clamp(
         Math.round(
-          isRecovery ? tunedMinutes * 0.68 : isTaper ? tunedMinutes * (weekIndex === input.planLengthWeeks - 1 ? 0.62 : 0.78) : tunedMinutes
+          isRecovery ? tunedMinutes * 0.68 : isTaper ? tunedMinutes * taperVolumeFactor : tunedMinutes
         ),
-        120,
+        isTaper ? 60 : 120,
         weeklyMaxMinutes
       );
 
       const baseIF = 0.72 + Math.floor(weekIndex / 4) * 0.02 + (weekIndex % 4) * 0.01 + tuning.intensityBias;
-      const targetIF = clamp(
-        isRecovery ? baseIF - 0.08 : isTaper ? baseIF - 0.05 : baseIF,
-        0.55,
-        0.9
-      );
+      // Taper holds intensity (doc §7.3); it also overrides a coinciding recovery-week
+      // IF cut so the last race-week keeps its sharpness while only volume drops.
+      const targetIF = clamp(isTaper ? baseIF : isRecovery ? baseIF - 0.08 : baseIF, 0.55, 0.9);
 
       const weekStartDate = addDays(planStartWeek, weekIndex * 7);
       const weekDays: DayDraft[] = Array.from({ length: 7 }, (_, dayIndex) => ({
         dayIndex,
         sessionType: null,
+        zone: null,
         durationMin: 0,
         targetIF: null
       }));
@@ -409,26 +527,41 @@ export class EventPlanService {
 
       for (const dayIndex of workoutDays) {
         let sessionType: SessionType = "endurance";
+        let zone: TrainingZone = "endurance";
         let dayIF = clamp(targetIF * 0.92, 0.55, 0.78);
         if (isRecovery) {
           sessionType = dayIndex === longDay ? "endurance" : "recovery";
+          zone = sessionType === "endurance" ? "endurance" : "recovery";
           dayIF = sessionType === "endurance" ? clamp(targetIF * 0.9, 0.58, 0.72) : clamp(targetIF * 0.82, 0.5, 0.62);
-        } else if (dayIndex === keyDay) {
-          sessionType = eventSpecificKey;
-          dayIF = eventSpecificKey === "vo2" ? clamp(targetIF + 0.05, 0.82, 0.95) : clamp(targetIF + 0.03, 0.78, 0.93);
-        } else if (dayIndex === secondaryDay && eventSpecificKey !== "tempo") {
-          sessionType = "tempo";
-          dayIF = clamp(targetIF, 0.72, 0.88);
-        } else if (dayIndex === longDay) {
-          sessionType = "endurance";
-          dayIF = clamp(targetIF * 0.9, 0.62, 0.78);
-        }
-        if (isTaper && sessionType !== "recovery") {
-          dayIF = clamp(dayIF - 0.03, 0.55, 0.88);
+        } else {
+          let role: DayRole | null = null;
+          if (dayIndex === keyDay) {
+            role = "key";
+          } else if (dayIndex === longDay) {
+            role = "long";
+          } else if (dayIndex === secondaryDay) {
+            role = "secondary";
+          }
+          if (role) {
+            const matched = phaseMatrix(phase, role, eventProfile, weekIndex);
+            sessionType = matched.sessionType;
+            zone = matched.zone;
+            if (role === "key") {
+              dayIF =
+                sessionType === "vo2" || sessionType === "anaerobic" || sessionType === "neuromuscular"
+                  ? clamp(targetIF + 0.05, 0.82, 0.98)
+                  : clamp(targetIF + 0.03, 0.78, 0.95);
+            } else if (role === "secondary") {
+              dayIF = clamp(targetIF, 0.72, 0.9);
+            } else {
+              dayIF = clamp(targetIF * 0.9, 0.62, 0.78);
+            }
+          }
         }
         weekDays[dayIndex] = {
           dayIndex,
           sessionType,
+          zone,
           durationMin: durationByDay.get(dayIndex) ?? 0,
           targetIF: Number(dayIF.toFixed(2))
         };
@@ -437,6 +570,7 @@ export class EventPlanService {
       drafts.push({
         weekIndex,
         startDate: weekStartDate,
+        phase,
         loadTag,
         targetMinutes,
         targetIF: Number(targetIF.toFixed(2)),
@@ -477,6 +611,9 @@ export class EventPlanService {
 
     this.repositories.planWeeks.deleteByPlan(planId);
     const persistedWeeks: EventPlanWeek[] = [];
+    // Bank-workout rotation: id -> weeks it was used for a zone, so a workout isn't
+    // repeated within 2 weeks for the same zone (doc §7.2).
+    const bankUsage: Array<{ weekIndex: number; zone: TrainingZone; id: string }> = [];
 
     for (const week of weeks) {
       const weekId = randomUUID();
@@ -501,36 +638,75 @@ export class EventPlanService {
         if (!day.sessionType || day.durationMin <= 0 || day.targetIF === null) {
           continue;
         }
-        const workoutId = randomUUID();
-        const workoutName = `W${week.weekIndex + 1} ${DAY_LABELS[day.dayIndex]} ${day.sessionType}`;
-        const intervals = templateIntervals(day.sessionType, currentFtp, day.durationMin, day.targetIF);
-        const durationSeconds = intervals.reduce((sum, interval) => sum + interval.durationSec, 0);
-        this.repositories.workouts.create({
-          id: workoutId,
-          name: workoutName,
-          source: "event-plan-generator",
-          intensityFactor: day.targetIF,
-          durationSeconds,
-          metadataJson: JSON.stringify({
-            generatedBy: "event-plan-generator",
-            planId,
-            weekIndex: week.weekIndex,
-            dayIndex: day.dayIndex,
-            sessionType: day.sessionType
-          })
-        });
-        intervals.forEach((interval, intervalIndex) => {
-          this.repositories.workoutIntervals.create({
-            id: randomUUID(),
-            workoutId,
-            intervalIndex,
-            kind: interval.kind,
-            targetPowerWatts: interval.targetPowerWatts,
-            targetResistancePercent: interval.targetResistancePercent,
-            durationSeconds: interval.durationSec,
-            notes: null
+        const label = `W${week.weekIndex + 1} ${DAY_LABELS[day.dayIndex]} ${day.sessionType}`;
+
+        // 1. Try to select a bank workout for (zone, phase, duration) with rotation.
+        const excludeIds = day.zone
+          ? bankUsage
+              .filter((usage) => usage.zone === day.zone && usage.weekIndex >= week.weekIndex - 2)
+              .map((usage) => usage.id)
+          : [];
+        const selected = day.zone
+          ? this.workoutBankService.selectForPlanDay({
+              zone: day.zone,
+              phase: week.phase,
+              targetDurationMin: day.durationMin,
+              discipline: "cycling",
+              excludeIds
+            })
+          : null;
+
+        let workoutId: string;
+        let workoutName: string;
+
+        if (selected) {
+          const compiled = this.workoutBankService.compileAndPersist({
+            bankWorkoutId: selected.id,
+            ftp: currentFtp,
+            name: label
           });
-        });
+          workoutId = compiled.workoutId;
+          workoutName = `${label} — ${selected.name}`;
+          if (day.zone) {
+            bankUsage.push({ weekIndex: week.weekIndex, zone: day.zone, id: selected.id });
+          }
+        } else {
+          // 2. Fallback: synthesize from the private template (doc §7.3).
+          workoutId = randomUUID();
+          workoutName = label;
+          const intervals = templateIntervals(day.sessionType, currentFtp, day.durationMin, day.targetIF);
+          const durationSeconds = intervals.reduce((sum, interval) => sum + interval.durationSec, 0);
+          this.repositories.workouts.create({
+            id: workoutId,
+            name: workoutName,
+            source: "event-plan-generator",
+            intensityFactor: day.targetIF,
+            durationSeconds,
+            metadataJson: JSON.stringify({
+              generatedBy: "event-plan-generator",
+              planId,
+              weekIndex: week.weekIndex,
+              dayIndex: day.dayIndex,
+              phase: week.phase,
+              zone: day.zone,
+              sessionType: day.sessionType
+            })
+          });
+          intervals.forEach((interval, intervalIndex) => {
+            this.repositories.workoutIntervals.create({
+              id: randomUUID(),
+              workoutId,
+              intervalIndex,
+              kind: interval.kind,
+              targetPowerWatts: interval.targetPowerWatts,
+              targetPowerWattsEnd: interval.targetPowerWattsEnd ?? null,
+              targetResistancePercent: interval.targetResistancePercent,
+              durationSeconds: interval.durationSec,
+              notes: null
+            });
+          });
+        }
+
         this.repositories.planWeekWorkouts.assignWorkout({
           id: randomUUID(),
           planWeekId: weekId,
@@ -635,7 +811,7 @@ export class EventPlanService {
         source: request.source,
         reason: request.reason,
         metadata: {
-          strategy: "template-v1",
+          strategy: "phase-matrix-v1",
           weeks: weeks.length
         }
       });

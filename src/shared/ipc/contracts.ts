@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ZONE_KEYS } from "@shared/zones";
 
 export const ipcChannels = {
   app: {
@@ -44,6 +45,14 @@ export const ipcChannels = {
     assignWorkoutToPlanDay: "workout-library:assign-workout-to-plan-day",
     unassignWorkoutFromPlanDay: "workout-library:unassign-workout-from-plan-day",
     listPlanWeeks: "workout-library:list-plan-weeks"
+  },
+  workoutBank: {
+    list: "workout-bank:list",
+    get: "workout-bank:get",
+    create: "workout-bank:create",
+    update: "workout-bank:update",
+    archive: "workout-bank:archive",
+    startAdhoc: "workout-bank:start-adhoc"
   },
   eventPlan: {
     generate: "event-plan:generate",
@@ -187,12 +196,212 @@ export const workoutIntervalSchema = z.object({
   kind: workoutIntervalKindSchema,
   durationSec: z.number().int().min(1),
   targetPowerWatts: z.number().min(0).nullable(),
-  targetResistancePercent: z.number().min(0).max(100).nullable()
+  targetResistancePercent: z.number().min(0).max(100).nullable(),
+  // Ramp support: when non-null the interval linearly interpolates from
+  // targetPowerWatts (start) to targetPowerWattsEnd over its duration. null/undefined
+  // = flat block (unchanged behavior).
+  targetPowerWattsEnd: z.number().min(0).nullable().optional(),
+  // Display-only cadence target (no control-point write). null/undefined = none.
+  targetCadenceRpm: z.number().min(0).nullable().optional()
 });
 
 export const workoutBuilderIntervalSchema = workoutIntervalSchema.extend({
   id: z.string().min(1).optional()
 });
+
+// ---------------------------------------------------------------------------
+// Workout Bank — .fsw (Full Send Workout) document format (doc §3, §12)
+// ---------------------------------------------------------------------------
+
+export const trainingZoneSchema = z.enum(ZONE_KEYS);
+export const trainingPhaseSchema = z.enum(["base", "build", "peak", "taper"]);
+
+/** Power is always a fraction of FTP (never watts), strictly > 0. */
+export const fswPowerFractionSchema = z.number().positive();
+
+export const fswTextEventSchema = z.object({
+  atSec: z.number().min(0),
+  message: z.string().min(1)
+});
+
+export const fswSurgesSchema = z.object({
+  everySec: z.number().int().min(1),
+  durationSec: z.number().int().min(1),
+  power: fswPowerFractionSchema
+});
+
+export const fswOnPatternStepSchema = z.object({
+  durationSec: z.number().int().min(1),
+  power: fswPowerFractionSchema,
+  cadence: z.number().min(0).optional()
+});
+
+const fswWarmupSegmentSchema = z.object({
+  type: z.literal("warmup"),
+  durationSec: z.number().int().min(1),
+  powerLow: fswPowerFractionSchema,
+  powerHigh: fswPowerFractionSchema,
+  cadence: z.number().min(0).optional(),
+  textEvents: z.array(fswTextEventSchema).optional()
+});
+
+const fswCooldownSegmentSchema = z.object({
+  type: z.literal("cooldown"),
+  durationSec: z.number().int().min(1),
+  powerLow: fswPowerFractionSchema,
+  powerHigh: fswPowerFractionSchema,
+  cadence: z.number().min(0).optional(),
+  textEvents: z.array(fswTextEventSchema).optional()
+});
+
+const fswRampSegmentSchema = z.object({
+  type: z.literal("ramp"),
+  durationSec: z.number().int().min(1),
+  powerLow: fswPowerFractionSchema,
+  powerHigh: fswPowerFractionSchema,
+  cadence: z.number().min(0).optional(),
+  textEvents: z.array(fswTextEventSchema).optional()
+});
+
+const fswSteadySegmentSchema = z.object({
+  type: z.literal("steady"),
+  durationSec: z.number().int().min(1),
+  power: fswPowerFractionSchema,
+  cadence: z.number().min(0).optional(),
+  surges: fswSurgesSchema.optional(),
+  textEvents: z.array(fswTextEventSchema).optional()
+});
+
+const fswFreerideSegmentSchema = z.object({
+  type: z.literal("freeride"),
+  durationSec: z.number().int().min(1),
+  cadence: z.number().min(0).optional(),
+  textEvents: z.array(fswTextEventSchema).optional()
+});
+
+const fswIntervalsSegmentSchema = z.object({
+  type: z.literal("intervals"),
+  repeat: z.number().int().min(1),
+  onDurationSec: z.number().int().min(1).optional(),
+  onPower: fswPowerFractionSchema.optional(),
+  /** Over-under / multi-level rep: sub-steps that replace the scalar on-step. */
+  onPattern: z.array(fswOnPatternStepSchema).min(1).optional(),
+  offDurationSec: z.number().int().min(0),
+  offPower: fswPowerFractionSchema,
+  onCadence: z.number().min(0).optional(),
+  offCadence: z.number().min(0).optional(),
+  cadence: z.number().min(0).optional(),
+  /** Keep the recovery after the final rep (default: dropped). */
+  trailingRecovery: z.boolean().optional(),
+  surges: fswSurgesSchema.optional(),
+  textEvents: z.array(fswTextEventSchema).optional()
+});
+
+export const fswSegmentSchema = z.discriminatedUnion("type", [
+  fswWarmupSegmentSchema,
+  fswCooldownSegmentSchema,
+  fswRampSegmentSchema,
+  fswSteadySegmentSchema,
+  fswFreerideSegmentSchema,
+  fswIntervalsSegmentSchema
+]);
+
+export const fswDocumentSchema = z
+  .object({
+    schemaVersion: z.literal(1),
+    id: z.string().min(1),
+    name: z.string().min(1),
+    description: z.string().optional(),
+    author: z.string().optional(),
+    discipline: z.string().min(1).default("cycling"),
+    primaryZone: trainingZoneSchema,
+    tags: z.array(z.string()).default([]),
+    phases: z.array(trainingPhaseSchema).default([]),
+    // Cached / derived — optional on input, recomputed on save.
+    durationSec: z.number().int().min(1).optional(),
+    estIF: z.number().min(0).optional(),
+    estTSS: z.number().min(0).optional(),
+    segments: z.array(fswSegmentSchema).min(1),
+    textEvents: z.array(fswTextEventSchema).optional()
+  })
+  .superRefine((doc, ctx) => {
+    doc.segments.forEach((segment, index) => {
+      if (
+        segment.type === "intervals" &&
+        segment.onPattern == null &&
+        (segment.onDurationSec == null || segment.onPower == null)
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["segments", index],
+          message: "intervals segment needs onPattern, or both onDurationSec and onPower"
+        });
+      }
+    });
+  });
+
+export type TrainingZone = z.infer<typeof trainingZoneSchema>;
+export type TrainingPhase = z.infer<typeof trainingPhaseSchema>;
+export type FswTextEvent = z.infer<typeof fswTextEventSchema>;
+export type FswSurges = z.infer<typeof fswSurgesSchema>;
+export type FswOnPatternStep = z.infer<typeof fswOnPatternStepSchema>;
+export type FswSegment = z.infer<typeof fswSegmentSchema>;
+export type FswDocument = z.infer<typeof fswDocumentSchema>;
+
+export const bankWorkoutSummarySchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  primaryZone: trainingZoneSchema,
+  discipline: z.string().min(1),
+  tags: z.array(z.string()),
+  phases: z.array(trainingPhaseSchema),
+  durationSec: z.number().int().min(0),
+  estIF: z.number().nullable(),
+  estTSS: z.number().nullable(),
+  source: z.string().min(1),
+  archived: z.boolean()
+});
+
+export const bankWorkoutDetailSchema = bankWorkoutSummarySchema.extend({
+  document: fswDocumentSchema
+});
+
+export const bankWorkoutFilterSchema = z.object({
+  zone: trainingZoneSchema.optional(),
+  phase: trainingPhaseSchema.optional(),
+  discipline: z.string().min(1).optional(),
+  tag: z.string().min(1).optional(),
+  maxDurationMin: z.number().int().min(1).optional(),
+  includeArchived: z.boolean().optional()
+});
+
+export const listBankWorkoutsRequestSchema = bankWorkoutFilterSchema;
+export const getBankWorkoutRequestSchema = z.object({ id: z.string().min(1) });
+export const createBankWorkoutRequestSchema = z.object({ document: fswDocumentSchema });
+export const updateBankWorkoutRequestSchema = z.object({
+  id: z.string().min(1),
+  document: fswDocumentSchema
+});
+export const archiveBankWorkoutRequestSchema = z.object({ id: z.string().min(1) });
+export const startAdhocBankWorkoutRequestSchema = z.object({
+  bankWorkoutId: z.string().min(1),
+  deviceId: z.string().min(1),
+  ftp: z.number().int().min(100).max(600),
+  name: z.string().min(1).optional()
+});
+export const bankWorkoutSummariesSchema = z.array(bankWorkoutSummarySchema);
+export const bankWorkoutIdResultSchema = z.object({ ok: z.literal(true), id: z.string().min(1) });
+
+export type BankWorkoutSummary = z.infer<typeof bankWorkoutSummarySchema>;
+export type BankWorkoutDetail = z.infer<typeof bankWorkoutDetailSchema>;
+export type BankWorkoutFilter = z.infer<typeof bankWorkoutFilterSchema>;
+export type ListBankWorkoutsRequest = z.infer<typeof listBankWorkoutsRequestSchema>;
+export type GetBankWorkoutRequest = z.infer<typeof getBankWorkoutRequestSchema>;
+export type CreateBankWorkoutRequest = z.infer<typeof createBankWorkoutRequestSchema>;
+export type UpdateBankWorkoutRequest = z.infer<typeof updateBankWorkoutRequestSchema>;
+export type ArchiveBankWorkoutRequest = z.infer<typeof archiveBankWorkoutRequestSchema>;
+export type StartAdhocBankWorkoutRequest = z.infer<typeof startAdhocBankWorkoutRequestSchema>;
+export type BankWorkoutIdResult = z.infer<typeof bankWorkoutIdResultSchema>;
 
 export const startWorkoutSessionRequestSchema = z.object({
   workoutId: z.string().min(1).nullable().optional(),
@@ -236,6 +445,7 @@ export const workoutLiveMetricsSchema = z.object({
   blockKind: workoutIntervalKindSchema,
   targetPowerWatts: z.number().nullable(),
   targetResistancePercent: z.number().nullable(),
+  targetCadenceRpm: z.number().nullable(),
   actualPowerWatts: z.number().nullable(),
   actualCadenceRpm: z.number().nullable(),
   actualHeartRateBpm: z.number().nullable(),
@@ -370,12 +580,28 @@ export const dayAvailabilitySchema = z.object({
 });
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD");
 
-export const planLengthWeeksSchema = z.union([z.literal(8), z.literal(12), z.literal(16)]);
-export const eventTypeSchema = z.enum(["road-race", "time-trial", "criterium", "gran-fondo"]);
+export const planLengthWeeksSchema = z.number().int().min(4).max(24);
+export const eventTypeSchema = z.enum([
+  "road-race",
+  "time-trial",
+  "criterium",
+  "gran-fondo",
+  "xc-mtb",
+  "marathon-mtb"
+]);
 export const adaptationSourceSchema = z.enum(["user", "ai", "system"]);
 export const adaptationActionSchema = z.enum(["generated", "adapted"]);
 export const loadTagSchema = z.enum(["build", "recovery", "taper"]);
-export const sessionTypeSchema = z.enum(["endurance", "tempo", "threshold", "vo2", "recovery"]);
+export const sessionTypeSchema = z.enum([
+  "endurance",
+  "tempo",
+  "threshold",
+  "vo2",
+  "recovery",
+  "sweet-spot",
+  "anaerobic",
+  "neuromuscular"
+]);
 
 export const eventPlanDaySchema = z.object({
   dayIndex: z.number().int().min(0).max(6),

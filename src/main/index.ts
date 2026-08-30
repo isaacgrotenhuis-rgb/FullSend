@@ -5,6 +5,8 @@ import { BleService } from "@main/ble/BleService";
 import { DatabaseService } from "@main/database/DatabaseService";
 import { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
+import { WorkoutBankService } from "@main/workout/WorkoutBankService";
+import { seedWorkoutBankIfEmpty } from "@main/workout/seedWorkoutBank";
 import { createPlanAdaptationService } from "@main/plans/PlanAdaptationService";
 import { EventPlanService } from "@main/plans/EventPlanService";
 import { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
@@ -45,14 +47,21 @@ const bootstrap = async (): Promise<void> => {
     workoutSessionTelemetry: databaseService.repositories.workoutSessionTelemetry
   });
   const workoutLibraryService = new WorkoutLibraryService(databaseService.repositories);
+  const workoutBankService = new WorkoutBankService(databaseService.repositories);
+  seedWorkoutBankIfEmpty(workoutBankService);
   const adaptationService = createPlanAdaptationService();
-  const eventPlanService = new EventPlanService(databaseService.repositories, adaptationService);
+  const eventPlanService = new EventPlanService(
+    databaseService.repositories,
+    adaptationService,
+    workoutBankService
+  );
   const progressDashboardService = new ProgressDashboardService(databaseService.repositories);
   const stravaService = new StravaService(databaseService.repositories);
   const cleanupIpcHandlers = registerIpcHandlers(
     bleService,
     workoutEngine,
     workoutLibraryService,
+    workoutBankService,
     eventPlanService,
     progressDashboardService,
     stravaService

@@ -44,6 +44,7 @@ type WorkoutPersistence = {
       blockIndex: number;
       targetPowerWatts: number | null;
       targetResistancePercent: number | null;
+      targetCadenceRpm: number | null;
       actualPowerWatts: number | null;
       actualCadenceRpm: number | null;
       actualHeartRateBpm: number | null;
@@ -180,6 +181,7 @@ export class ErgWorkoutEngine {
       blockIndex: metrics.blockIndex,
       targetPowerWatts: metrics.targetPowerWatts,
       targetResistancePercent: metrics.targetResistancePercent,
+      targetCadenceRpm: metrics.targetCadenceRpm,
       actualPowerWatts: metrics.actualPowerWatts,
       actualCadenceRpm: metrics.actualCadenceRpm,
       actualHeartRateBpm: metrics.actualHeartRateBpm,
@@ -272,9 +274,11 @@ export class ErgWorkoutEngine {
       }
 
       const intensityMultiplier = this.state.intensityMultiplier;
+      // cursor.targetPowerWatts is already interpolated for ramp intervals
+      // (targetPowerWattsEnd set); flat blocks pass through unchanged.
       const blockTargetPowerWatts =
-        cursor.interval.targetPowerWatts !== null
-          ? Math.max(0, Math.round(cursor.interval.targetPowerWatts * intensityMultiplier))
+        cursor.targetPowerWatts !== null
+          ? Math.max(0, Math.round(cursor.targetPowerWatts * intensityMultiplier))
           : null;
       const scaledTargetResistancePercent =
         cursor.interval.targetResistancePercent !== null
@@ -306,6 +310,10 @@ export class ErgWorkoutEngine {
         blockKind: cursor.interval.kind,
         targetPowerWatts: scaledTargetPowerWatts,
         targetResistancePercent: scaledTargetResistancePercent,
+        // Display-only cadence target; not scaled by intensity, no control-point write.
+        // Free-ride blocks (targetPowerWatts null + targetResistancePercent 0) fall
+        // through applyTargets() to FTMS Set Target Resistance Level (slope mode).
+        targetCadenceRpm: cursor.interval.targetCadenceRpm ?? null,
         actualPowerWatts: this.latestTelemetry?.powerWatts ?? null,
         actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null,
         actualHeartRateBpm: this.latestHeartRateBpm,
