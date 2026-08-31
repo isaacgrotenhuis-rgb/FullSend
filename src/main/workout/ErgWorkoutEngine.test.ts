@@ -25,10 +25,15 @@ class FakeBleService implements BleService {
   private state: BleState = createInitialBleState();
   private listener: ((state: BleState) => void) | null = null;
 
-  setTelemetry(powerWatts: number | null, cadenceRpm: number | null, speedKmh: number | null = null): void {
+  setTelemetry(
+    powerWatts: number | null,
+    cadenceRpm: number | null,
+    speedKmh: number | null = null,
+    distanceMeters: number | null = null
+  ): void {
     this.state = {
       ...this.state,
-      liveTelemetry: { powerWatts, cadenceRpm, speedKmh, timestamp: new Date().toISOString() }
+      liveTelemetry: { powerWatts, cadenceRpm, speedKmh, distanceMeters, timestamp: new Date().toISOString() }
     };
     this.listener?.(this.state);
   }
@@ -131,7 +136,9 @@ describe("ErgWorkoutEngine finalize/discard", () => {
       durationSec: 2,
       avgPowerWatts: 150,
       avgCadenceRpm: 85,
-      avgHeartRateBpm: 130
+      avgHeartRateBpm: 130,
+      avgSpeedKmh: null,
+      distanceMeters: null
     });
 
     const row = db.prepare("SELECT status, summary_json FROM workout_sessions WHERE id = ?").get(sessionId) as {
@@ -148,6 +155,43 @@ describe("ErgWorkoutEngine finalize/discard", () => {
 
     const secondCall = engine.finalizeSession(sessionId);
     expect(secondCall).toEqual(summary);
+  });
+
+  it("computes average speed and takes the max reading as total distance", async () => {
+    ble.setTelemetry(100, 80, 20, 100);
+    const sessionId = await startSession(60);
+
+    ble.setTelemetry(200, 90, 30, 200);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    ble.setTelemetry(150, 85, 25, 300);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await engine.stop(sessionId);
+    const summary = engine.finalizeSession(sessionId);
+    expect(summary.avgSpeedKmh).toBe(25);
+    expect(summary.distanceMeters).toBe(300);
+  });
+
+  it("estimates distance from speed when the trainer never reports a distance reading", async () => {
+    // distanceMeters stays null every tick, e.g. a trainer that doesn't set FTMS's
+    // optional "Total Distance Present" flag (the real-world case that motivated this).
+    ble.setTelemetry(100, 80, 20, null);
+    const sessionId = await startSession(60);
+
+    ble.setTelemetry(100, 80, 30, null);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    ble.setTelemetry(100, 80, 36, null);
+    await vi.advanceTimersByTimeAsync(1000);
+
+    await engine.stop(sessionId);
+    const summary = engine.finalizeSession(sessionId);
+    // Right-Riemann-sum integration over the recorded 1-second ticks: the t=0 sample
+    // has no preceding interval (contributes 0), then 30 km/h covers 0s->1s and
+    // 36 km/h covers 1s->2s: (30 + 36) * (1000/3600) ≈ 18.33m — an estimate, not a
+    // real device reading.
+    expect(summary.distanceMeters).toBe(18);
   });
 
   it("handles a session with no heart-rate monitor connected", async () => {

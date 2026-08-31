@@ -41,6 +41,7 @@ const api: KickrDesktopApi = {
     setIntensity: async (request) => ipcRenderer.invoke(ipcChannels.workout.setIntensity, request),
     setRampDuration: async (request) => ipcRenderer.invoke(ipcChannels.workout.setRampDuration, request),
     getSessionState: async () => ipcRenderer.invoke(ipcChannels.workout.getSessionState, {}),
+    getSessionTelemetry: async (request) => ipcRenderer.invoke(ipcChannels.workout.getSessionTelemetry, request),
     subscribeSession: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, rawState: WorkoutSessionState) => {
         listener(workoutSessionStateSchema.parse(rawState));

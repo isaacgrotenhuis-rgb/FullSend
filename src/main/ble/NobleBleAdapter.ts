@@ -261,6 +261,7 @@ export class NobleBleAdapter implements BleAdapter {
           powerWatts: sample.powerWatts,
           cadenceRpm: sample.cadenceRpm,
           speedKmh: sample.speedKmh,
+          distanceMeters: sample.distanceMeters,
           timestamp: new Date().toISOString()
         });
       });

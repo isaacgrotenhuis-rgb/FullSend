@@ -40,10 +40,11 @@ export type IndoorBikeSample = {
   speedKmh: number | null;
   cadenceRpm: number | null;
   powerWatts: number | null;
+  distanceMeters: number | null;
 };
 
 export const parseIndoorBikeData = (data: Buffer): IndoorBikeSample => {
-  const sample: IndoorBikeSample = { speedKmh: null, cadenceRpm: null, powerWatts: null };
+  const sample: IndoorBikeSample = { speedKmh: null, cadenceRpm: null, powerWatts: null, distanceMeters: null };
   if (data.length < 2) {
     return sample;
   }
@@ -78,6 +79,9 @@ export const parseIndoorBikeData = (data: Buffer): IndoorBikeSample => {
     offset += 2;
   }
   if (totalDistancePresent) {
+    if (offset + 3 <= data.length) {
+      sample.distanceMeters = data.readUIntLE(offset, 3);
+    }
     offset += 3;
   }
   if (resistancePresent) {

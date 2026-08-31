@@ -35,6 +35,7 @@ export const ipcChannels = {
     setIntensity: "workout:set-intensity",
     setRampDuration: "workout:set-ramp-duration",
     getSessionState: "workout:get-session-state",
+    getSessionTelemetry: "workout:get-session-telemetry",
     subscribeSession: "workout:subscribe-session",
     unsubscribeSession: "workout:unsubscribe-session",
     sessionStateChangedEvent: "workout:session-state-changed"
@@ -163,6 +164,7 @@ export const bleLiveTelemetrySchema = z.object({
   powerWatts: z.number().nullable(),
   cadenceRpm: z.number().nullable(),
   speedKmh: z.number().nullable(),
+  distanceMeters: z.number().nullable(),
   timestamp: z.string()
 });
 
@@ -340,7 +342,8 @@ export const workoutLiveMetricsSchema = z.object({
   actualPowerWatts: z.number().nullable(),
   actualCadenceRpm: z.number().nullable(),
   actualHeartRateBpm: z.number().nullable(),
-  actualSpeedKmh: z.number().nullable()
+  actualSpeedKmh: z.number().nullable(),
+  actualDistanceMeters: z.number().nullable()
 });
 
 export const workoutSessionStateSchema = z.object({
@@ -370,8 +373,20 @@ export const workoutSessionSummarySchema = z.object({
   durationSec: z.number().int().min(0),
   avgPowerWatts: z.number().nullable(),
   avgCadenceRpm: z.number().nullable(),
-  avgHeartRateBpm: z.number().nullable()
+  avgHeartRateBpm: z.number().nullable(),
+  avgSpeedKmh: z.number().nullable(),
+  distanceMeters: z.number().nullable()
 });
+
+export const workoutSessionTelemetrySamplesSchema = z.array(
+  z.object({
+    elapsedSec: z.number().int().min(0),
+    actualPowerWatts: z.number().nullable(),
+    actualCadenceRpm: z.number().nullable(),
+    actualHeartRateBpm: z.number().nullable(),
+    actualSpeedKmh: z.number().nullable()
+  })
+);
 
 export const workoutSummarySchema = z.object({
   id: z.string().min(1),
@@ -737,6 +752,7 @@ export type WorkoutLiveMetrics = z.infer<typeof workoutLiveMetricsSchema>;
 export type WorkoutSessionState = z.infer<typeof workoutSessionStateSchema>;
 export type WorkoutSessionStartResult = z.infer<typeof workoutSessionStartResultSchema>;
 export type WorkoutSessionSummary = z.infer<typeof workoutSessionSummarySchema>;
+export type WorkoutSessionTelemetrySamples = z.infer<typeof workoutSessionTelemetrySamplesSchema>;
 export type WorkoutSummary = z.infer<typeof workoutSummarySchema>;
 export type CreateWorkoutRequest = z.infer<typeof createWorkoutRequestSchema>;
 export type UpdateWorkoutRequest = z.infer<typeof updateWorkoutRequestSchema>;

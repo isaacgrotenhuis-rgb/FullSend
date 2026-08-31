@@ -306,13 +306,15 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
     actualPowerWatts: number | null;
     actualCadenceRpm: number | null;
     actualHeartRateBpm: number | null;
+    actualSpeedKmh: number | null;
+    actualDistanceMeters: number | null;
     payloadJson: string;
   }): void {
     this.db
       .prepare(
         `INSERT INTO workout_session_telemetry
-         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, target_cadence_rpm, actual_power_watts, actual_cadence_rpm, actual_heart_rate_bpm, payload_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, target_cadence_rpm, actual_power_watts, actual_cadence_rpm, actual_heart_rate_bpm, actual_speed_kmh, actual_distance_meters, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.id,
@@ -326,6 +328,8 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
         input.actualPowerWatts,
         input.actualCadenceRpm,
         input.actualHeartRateBpm,
+        input.actualSpeedKmh,
+        input.actualDistanceMeters,
         input.payloadJson
       );
   }
@@ -334,12 +338,16 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
     avgPowerWatts: number | null;
     avgCadenceRpm: number | null;
     avgHeartRateBpm: number | null;
+    avgSpeedKmh: number | null;
+    distanceMeters: number | null;
   } {
     return this.db
       .prepare(
         `SELECT AVG(actual_power_watts) AS avgPowerWatts,
                 AVG(actual_cadence_rpm) AS avgCadenceRpm,
-                AVG(actual_heart_rate_bpm) AS avgHeartRateBpm
+                AVG(actual_heart_rate_bpm) AS avgHeartRateBpm,
+                AVG(actual_speed_kmh) AS avgSpeedKmh,
+                MAX(actual_distance_meters) AS distanceMeters
          FROM workout_session_telemetry
          WHERE session_id = ?`
       )
@@ -347,7 +355,36 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
       avgPowerWatts: number | null;
       avgCadenceRpm: number | null;
       avgHeartRateBpm: number | null;
+      avgSpeedKmh: number | null;
+      distanceMeters: number | null;
     };
+  }
+
+  getSeries(sessionId: string): Array<{
+    elapsedSec: number;
+    actualPowerWatts: number | null;
+    actualCadenceRpm: number | null;
+    actualHeartRateBpm: number | null;
+    actualSpeedKmh: number | null;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT elapsed_seconds AS elapsedSec,
+                actual_power_watts AS actualPowerWatts,
+                actual_cadence_rpm AS actualCadenceRpm,
+                actual_heart_rate_bpm AS actualHeartRateBpm,
+                actual_speed_kmh AS actualSpeedKmh
+         FROM workout_session_telemetry
+         WHERE session_id = ?
+         ORDER BY elapsed_seconds ASC`
+      )
+      .all(sessionId) as Array<{
+      elapsedSec: number;
+      actualPowerWatts: number | null;
+      actualCadenceRpm: number | null;
+      actualHeartRateBpm: number | null;
+      actualSpeedKmh: number | null;
+    }>;
   }
 }
 
