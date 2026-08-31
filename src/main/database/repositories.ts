@@ -52,11 +52,13 @@ export class WorkoutsRepository extends BaseRepository {
     intensityFactor: number | null;
     durationSeconds: number;
     metadataJson: string;
+    bankWorkoutId?: string | null;
+    compiledAtFtp?: number | null;
   }): void {
     this.db
       .prepare(
-        `INSERT INTO workouts (id, name, source, intensity_factor, duration_seconds, metadata_json)
-         VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT INTO workouts (id, name, source, intensity_factor, duration_seconds, metadata_json, bank_workout_id, compiled_at_ftp)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.id,
@@ -64,7 +66,9 @@ export class WorkoutsRepository extends BaseRepository {
         input.source,
         input.intensityFactor,
         input.durationSeconds,
-        input.metadataJson
+        input.metadataJson,
+        input.bankWorkoutId ?? null,
+        input.compiledAtFtp ?? null
       );
   }
 
@@ -93,7 +97,7 @@ export class WorkoutIntervalsRepository extends BaseRepository {
   list(): Row[] {
     return this.db
       .prepare(
-        `SELECT id, workout_id, interval_index, kind, target_power_watts, target_resistance_percent,
+        `SELECT id, workout_id, interval_index, kind, target_power_watts, target_power_watts_end, target_resistance_percent,
                 target_cadence_rpm, duration_seconds, notes, created_at, updated_at
          FROM workout_intervals ORDER BY workout_id ASC, interval_index ASC`
       )
@@ -103,7 +107,7 @@ export class WorkoutIntervalsRepository extends BaseRepository {
   getById(intervalId: string): Row | undefined {
     return this.db
       .prepare(
-        `SELECT id, workout_id, interval_index, kind, target_power_watts, target_resistance_percent,
+        `SELECT id, workout_id, interval_index, kind, target_power_watts, target_power_watts_end, target_resistance_percent,
                 target_cadence_rpm, duration_seconds, notes, created_at, updated_at
          FROM workout_intervals WHERE id = ?`
       )
@@ -113,7 +117,7 @@ export class WorkoutIntervalsRepository extends BaseRepository {
   byWorkout(workoutId: string): Row[] {
     return this.db
       .prepare(
-        `SELECT id, workout_id, interval_index, kind, target_power_watts, target_resistance_percent,
+        `SELECT id, workout_id, interval_index, kind, target_power_watts, target_power_watts_end, target_resistance_percent,
                 target_cadence_rpm, duration_seconds, notes, created_at, updated_at
          FROM workout_intervals WHERE workout_id = ? ORDER BY interval_index ASC`
       )
@@ -126,15 +130,18 @@ export class WorkoutIntervalsRepository extends BaseRepository {
     intervalIndex: number;
     kind: string;
     targetPowerWatts: number | null;
+    targetPowerWattsEnd?: number | null;
     targetResistancePercent: number | null;
+    targetCadenceRpm?: number | null;
     durationSeconds: number;
     notes: string | null;
   }): void {
     this.db
       .prepare(
         `INSERT INTO workout_intervals
-         (id, workout_id, interval_index, kind, target_power_watts, target_resistance_percent, duration_seconds, notes)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, workout_id, interval_index, kind, target_power_watts, target_power_watts_end,
+          target_resistance_percent, target_cadence_rpm, duration_seconds, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.id,
@@ -142,7 +149,9 @@ export class WorkoutIntervalsRepository extends BaseRepository {
         input.intervalIndex,
         input.kind,
         input.targetPowerWatts,
+        input.targetPowerWattsEnd ?? null,
         input.targetResistancePercent,
+        input.targetCadenceRpm ?? null,
         input.durationSeconds,
         input.notes
       );
@@ -152,20 +161,25 @@ export class WorkoutIntervalsRepository extends BaseRepository {
     id: string;
     kind: string;
     targetPowerWatts: number | null;
+    targetPowerWattsEnd?: number | null;
     targetResistancePercent: number | null;
+    targetCadenceRpm?: number | null;
     durationSeconds: number;
     notes: string | null;
   }): void {
     this.db
       .prepare(
         `UPDATE workout_intervals
-         SET kind = ?, target_power_watts = ?, target_resistance_percent = ?, duration_seconds = ?, notes = ?, updated_at = datetime('now')
+         SET kind = ?, target_power_watts = ?, target_power_watts_end = ?, target_resistance_percent = ?,
+             target_cadence_rpm = ?, duration_seconds = ?, notes = ?, updated_at = datetime('now')
          WHERE id = ?`
       )
       .run(
         input.kind,
         input.targetPowerWatts,
+        input.targetPowerWattsEnd ?? null,
         input.targetResistancePercent,
+        input.targetCadenceRpm ?? null,
         input.durationSeconds,
         input.notes,
         input.id
@@ -288,6 +302,7 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
     blockIndex: number;
     targetPowerWatts: number | null;
     targetResistancePercent: number | null;
+    targetCadenceRpm?: number | null;
     actualPowerWatts: number | null;
     actualCadenceRpm: number | null;
     actualHeartRateBpm: number | null;
@@ -296,8 +311,8 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
     this.db
       .prepare(
         `INSERT INTO workout_session_telemetry
-         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, actual_power_watts, actual_cadence_rpm, actual_heart_rate_bpm, payload_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+         (id, session_id, elapsed_seconds, block_type, block_index, target_power_watts, target_resistance_percent, target_cadence_rpm, actual_power_watts, actual_cadence_rpm, actual_heart_rate_bpm, payload_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
       .run(
         input.id,
@@ -307,6 +322,7 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
         input.blockIndex,
         input.targetPowerWatts,
         input.targetResistancePercent,
+        input.targetCadenceRpm ?? null,
         input.actualPowerWatts,
         input.actualCadenceRpm,
         input.actualHeartRateBpm,
@@ -693,6 +709,135 @@ export class PlanAuditEntriesRepository extends BaseRepository {
   }
 }
 
+export class WorkoutBankRepository extends BaseRepository {
+  private readonly columns =
+    "id, name, primary_zone, discipline, tags_json, phases_json, duration_seconds, est_if, est_tss, document_json, source, archived, created_at, updated_at";
+
+  list(filter?: {
+    zone?: string;
+    tag?: string;
+    phase?: string;
+    discipline?: string;
+    maxDurationSec?: number;
+    includeArchived?: boolean;
+  }): Row[] {
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (!filter?.includeArchived) {
+      clauses.push("archived = 0");
+    }
+    if (filter?.zone) {
+      clauses.push("primary_zone = ?");
+      params.push(filter.zone);
+    }
+    if (filter?.discipline) {
+      clauses.push("discipline = ?");
+      params.push(filter.discipline);
+    }
+    if (filter?.maxDurationSec != null) {
+      clauses.push("duration_seconds <= ?");
+      params.push(filter.maxDurationSec);
+    }
+    if (filter?.tag) {
+      // tags_json is a JSON array of strings; match the quoted token.
+      clauses.push("tags_json LIKE ?");
+      params.push(`%${JSON.stringify(filter.tag)}%`);
+    }
+    if (filter?.phase) {
+      clauses.push("phases_json LIKE ?");
+      params.push(`%${JSON.stringify(filter.phase)}%`);
+    }
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : "";
+    return this.db
+      .prepare(`SELECT ${this.columns} FROM workout_bank${where} ORDER BY name ASC`)
+      .all(...params) as Row[];
+  }
+
+  getById(id: string): Row | undefined {
+    return this.db
+      .prepare(`SELECT ${this.columns} FROM workout_bank WHERE id = ?`)
+      .get(id) as Row | undefined;
+  }
+
+  count(): number {
+    const row = this.db.prepare("SELECT COUNT(1) AS count FROM workout_bank").get() as { count: number };
+    return row.count;
+  }
+
+  create(input: {
+    id: string;
+    name: string;
+    primaryZone: string;
+    discipline: string;
+    tagsJson: string;
+    phasesJson: string;
+    durationSeconds: number;
+    estIf: number | null;
+    estTss: number | null;
+    documentJson: string;
+    source: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO workout_bank
+         (id, name, primary_zone, discipline, tags_json, phases_json, duration_seconds, est_if, est_tss, document_json, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.id,
+        input.name,
+        input.primaryZone,
+        input.discipline,
+        input.tagsJson,
+        input.phasesJson,
+        input.durationSeconds,
+        input.estIf,
+        input.estTss,
+        input.documentJson,
+        input.source
+      );
+  }
+
+  update(input: {
+    id: string;
+    name: string;
+    primaryZone: string;
+    discipline: string;
+    tagsJson: string;
+    phasesJson: string;
+    durationSeconds: number;
+    estIf: number | null;
+    estTss: number | null;
+    documentJson: string;
+  }): void {
+    this.db
+      .prepare(
+        `UPDATE workout_bank
+         SET name = ?, primary_zone = ?, discipline = ?, tags_json = ?, phases_json = ?,
+             duration_seconds = ?, est_if = ?, est_tss = ?, document_json = ?, updated_at = datetime('now')
+         WHERE id = ?`
+      )
+      .run(
+        input.name,
+        input.primaryZone,
+        input.discipline,
+        input.tagsJson,
+        input.phasesJson,
+        input.durationSeconds,
+        input.estIf,
+        input.estTss,
+        input.documentJson,
+        input.id
+      );
+  }
+
+  setArchived(id: string, archived: boolean): void {
+    this.db
+      .prepare("UPDATE workout_bank SET archived = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(archived ? 1 : 0, id);
+  }
+}
+
 export class Repositories {
   private readonly db: Database;
   public readonly devices: DevicesRepository;
@@ -711,6 +856,7 @@ export class Repositories {
   public readonly bleStateTransitions: BleStateTransitionsRepository;
   public readonly planVersions: PlanVersionsRepository;
   public readonly planAuditEntries: PlanAuditEntriesRepository;
+  public readonly workoutBank: WorkoutBankRepository;
 
   constructor(db: Database) {
     this.db = db;
@@ -730,6 +876,7 @@ export class Repositories {
     this.bleStateTransitions = new BleStateTransitionsRepository(db);
     this.planVersions = new PlanVersionsRepository(db);
     this.planAuditEntries = new PlanAuditEntriesRepository(db);
+    this.workoutBank = new WorkoutBankRepository(db);
   }
 
   transaction<T>(fn: () => T): T {

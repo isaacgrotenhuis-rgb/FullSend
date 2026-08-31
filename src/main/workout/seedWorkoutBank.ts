@@ -7,8 +7,12 @@
  * `deriveFswMetrics`. `durationSec` is kept as stated in the doc; segment
  * durations were reconciled so `deriveFswMetrics(seed).durationSec` matches it
  * (see `seedWorkoutBank.test.ts` and the PR description for the specific edits).
+ *
+ * `seedWorkoutBankIfEmpty` (bottom of file) is the first-run loader that inserts
+ * these into the bank table.
  */
 import type { FswDocument } from "@shared/fsw";
+import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
 
 export const SEED_WORKOUTS: FswDocument[] = [
   // ── Testing ────────────────────────────────────────────────────────────────
@@ -501,3 +505,20 @@ export const SEED_WORKOUTS: FswDocument[] = [
     ]
   }
 ];
+
+/**
+ * First-run seeding: insert the starter documents if the bank table is empty.
+ * Safe to call on every startup (same pattern as `applySchema`).
+ */
+export const seedWorkoutBankIfEmpty = (bankService: WorkoutBankService): void => {
+  if (SEED_WORKOUTS.length === 0 || !bankService.isEmpty()) {
+    return;
+  }
+  for (const document of SEED_WORKOUTS) {
+    try {
+      bankService.createBankWorkout(document, "seed");
+    } catch (error) {
+      console.error(`[seedWorkoutBank] failed to seed "${document.id}":`, error);
+    }
+  }
+};

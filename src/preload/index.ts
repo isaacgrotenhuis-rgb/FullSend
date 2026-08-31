@@ -71,6 +71,14 @@ const api: KickrDesktopApi = {
       ipcRenderer.invoke(ipcChannels.workoutLibrary.unassignWorkoutFromPlanDay, request),
     listPlanWeeks: async () => ipcRenderer.invoke(ipcChannels.workoutLibrary.listPlanWeeks, {})
   },
+  workoutBank: {
+    list: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.list, request ?? {}),
+    get: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.get, request),
+    create: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.create, request),
+    update: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.update, request),
+    archive: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.archive, request),
+    startAdhoc: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.startAdhoc, request)
+  },
   eventPlan: {
     generate: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.generate, request),
     adapt: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.adapt, request),

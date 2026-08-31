@@ -201,6 +201,27 @@ const migrations = [
   `
   CREATE UNIQUE INDEX IF NOT EXISTS idx_workout_intervals_workout_order
   ON workout_intervals(workout_id, interval_index);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS workout_bank (
+    id               TEXT PRIMARY KEY,
+    name             TEXT NOT NULL,
+    primary_zone     TEXT NOT NULL,
+    discipline       TEXT NOT NULL DEFAULT 'cycling',
+    tags_json        TEXT NOT NULL DEFAULT '[]',
+    phases_json      TEXT NOT NULL DEFAULT '[]',
+    duration_seconds INTEGER NOT NULL,
+    est_if           REAL,
+    est_tss          REAL,
+    document_json    TEXT NOT NULL,
+    source           TEXT NOT NULL DEFAULT 'seed',
+    archived         INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
+  `
+  CREATE INDEX IF NOT EXISTS idx_workout_bank_zone ON workout_bank(primary_zone, archived);
   `
 ];
 
@@ -218,6 +239,27 @@ export const applySchema = (db: Database): void => {
   }
   if (!intervalColumnNames.has("target_resistance_percent")) {
     db.exec("ALTER TABLE workout_intervals ADD COLUMN target_resistance_percent REAL;");
+  }
+  if (!intervalColumnNames.has("target_power_watts_end")) {
+    db.exec("ALTER TABLE workout_intervals ADD COLUMN target_power_watts_end REAL;");
+  }
+
+  const workoutColumns = db
+    .prepare("SELECT name FROM pragma_table_info('workouts')")
+    .all() as Array<{ name: string }>;
+  const workoutColumnNames = new Set(workoutColumns.map((column) => column.name));
+  if (!workoutColumnNames.has("bank_workout_id")) {
+    db.exec("ALTER TABLE workouts ADD COLUMN bank_workout_id TEXT REFERENCES workout_bank(id);");
+  }
+  if (!workoutColumnNames.has("compiled_at_ftp")) {
+    db.exec("ALTER TABLE workouts ADD COLUMN compiled_at_ftp INTEGER;");
+  }
+
+  const telemetryColumnsForCadence = db
+    .prepare("SELECT name FROM pragma_table_info('workout_session_telemetry')")
+    .all() as Array<{ name: string }>;
+  if (!new Set(telemetryColumnsForCadence.map((column) => column.name)).has("target_cadence_rpm")) {
+    db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN target_cadence_rpm REAL;");
   }
 
   const stravaSyncColumns = db

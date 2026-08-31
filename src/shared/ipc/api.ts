@@ -48,7 +48,16 @@ import type {
   WorkoutSessionState,
   WorkoutSessionSummary,
   AssignWorkoutToPlanDayRequest,
-  UnassignWorkoutFromPlanDayRequest
+  UnassignWorkoutFromPlanDayRequest,
+  BankWorkoutSummary,
+  BankWorkoutDetail,
+  BankWorkoutIdResult,
+  ListBankWorkoutsRequest,
+  GetBankWorkoutRequest,
+  CreateBankWorkoutRequest,
+  UpdateBankWorkoutRequest,
+  ArchiveBankWorkoutRequest,
+  StartAdhocBankWorkoutRequest
 } from "@shared/ipc/contracts";
 
 export interface KickrDesktopApi {
@@ -89,6 +98,14 @@ export interface KickrDesktopApi {
     assignWorkoutToPlanDay: (request: AssignWorkoutToPlanDayRequest) => Promise<OkResult>;
     unassignWorkoutFromPlanDay: (request: UnassignWorkoutFromPlanDayRequest) => Promise<OkResult>;
     listPlanWeeks: () => Promise<PlanWeekSummary[]>;
+  };
+  workoutBank: {
+    list: (request?: ListBankWorkoutsRequest) => Promise<BankWorkoutSummary[]>;
+    get: (request: GetBankWorkoutRequest) => Promise<BankWorkoutDetail>;
+    create: (request: CreateBankWorkoutRequest) => Promise<BankWorkoutIdResult>;
+    update: (request: UpdateBankWorkoutRequest) => Promise<BankWorkoutIdResult>;
+    archive: (request: ArchiveBankWorkoutRequest) => Promise<OkResult>;
+    startAdhoc: (request: StartAdhocBankWorkoutRequest) => Promise<WorkoutSessionStartResult>;
   };
   eventPlan: {
     generate: (request: GenerateEventPlanRequest) => Promise<GenerateEventPlanResult>;

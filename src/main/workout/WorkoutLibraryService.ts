@@ -23,7 +23,9 @@ type IntervalRow = {
   interval_index: number;
   kind: WorkoutIntervalKind;
   target_power_watts: number | null;
+  target_power_watts_end: number | null;
   target_resistance_percent: number | null;
+  target_cadence_rpm: number | null;
   duration_seconds: number;
   notes: string | null;
 };
@@ -99,7 +101,9 @@ export class WorkoutLibraryService {
       kind: row.kind,
       durationSec: row.duration_seconds,
       targetPowerWatts: row.target_power_watts,
-      targetResistancePercent: row.target_resistance_percent
+      targetPowerWattsEnd: row.target_power_watts_end,
+      targetResistancePercent: row.target_resistance_percent,
+      targetCadenceRpm: row.target_cadence_rpm
     }));
 
     return {
@@ -138,7 +142,9 @@ export class WorkoutLibraryService {
         intervalIndex: index,
         kind: interval.kind,
         targetPowerWatts: interval.targetPowerWatts,
+        targetPowerWattsEnd: interval.targetPowerWattsEnd ?? null,
         targetResistancePercent: interval.targetResistancePercent,
+        targetCadenceRpm: interval.targetCadenceRpm ?? null,
         durationSeconds: interval.durationSec,
         notes: null
       });
@@ -186,7 +192,9 @@ export class WorkoutLibraryService {
       intervalIndex: insertIndex,
       kind: input.interval.kind,
       targetPowerWatts: input.interval.targetPowerWatts,
+      targetPowerWattsEnd: input.interval.targetPowerWattsEnd ?? null,
       targetResistancePercent: input.interval.targetResistancePercent,
+      targetCadenceRpm: input.interval.targetCadenceRpm ?? null,
       durationSeconds: input.interval.durationSec,
       notes: null
     });
@@ -205,7 +213,9 @@ export class WorkoutLibraryService {
     id: input.intervalId,
     kind: input.interval.kind,
     targetPowerWatts: input.interval.targetPowerWatts,
+    targetPowerWattsEnd: input.interval.targetPowerWattsEnd ?? null,
     targetResistancePercent: input.interval.targetResistancePercent,
+    targetCadenceRpm: input.interval.targetCadenceRpm ?? null,
     durationSeconds: input.interval.durationSec,
     notes: null
     });

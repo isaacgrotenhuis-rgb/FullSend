@@ -213,4 +213,69 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     expect(() => engine.finalizeSession(sessionId)).toThrow();
     expect(() => engine.discardSession(sessionId)).toThrow();
   });
+
+  it("interpolates targetPowerWatts across a ramp interval and passes cadence through", async () => {
+    ble.setTelemetry(120, 85);
+    const sessionId = await engine.start({
+      workoutId: null,
+      deviceId: "dev1",
+      intervals: [
+        {
+          kind: "work",
+          durationSec: 100,
+          targetPowerWatts: 100,
+          targetPowerWattsEnd: 200,
+          targetResistancePercent: null,
+          targetCadenceRpm: 90
+        }
+      ]
+    });
+    engine.setRampDuration(sessionId, 0); // disable the block-entry transition smoother
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const early = engine.getState().liveMetrics;
+    await vi.advanceTimersByTimeAsync(49_000);
+    const mid = engine.getState().liveMetrics;
+
+    expect(early?.targetPowerWatts).not.toBeNull();
+    expect(mid?.targetPowerWatts).toBeGreaterThan(early?.targetPowerWatts ?? 0);
+    // ~halfway through a 100->200 W ramp.
+    expect(mid?.targetPowerWatts).toBeGreaterThanOrEqual(145);
+    expect(mid?.targetPowerWatts).toBeLessThanOrEqual(155);
+    expect(mid?.targetCadenceRpm).toBe(90);
+
+    const telemetryRow = db
+      .prepare(
+        "SELECT target_cadence_rpm AS c FROM workout_session_telemetry WHERE session_id = ? ORDER BY elapsed_seconds DESC LIMIT 1"
+      )
+      .get(sessionId) as { c: number | null };
+    expect(telemetryRow.c).toBe(90);
+
+    await engine.stop(sessionId);
+  });
+
+  it("runs a free-ride block in resistance mode (null power, 0% resistance)", async () => {
+    ble.setTelemetry(110, 80);
+    const sessionId = await engine.start({
+      workoutId: null,
+      deviceId: "dev1",
+      intervals: [
+        {
+          kind: "work",
+          durationSec: 30,
+          targetPowerWatts: null,
+          targetPowerWattsEnd: null,
+          targetResistancePercent: 0,
+          targetCadenceRpm: null
+        }
+      ]
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const metrics = engine.getState().liveMetrics;
+    expect(metrics?.targetPowerWatts).toBeNull();
+    expect(metrics?.targetResistancePercent).toBe(0);
+
+    await engine.stop(sessionId);
+  });
 });
