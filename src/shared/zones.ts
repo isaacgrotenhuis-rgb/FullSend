@@ -1,10 +1,18 @@
 /**
- * Centralized FTP-fraction training zones (doc §3.3).
+ * FTP-fraction training-zone boundaries (doc §3.3).
  *
- * `power` values throughout the `.fsw` workout format are fractions of FTP, never
- * absolute watts. These boundaries replace the magic numbers previously scattered
- * through `EventPlanService.templateIntervals`.
+ * `power` values throughout the `.fsw` format are fractions of FTP, never watts.
+ * The zone *list* is owned by `@shared/fsw` (`FSW_PRIMARY_ZONES`); this module
+ * adds each zone's numeric band + label. Intensity metrics (estIF / estTSS) live
+ * in `@shared/fsw` (`deriveFswMetrics`) — do not re-add them here.
+ *
+ * Not yet imported: consumed by the Workout Bank UI and zone-configurable
+ * generator work (follow-ups to the bank slice).
  */
+import { FSW_PRIMARY_ZONES, type FswPrimaryZone } from "@shared/fsw";
+
+export type Zone = FswPrimaryZone;
+export const ZONE_KEYS = FSW_PRIMARY_ZONES;
 
 export type ZoneDefinition = {
   readonly min: number;
@@ -21,20 +29,7 @@ export const ZONES = {
   vo2: { min: 1.06, max: 1.2, label: "VO2max" },
   anaerobic: { min: 1.21, max: 1.5, label: "Anaerobic Capacity" },
   neuromuscular: { min: 1.51, max: 3.0, label: "Neuromuscular" }
-} as const satisfies Record<string, ZoneDefinition>;
-
-export type Zone = keyof typeof ZONES;
-
-export const ZONE_KEYS = [
-  "recovery",
-  "endurance",
-  "tempo",
-  "sweet-spot",
-  "threshold",
-  "vo2",
-  "anaerobic",
-  "neuromuscular"
-] as const satisfies readonly Zone[];
+} as const satisfies Record<Zone, ZoneDefinition>;
 
 /** Representative (mid-band) FTP fraction for a zone. Handy for the plan generator. */
 export const zoneMidFraction = (zone: Zone): number => {
@@ -51,41 +46,3 @@ export const zoneForFraction = (fraction: number): Zone => {
   }
   return "neuromuscular";
 };
-
-export type PowerSample = {
-  /** seconds spent at this power level */
-  durationSec: number;
-  /** power as a fraction of FTP */
-  powerFraction: number;
-};
-
-/**
- * estIF — duration-weighted RMS of segment power fractions (doc §3.3).
- *
- * IF = sqrt( Σ(durationSec_i * fraction_i^2) / Σ(durationSec_i) )
- */
-export const estIF = (samples: PowerSample[]): number => {
-  const totalDuration = samples.reduce((sum, sample) => sum + sample.durationSec, 0);
-  if (totalDuration <= 0) {
-    return 0;
-  }
-  const weightedSquares = samples.reduce(
-    (sum, sample) => sum + sample.durationSec * sample.powerFraction * sample.powerFraction,
-    0
-  );
-  return Math.sqrt(weightedSquares / totalDuration);
-};
-
-/**
- * estTSS — training stress score (doc §3.3):
- *   TSS = durationSec / 3600 * IF^2 * 100
- */
-export const estTSS = (durationSec: number, intensityFactor: number): number =>
-  (durationSec / 3600) * intensityFactor * intensityFactor * 100;
-
-/**
- * RMS power fraction across a linear ramp from `low` to `high`.
- * Mean of f(t)^2 for a linear f over [low, high] is (low^2 + low*high + high^2) / 3.
- */
-export const rampRmsFraction = (low: number, high: number): number =>
-  Math.sqrt((low * low + low * high + high * high) / 3);

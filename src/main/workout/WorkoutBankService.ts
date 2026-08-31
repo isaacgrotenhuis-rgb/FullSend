@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Repositories } from "@main/database/repositories";
 import { compile } from "@main/workout/WorkoutCompiler";
-import { estIF, estTSS, rampRmsFraction, type PowerSample } from "@shared/zones";
+import { deriveFswMetrics } from "@shared/fsw";
 import {
   fswDocumentSchema,
   type BankWorkoutDetail,
@@ -29,12 +29,6 @@ type BankRow = {
   created_at: string;
   updated_at: string;
 };
-
-/** Reference FTP used only for deriving relative metrics (estIF / estTSS). */
-const REFERENCE_FTP = 1000;
-
-/** Free-ride blocks carry no power target; estimate them at an endurance fraction. */
-const FREERIDE_ESTIMATE_FRACTION = 0.6;
 
 export type DerivedMetrics = {
   durationSec: number;
@@ -76,28 +70,19 @@ export class WorkoutBankService {
     };
   }
 
-  /** Duration + relative intensity metrics derived from the document (doc §3.3). */
+  /**
+   * Duration + relative intensity metrics derived from the document (doc §3.3).
+   * Delegates to `deriveFswMetrics` (@shared/fsw) so the bank's stored est_if /
+   * est_tss match the values the seed test and any client compute. Free-ride time
+   * carries no power target and is excluded from estIF (estIF is 0 for an
+   * all-free-ride document).
+   */
   deriveMetrics(document: FswDocument): DerivedMetrics {
-    const intervals = compile(document, REFERENCE_FTP);
-    const samples: PowerSample[] = intervals.map((interval) => {
-      if (interval.targetPowerWatts == null) {
-        return { durationSec: interval.durationSec, powerFraction: FREERIDE_ESTIMATE_FRACTION };
-      }
-      const startFraction = interval.targetPowerWatts / REFERENCE_FTP;
-      if (interval.targetPowerWattsEnd != null) {
-        return {
-          durationSec: interval.durationSec,
-          powerFraction: rampRmsFraction(startFraction, interval.targetPowerWattsEnd / REFERENCE_FTP)
-        };
-      }
-      return { durationSec: interval.durationSec, powerFraction: startFraction };
-    });
-    const durationSec = intervals.reduce((sum, interval) => sum + interval.durationSec, 0);
-    const intensityFactor = estIF(samples);
+    const metrics = deriveFswMetrics(document);
     return {
-      durationSec,
-      estIF: Number(intensityFactor.toFixed(4)),
-      estTSS: Math.round(estTSS(durationSec, intensityFactor))
+      durationSec: metrics.durationSec,
+      estIF: Number(metrics.estIF.toFixed(4)),
+      estTSS: metrics.estTSS
     };
   }
 

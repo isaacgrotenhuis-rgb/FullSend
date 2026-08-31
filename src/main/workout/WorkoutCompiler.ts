@@ -44,9 +44,12 @@ const ramp = (
 
 /**
  * Slice a constant-power block into base / surge sub-intervals (doc §3.2, §4).
- * Each window of `everySec` is [base for (everySec - surge.durationSec)] then
- * [surge for surge.durationSec] at `surge.power`. A shorter tail window is all base.
- * Total duration is preserved exactly.
+ * Each full window of `everySec` is [base for (everySec - surge.durationSec)] then
+ * [surge for surge.durationSec] at `surge.power`. A trailing partial window
+ * (< everySec) is all base. Total duration is preserved exactly.
+ *
+ * Mirrors `expandWithSurges` in `@shared/fsw` so the compiled workout and the
+ * derived estIF/estTSS agree. The schema guarantees `everySec >= durationSec`.
  */
 const applySurges = (
   blockDurationSec: number,
@@ -57,21 +60,17 @@ const applySurges = (
 ): WorkoutInterval[] => {
   const out: WorkoutInterval[] = [];
   const surgeWatts = toWatts(surge.power);
+  const baseChunkSec = Math.max(0, surge.everySec - surge.durationSec);
   let remaining = blockDurationSec;
-  while (remaining > 0) {
-    const window = Math.min(surge.everySec, remaining);
-    if (window <= surge.durationSec) {
-      // Not enough room for base + surge; keep it simple and hold base power.
-      out.push(flat("work", window, basePowerWatts, baseCadence));
-      remaining -= window;
-      continue;
-    }
-    const baseChunk = window - surge.durationSec;
-    if (baseChunk > 0) {
-      out.push(flat("work", baseChunk, basePowerWatts, baseCadence));
+  while (remaining >= surge.everySec) {
+    if (baseChunkSec > 0) {
+      out.push(flat("work", baseChunkSec, basePowerWatts, baseCadence));
     }
     out.push(flat("work", surge.durationSec, surgeWatts, baseCadence));
-    remaining -= window;
+    remaining -= surge.everySec;
+  }
+  if (remaining > 0) {
+    out.push(flat("work", remaining, basePowerWatts, baseCadence));
   }
   return out;
 };

@@ -10,7 +10,12 @@
  */
 import { z } from "zod";
 
-/** FTP-fraction training zones. Boundaries live in `src/shared/zones.ts` (separate PR). */
+/**
+ * FTP-fraction training zones. This list is the single source of truth for the
+ * `.fsw` schema and is re-exported from `@shared/ipc/contracts` as
+ * `trainingZoneSchema`. Keep it in sync with the keys of `ZONES` in
+ * `src/shared/zones.ts` (which additionally carries each zone's boundary values).
+ */
 export const FSW_PRIMARY_ZONES = [
   "recovery",
   "endurance",
@@ -34,11 +39,15 @@ const cadenceSchema = z.number().int().positive();
 /** Seconds. */
 const secondsSchema = z.number().int().positive();
 
-export const fswSurgeSchema = z.object({
-  everySec: secondsSchema,
-  durationSec: secondsSchema,
-  power: powerFractionSchema
-});
+export const fswSurgeSchema = z
+  .object({
+    everySec: secondsSchema,
+    durationSec: secondsSchema,
+    power: powerFractionSchema
+  })
+  .refine((surge) => surge.everySec >= surge.durationSec, {
+    message: "surge everySec must be >= durationSec (a surge cannot outlast its own period)"
+  });
 
 export const fswTextEventSchema = z.object({
   atSec: z.number().int().min(0),
@@ -81,7 +90,8 @@ export const fswSteadySegmentSchema = z.object({
 
 export const fswIntervalStepSchema = z.object({
   durationSec: secondsSchema,
-  power: powerFractionSchema
+  power: powerFractionSchema,
+  cadence: cadenceSchema.optional()
 });
 
 export const fswIntervalsSegmentSchema = z.object({
@@ -90,8 +100,11 @@ export const fswIntervalsSegmentSchema = z.object({
   onDurationSec: secondsSchema.optional(),
   onPower: powerFractionSchema.optional(),
   onPattern: z.array(fswIntervalStepSchema).min(1).optional(),
-  offDurationSec: secondsSchema,
+  // 0 = back-to-back reps with no recovery (also used by surge-only blocks).
+  offDurationSec: z.number().int().min(0),
   offPower: powerFractionSchema,
+  /** Fallback cadence for the work portion when onCadence / step cadence is absent. */
+  cadence: cadenceSchema.optional(),
   onCadence: cadenceSchema.optional(),
   offCadence: cadenceSchema.optional(),
   surges: fswSurgeSchema.optional(),
@@ -146,10 +159,11 @@ export const fswDocumentSchema = z.object({
   author: z.string().optional(),
   discipline: z.string().min(1).default("cycling"),
   primaryZone: fswPrimaryZoneSchema,
-  tags: z.array(z.string()),
-  phases: z.array(fswPhaseSchema),
+  tags: z.array(z.string()).default([]),
+  phases: z.array(fswPhaseSchema).default([]),
   durationSec: secondsSchema.optional(),
-  estIF: z.number().positive().optional(),
+  // Derived on save; estIF is 0 for a document with no power target (all free-ride).
+  estIF: z.number().nonnegative().optional(),
   estTSS: z.number().nonnegative().optional(),
   segments: z.array(fswSegmentSchema).min(1),
   textEvents: fswTextEventsSchema.optional()
@@ -159,6 +173,7 @@ export type FswPrimaryZone = z.infer<typeof fswPrimaryZoneSchema>;
 export type FswPhase = z.infer<typeof fswPhaseSchema>;
 export type FswSurge = z.infer<typeof fswSurgeSchema>;
 export type FswTextEvent = z.infer<typeof fswTextEventSchema>;
+export type FswIntervalStep = z.infer<typeof fswIntervalStepSchema>;
 export type FswSegment = z.infer<typeof fswSegmentSchema>;
 export type FswDocument = z.infer<typeof fswDocumentSchema>;
 

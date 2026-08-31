@@ -1,5 +1,12 @@
 import { z } from "zod";
-import { ZONE_KEYS } from "@shared/zones";
+import {
+  fswPrimaryZoneSchema,
+  fswPhaseSchema,
+  fswSurgeSchema,
+  fswTextEventSchema,
+  fswSegmentSchema,
+  fswDocumentSchema
+} from "@shared/fsw";
 
 export const ipcChannels = {
   app: {
@@ -210,143 +217,27 @@ export const workoutBuilderIntervalSchema = workoutIntervalSchema.extend({
 });
 
 // ---------------------------------------------------------------------------
-// Workout Bank — .fsw (Full Send Workout) document format (doc §3, §12)
+// Workout Bank — .fsw (Full Send Workout) document format.
+//
+// Single source of truth: src/shared/fsw.ts. Re-exported here under the names the
+// rest of the codebase already imports so IPC request/result schemas below and
+// existing call sites keep working from one schema definition.
 // ---------------------------------------------------------------------------
 
-export const trainingZoneSchema = z.enum(ZONE_KEYS);
-export const trainingPhaseSchema = z.enum(["base", "build", "peak", "taper"]);
+export const trainingZoneSchema = fswPrimaryZoneSchema;
+export const trainingPhaseSchema = fswPhaseSchema;
+export const fswSurgesSchema = fswSurgeSchema;
+export { fswTextEventSchema, fswSegmentSchema, fswDocumentSchema };
 
-/** Power is always a fraction of FTP (never watts), strictly > 0. */
-export const fswPowerFractionSchema = z.number().positive();
-
-export const fswTextEventSchema = z.object({
-  atSec: z.number().min(0),
-  message: z.string().min(1)
-});
-
-export const fswSurgesSchema = z.object({
-  everySec: z.number().int().min(1),
-  durationSec: z.number().int().min(1),
-  power: fswPowerFractionSchema
-});
-
-export const fswOnPatternStepSchema = z.object({
-  durationSec: z.number().int().min(1),
-  power: fswPowerFractionSchema,
-  cadence: z.number().min(0).optional()
-});
-
-const fswWarmupSegmentSchema = z.object({
-  type: z.literal("warmup"),
-  durationSec: z.number().int().min(1),
-  powerLow: fswPowerFractionSchema,
-  powerHigh: fswPowerFractionSchema,
-  cadence: z.number().min(0).optional(),
-  textEvents: z.array(fswTextEventSchema).optional()
-});
-
-const fswCooldownSegmentSchema = z.object({
-  type: z.literal("cooldown"),
-  durationSec: z.number().int().min(1),
-  powerLow: fswPowerFractionSchema,
-  powerHigh: fswPowerFractionSchema,
-  cadence: z.number().min(0).optional(),
-  textEvents: z.array(fswTextEventSchema).optional()
-});
-
-const fswRampSegmentSchema = z.object({
-  type: z.literal("ramp"),
-  durationSec: z.number().int().min(1),
-  powerLow: fswPowerFractionSchema,
-  powerHigh: fswPowerFractionSchema,
-  cadence: z.number().min(0).optional(),
-  textEvents: z.array(fswTextEventSchema).optional()
-});
-
-const fswSteadySegmentSchema = z.object({
-  type: z.literal("steady"),
-  durationSec: z.number().int().min(1),
-  power: fswPowerFractionSchema,
-  cadence: z.number().min(0).optional(),
-  surges: fswSurgesSchema.optional(),
-  textEvents: z.array(fswTextEventSchema).optional()
-});
-
-const fswFreerideSegmentSchema = z.object({
-  type: z.literal("freeride"),
-  durationSec: z.number().int().min(1),
-  cadence: z.number().min(0).optional(),
-  textEvents: z.array(fswTextEventSchema).optional()
-});
-
-const fswIntervalsSegmentSchema = z.object({
-  type: z.literal("intervals"),
-  repeat: z.number().int().min(1),
-  onDurationSec: z.number().int().min(1).optional(),
-  onPower: fswPowerFractionSchema.optional(),
-  /** Over-under / multi-level rep: sub-steps that replace the scalar on-step. */
-  onPattern: z.array(fswOnPatternStepSchema).min(1).optional(),
-  offDurationSec: z.number().int().min(0),
-  offPower: fswPowerFractionSchema,
-  onCadence: z.number().min(0).optional(),
-  offCadence: z.number().min(0).optional(),
-  cadence: z.number().min(0).optional(),
-  /** Keep the recovery after the final rep (default: dropped). */
-  trailingRecovery: z.boolean().optional(),
-  surges: fswSurgesSchema.optional(),
-  textEvents: z.array(fswTextEventSchema).optional()
-});
-
-export const fswSegmentSchema = z.discriminatedUnion("type", [
-  fswWarmupSegmentSchema,
-  fswCooldownSegmentSchema,
-  fswRampSegmentSchema,
-  fswSteadySegmentSchema,
-  fswFreerideSegmentSchema,
-  fswIntervalsSegmentSchema
-]);
-
-export const fswDocumentSchema = z
-  .object({
-    schemaVersion: z.literal(1),
-    id: z.string().min(1),
-    name: z.string().min(1),
-    description: z.string().optional(),
-    author: z.string().optional(),
-    discipline: z.string().min(1).default("cycling"),
-    primaryZone: trainingZoneSchema,
-    tags: z.array(z.string()).default([]),
-    phases: z.array(trainingPhaseSchema).default([]),
-    // Cached / derived — optional on input, recomputed on save.
-    durationSec: z.number().int().min(1).optional(),
-    estIF: z.number().min(0).optional(),
-    estTSS: z.number().min(0).optional(),
-    segments: z.array(fswSegmentSchema).min(1),
-    textEvents: z.array(fswTextEventSchema).optional()
-  })
-  .superRefine((doc, ctx) => {
-    doc.segments.forEach((segment, index) => {
-      if (
-        segment.type === "intervals" &&
-        segment.onPattern == null &&
-        (segment.onDurationSec == null || segment.onPower == null)
-      ) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ["segments", index],
-          message: "intervals segment needs onPattern, or both onDurationSec and onPower"
-        });
-      }
-    });
-  });
-
-export type TrainingZone = z.infer<typeof trainingZoneSchema>;
-export type TrainingPhase = z.infer<typeof trainingPhaseSchema>;
-export type FswTextEvent = z.infer<typeof fswTextEventSchema>;
-export type FswSurges = z.infer<typeof fswSurgesSchema>;
-export type FswOnPatternStep = z.infer<typeof fswOnPatternStepSchema>;
-export type FswSegment = z.infer<typeof fswSegmentSchema>;
-export type FswDocument = z.infer<typeof fswDocumentSchema>;
+export type {
+  FswPrimaryZone as TrainingZone,
+  FswPhase as TrainingPhase,
+  FswSurge as FswSurges,
+  FswIntervalStep as FswOnPatternStep,
+  FswTextEvent,
+  FswSegment,
+  FswDocument
+} from "@shared/fsw";
 
 export const bankWorkoutSummarySchema = z.object({
   id: z.string().min(1),
