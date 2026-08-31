@@ -23,6 +23,21 @@ type Props = {
 
 const blockKindLabel = (kind: string): string => kind.charAt(0).toUpperCase() + kind.slice(1);
 
+const MetricTileValue = ({
+  value,
+  unit,
+  color
+}: {
+  value: string | number | null;
+  unit: string;
+  color?: string;
+}): ReactElement => (
+  <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1, color }}>
+    {value !== null ? value : <span style={{ fontSize: 28, fontWeight: 400, opacity: 0.35 }}>–</span>}
+    <span style={{ fontSize: 18, fontWeight: 600, marginLeft: 4 }}>{unit}</span>
+  </div>
+);
+
 type SpeedUnit = "mph" | "kph";
 const SPEED_UNIT_STORAGE_KEY = "fullsend.speedUnit";
 const KMH_TO_MPH = 0.621371;
@@ -69,7 +84,7 @@ export const RidePage = ({
 
   const speedKmh = liveMetrics?.actualSpeedKmh ?? null;
   const displaySpeed =
-    speedKmh !== null ? (speedUnit === "mph" ? (speedKmh * KMH_TO_MPH).toFixed(1) : speedKmh.toFixed(1)) : "—";
+    speedKmh !== null ? (speedUnit === "mph" ? (speedKmh * KMH_TO_MPH).toFixed(1) : speedKmh.toFixed(1)) : null;
 
   const currentKind = liveMetrics?.blockKind ?? (currentIndex !== null ? activeIntervals[currentIndex]?.kind : undefined);
   const intervalPositionLabel =
@@ -142,35 +157,34 @@ export const RidePage = ({
       >
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <h6>Target power</h6>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1 }}>
-            {liveMetrics?.targetPowerWatts ?? "—"}
-            <span style={{ fontSize: 18, fontWeight: 600 }}>W</span>
-          </div>
+          <MetricTileValue value={liveMetrics?.targetPowerWatts ?? null} unit="W" />
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <h6>Actual power</h6>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1, color: "var(--color-accent)" }}>
-            {liveMetrics?.actualPowerWatts ?? "—"}
-            <span style={{ fontSize: 18, fontWeight: 600 }}>W</span>
-          </div>
+          <MetricTileValue value={liveMetrics?.actualPowerWatts ?? null} unit="W" color="var(--color-accent)" />
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <h6>Cadence</h6>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1 }}>
-            {liveMetrics?.actualCadenceRpm !== null && liveMetrics?.actualCadenceRpm !== undefined
-              ? Math.round(liveMetrics.actualCadenceRpm)
-              : "—"}
-            <span style={{ fontSize: 18, fontWeight: 600 }}>rpm</span>
-          </div>
+          <MetricTileValue
+            value={
+              liveMetrics?.actualCadenceRpm !== null && liveMetrics?.actualCadenceRpm !== undefined
+                ? Math.round(liveMetrics.actualCadenceRpm)
+                : null
+            }
+            unit="rpm"
+          />
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <h6>Heart rate</h6>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1, color: "var(--color-accent-2)" }}>
-            {liveMetrics?.actualHeartRateBpm !== null && liveMetrics?.actualHeartRateBpm !== undefined
-              ? Math.round(liveMetrics.actualHeartRateBpm)
-              : "—"}
-            <span style={{ fontSize: 18, fontWeight: 600 }}>bpm</span>
-          </div>
+          <MetricTileValue
+            value={
+              liveMetrics?.actualHeartRateBpm !== null && liveMetrics?.actualHeartRateBpm !== undefined
+                ? Math.round(liveMetrics.actualHeartRateBpm)
+                : null
+            }
+            unit="bpm"
+            color="var(--color-accent-2)"
+          />
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
@@ -202,10 +216,7 @@ export const RidePage = ({
               </button>
             </div>
           </div>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1 }}>
-            {displaySpeed}
-            <span style={{ fontSize: 18, fontWeight: 600 }}>{speedUnit}</span>
-          </div>
+          <MetricTileValue value={displaySpeed} unit={speedUnit} />
         </div>
       </div>
 
