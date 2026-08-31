@@ -22,7 +22,7 @@ import { Nav } from "./pages/Nav";
 import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
-import { WorkoutPreviewPage } from "./pages/WorkoutPreviewPage";
+import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { ProfilePage, type SmokeCheck } from "./pages/ProfilePage";
 
 export type Page = "home" | "plan" | "profile";
@@ -596,13 +596,11 @@ export const App = (): ReactElement => {
     setRunningSmoke(false);
   };
 
-  const fullscreenMode = activeIntervals !== null || previewWorkout !== null;
-
   return (
     <>
-      {!fullscreenMode ? <Nav page={page} onNavigate={setPage} /> : null}
+      {activeIntervals === null ? <Nav page={page} onNavigate={setPage} /> : null}
 
-      {status && !fullscreenMode ? (
+      {status && activeIntervals === null ? (
         <div
           style={{
             padding: "var(--space-2) var(--space-4)",
@@ -634,17 +632,6 @@ export const App = (): ReactElement => {
           rampDurationInput={rampDurationInput}
           setRampDurationInput={setRampDurationInput}
           applyRampDuration={applyRampDuration}
-        />
-      ) : previewWorkout !== null && previewDetail !== null ? (
-        <WorkoutPreviewPage
-          name={previewWorkout.name}
-          sessionType={previewWorkout.sessionType}
-          detail={previewDetail}
-          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
-          busy={liveWorkoutBusy}
-          error={liveWorkoutError}
-          onStart={() => void confirmStartWorkout()}
-          onBack={closeWorkoutPreview}
         />
       ) : page === "plan" ? (
         <PlanPage
@@ -725,12 +712,23 @@ export const App = (): ReactElement => {
           currentFtp={currentFtp}
           eventDate={eventDate}
           weeks={weeks}
-          liveWorkoutBusy={liveWorkoutBusy}
-          isWorkoutSessionActive={isWorkoutSessionActive}
           previewWorkoutForDay={previewWorkoutForDay}
           onNavigateToPlan={() => setPage("plan")}
         />
       )}
+
+      {activeIntervals === null && previewWorkout !== null && previewDetail !== null ? (
+        <WorkoutPreviewDialog
+          name={previewWorkout.name}
+          sessionType={previewWorkout.sessionType}
+          detail={previewDetail}
+          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
+          busy={liveWorkoutBusy}
+          error={liveWorkoutError}
+          onStart={() => void confirmStartWorkout()}
+          onBack={closeWorkoutPreview}
+        />
+      ) : null}
     </>
   );
 };
