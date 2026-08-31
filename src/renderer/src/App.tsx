@@ -10,8 +10,10 @@ import {
   type EventPlanWeek,
   type EventType,
   type PlanLengthWeeks,
+  type SessionType,
   type StravaStatus,
   type StravaSyncEventSummary,
+  type WorkoutDetail,
   type WorkoutInterval,
   type WorkoutSessionState,
   type WorkoutSessionSummary
@@ -20,6 +22,7 @@ import { Nav } from "./pages/Nav";
 import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
+import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { ProfilePage, type SmokeCheck } from "./pages/ProfilePage";
 
 export type Page = "home" | "plan" | "profile";
@@ -69,6 +72,10 @@ export const App = (): ReactElement => {
   const [workoutSessionState, setWorkoutSessionState] = useState<WorkoutSessionState | null>(null);
   const [activeIntervals, setActiveIntervals] = useState<WorkoutInterval[] | null>(null);
   const [activeWorkoutName, setActiveWorkoutName] = useState<string | null>(null);
+  const [previewWorkout, setPreviewWorkout] = useState<
+    { workoutId: string; name: string; sessionType: SessionType | null } | null
+  >(null);
+  const [previewDetail, setPreviewDetail] = useState<WorkoutDetail | null>(null);
   const [liveWorkoutBusy, setLiveWorkoutBusy] = useState(false);
   const [liveWorkoutError, setLiveWorkoutError] = useState<string | null>(null);
   const [rampDurationInput, setRampDurationInput] = useState("15");
@@ -189,22 +196,49 @@ export const App = (): ReactElement => {
     }
   };
 
-  const startWorkoutForDay = async (workoutId: string, workoutName: string): Promise<void> => {
+  const previewWorkoutForDay = async (
+    workoutId: string,
+    workoutName: string,
+    sessionType: SessionType | null
+  ): Promise<void> => {
+    setLiveWorkoutError(null);
+    try {
+      const detail = await window.kickr.workoutLibrary.getWorkoutDetail({ workoutId });
+      setPreviewDetail(detail);
+      setPreviewWorkout({ workoutId, name: workoutName, sessionType });
+    } catch (error) {
+      console.error("[workout preview]", error);
+      setLiveWorkoutError(error instanceof Error ? error.message : "Could not load workout");
+    }
+  };
+
+  const closeWorkoutPreview = (): void => {
+    setPreviewWorkout(null);
+    setPreviewDetail(null);
+  };
+
+  const confirmStartWorkout = async (): Promise<void> => {
+    if (!previewWorkout || !previewDetail) {
+      return;
+    }
     if (!bleState?.connectedDeviceId) {
       setLiveWorkoutError("Connect a trainer before starting a workout.");
       return;
     }
     const deviceId = bleState.connectedDeviceId;
+    const { workoutId, name } = previewWorkout;
+    const intervals = previewDetail.intervals;
     await runWorkoutAction(async () => {
-      const detail = await window.kickr.workoutLibrary.getWorkoutDetail({ workoutId });
-      setActiveIntervals(detail.intervals);
-      setActiveWorkoutName(workoutName);
       await window.kickr.workout.startSession({
         deviceId,
         workoutId,
-        intervals: detail.intervals,
+        intervals,
         metadata: { source: "plan" }
       });
+      // Only leave the preview for the live view once the session is actually running.
+      setActiveIntervals(intervals);
+      setActiveWorkoutName(name);
+      closeWorkoutPreview();
     });
   };
 
@@ -633,8 +667,7 @@ export const App = (): ReactElement => {
           currentPlanName={currentPlanName}
           liveWorkoutBusy={liveWorkoutBusy}
           isWorkoutSessionActive={isWorkoutSessionActive}
-          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
-          startWorkoutForDay={startWorkoutForDay}
+          previewWorkoutForDay={previewWorkoutForDay}
           onDeletePlan={deletePlan}
         />
       ) : page === "profile" ? (
@@ -679,12 +712,23 @@ export const App = (): ReactElement => {
           currentFtp={currentFtp}
           eventDate={eventDate}
           weeks={weeks}
-          liveWorkoutBusy={liveWorkoutBusy}
-          isWorkoutSessionActive={isWorkoutSessionActive}
-          startWorkoutForDay={startWorkoutForDay}
+          previewWorkoutForDay={previewWorkoutForDay}
           onNavigateToPlan={() => setPage("plan")}
         />
       )}
+
+      {activeIntervals === null && previewWorkout !== null && previewDetail !== null ? (
+        <WorkoutPreviewDialog
+          name={previewWorkout.name}
+          sessionType={previewWorkout.sessionType}
+          detail={previewDetail}
+          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
+          busy={liveWorkoutBusy}
+          error={liveWorkoutError}
+          onStart={() => void confirmStartWorkout()}
+          onBack={closeWorkoutPreview}
+        />
+      ) : null}
     </>
   );
 };

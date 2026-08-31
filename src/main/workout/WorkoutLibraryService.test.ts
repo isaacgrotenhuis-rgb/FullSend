@@ -58,4 +58,24 @@ describe("WorkoutLibraryService.getWorkoutDetail", () => {
       targetCadenceRpm: null
     });
   });
+
+  it("returns the workout's parsed metadata (used by the pre-start preview)", () => {
+    const { workoutId } = service.createWorkout({
+      name: "Plain",
+      source: "manual-builder",
+      intensityFactor: null,
+      intervals: [
+        {
+          kind: "work",
+          durationSec: 60,
+          targetPowerWatts: 150,
+          targetPowerWattsEnd: null,
+          targetResistancePercent: null,
+          targetCadenceRpm: null
+        }
+      ]
+    });
+    // createWorkout stamps { authoredManually: true }.
+    expect(service.getWorkoutDetail(workoutId).metadata).toEqual({ authoredManually: true });
+  });
 });

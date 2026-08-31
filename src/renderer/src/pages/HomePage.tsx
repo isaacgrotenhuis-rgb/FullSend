@@ -1,11 +1,12 @@
-import { useState, type ReactElement } from "react";
+import type { ReactElement } from "react";
 import {
   bleRoles,
   type BleConnectionEntry,
   type BleRole,
   type BleState,
   type DashboardMetrics,
-  type EventPlanWeek
+  type EventPlanWeek,
+  type SessionType
 } from "@shared/ipc/contracts";
 
 export type BleSectionProps = {
@@ -28,9 +29,11 @@ type Props = {
   currentFtp: number;
   eventDate: string;
   weeks: EventPlanWeek[];
-  liveWorkoutBusy: boolean;
-  isWorkoutSessionActive: boolean;
-  startWorkoutForDay: (workoutId: string, workoutName: string) => Promise<void>;
+  previewWorkoutForDay: (
+    workoutId: string,
+    workoutName: string,
+    sessionType: SessionType | null
+  ) => Promise<void>;
   onNavigateToPlan: () => void;
 };
 
@@ -59,9 +62,7 @@ export const HomePage = ({
   currentFtp,
   eventDate,
   weeks,
-  liveWorkoutBusy,
-  isWorkoutSessionActive,
-  startWorkoutForDay,
+  previewWorkoutForDay,
   onNavigateToPlan
 }: Props): ReactElement => {
   const {
@@ -77,8 +78,6 @@ export const HomePage = ({
     roleLabel,
     connectToDevice
   } = ble;
-
-  const [selectedDayIndex, setSelectedDayIndex] = useState<number | null>(null);
 
   const disconnectForRole: Record<BleRole, () => Promise<void>> = {
     power: disconnectDevice,
@@ -113,9 +112,6 @@ export const HomePage = ({
         : daysUntilEvent === 0
           ? "Event day"
           : "Event completed";
-
-  const connectedTrainerDeviceId = bleState?.connectedDeviceId ?? null;
-  const selectedDay = currentWeek?.days.find((day) => day.dayIndex === selectedDayIndex) ?? null;
 
   return (
     <main className="app">
@@ -336,7 +332,16 @@ export const HomePage = ({
             return (
               <div
                 key={day.dayIndex}
-                onClick={hasWorkout ? () => setSelectedDayIndex(day.dayIndex) : undefined}
+                onClick={
+                  hasWorkout
+                    ? () =>
+                        void previewWorkoutForDay(
+                          day.workoutId as string,
+                          day.workoutName ?? "Workout",
+                          day.sessionType
+                        )
+                    : undefined
+                }
                 style={{
                   padding: "var(--space-3)",
                   borderRight: index < 6 ? "1px solid var(--color-divider)" : undefined,
@@ -460,53 +465,6 @@ export const HomePage = ({
             </>
           ) : null}
         </>
-      ) : null}
-
-      {selectedDay && selectedDay.workoutId ? (
-        <div className="dialog-backdrop" onClick={() => setSelectedDayIndex(null)} style={{ zIndex: 100 }}>
-          <div className="dialog" onClick={(event) => event.stopPropagation()} style={{ width: "min(480px, 100%)" }}>
-            <div className="dialog-title">{selectedDay.workoutName}</div>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(3,1fr)",
-                gap: 2,
-                background: "var(--color-divider)",
-                border: "2px solid var(--color-divider)"
-              }}
-            >
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6 style={{ fontSize: 11 }}>Duration</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18 }}>{selectedDay.durationMin} min</div>
-              </div>
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6 style={{ fontSize: 11 }}>IF</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18 }}>{selectedDay.targetIF ?? "—"}</div>
-              </div>
-              <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                <h6 style={{ fontSize: 11 }}>TSS</h6>
-                <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18, opacity: 0.4 }}>—</div>
-              </div>
-            </div>
-            <div className="dialog-actions">
-              <button className="btn btn-secondary" onClick={() => setSelectedDayIndex(null)}>
-                Close
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={liveWorkoutBusy || isWorkoutSessionActive || !connectedTrainerDeviceId}
-                onClick={() => {
-                  const workoutId = selectedDay.workoutId as string;
-                  const workoutName = selectedDay.workoutName ?? "Workout";
-                  setSelectedDayIndex(null);
-                  void startWorkoutForDay(workoutId, workoutName);
-                }}
-              >
-                Start ride
-              </button>
-            </div>
-          </div>
-        </div>
       ) : null}
     </main>
   );
