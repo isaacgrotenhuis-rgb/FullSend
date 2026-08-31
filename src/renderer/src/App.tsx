@@ -16,7 +16,8 @@ import {
   type WorkoutDetail,
   type WorkoutInterval,
   type WorkoutSessionState,
-  type WorkoutSessionSummary
+  type WorkoutSessionSummary,
+  type WorkoutSessionTelemetrySamples
 } from "@shared/ipc/contracts";
 import { Nav } from "./pages/Nav";
 import { HomePage } from "./pages/HomePage";
@@ -282,6 +283,10 @@ export const App = (): ReactElement => {
     } finally {
       setLiveWorkoutBusy(false);
     }
+  };
+
+  const fetchSessionTelemetry = async (sessionId: string): Promise<WorkoutSessionTelemetrySamples> => {
+    return window.kickr.workout.getSessionTelemetry({ sessionId });
   };
 
   const discardWorkout = async (): Promise<void> => {
@@ -626,6 +631,7 @@ export const App = (): ReactElement => {
           resumeWorkout={resumeWorkout}
           stopWorkout={stopWorkout}
           saveWorkout={saveWorkout}
+          fetchSessionTelemetry={fetchSessionTelemetry}
           discardWorkout={discardWorkout}
           finishRide={finishRide}
           adjustIntensity={adjustIntensity}

@@ -48,13 +48,24 @@ type WorkoutPersistence = {
       actualPowerWatts: number | null;
       actualCadenceRpm: number | null;
       actualHeartRateBpm: number | null;
+      actualSpeedKmh: number | null;
+      actualDistanceMeters: number | null;
       payloadJson: string;
     }) => void;
     getAverages: (sessionId: string) => {
       avgPowerWatts: number | null;
       avgCadenceRpm: number | null;
       avgHeartRateBpm: number | null;
+      avgSpeedKmh: number | null;
+      distanceMeters: number | null;
     };
+    getSeries: (sessionId: string) => Array<{
+      elapsedSec: number;
+      actualPowerWatts: number | null;
+      actualCadenceRpm: number | null;
+      actualHeartRateBpm: number | null;
+      actualSpeedKmh: number | null;
+    }>;
   };
 };
 
@@ -97,8 +108,12 @@ export class ErgWorkoutEngine {
   private rampBlockIndex: number | null = null;
   private rampFromWatts: number | null = null;
   private forceRampReset = false;
-  private latestTelemetry: { powerWatts: number | null; cadenceRpm: number | null; speedKmh: number | null } | null =
-    null;
+  private latestTelemetry: {
+    powerWatts: number | null;
+    cadenceRpm: number | null;
+    speedKmh: number | null;
+    distanceMeters: number | null;
+  } | null = null;
   private latestHeartRateBpm: number | null = null;
   private lastEndReason: string | null = null;
   private readonly terminalLifecycles = new Set<WorkoutSessionLifecycle>(["stopped", "completed", "degraded", "error"]);
@@ -112,7 +127,8 @@ export class ErgWorkoutEngine {
         ? {
             powerWatts: bleState.liveTelemetry.powerWatts,
             cadenceRpm: bleState.liveTelemetry.cadenceRpm,
-            speedKmh: bleState.liveTelemetry.speedKmh
+            speedKmh: bleState.liveTelemetry.speedKmh,
+            distanceMeters: bleState.liveTelemetry.distanceMeters
           }
         : null;
       this.latestHeartRateBpm = bleState.heartRate?.bpm ?? null;
@@ -185,6 +201,8 @@ export class ErgWorkoutEngine {
       actualPowerWatts: metrics.actualPowerWatts,
       actualCadenceRpm: metrics.actualCadenceRpm,
       actualHeartRateBpm: metrics.actualHeartRateBpm,
+      actualSpeedKmh: metrics.actualSpeedKmh,
+      actualDistanceMeters: metrics.actualDistanceMeters,
       payloadJson: JSON.stringify(metrics)
     });
   }
@@ -317,7 +335,8 @@ export class ErgWorkoutEngine {
         actualPowerWatts: this.latestTelemetry?.powerWatts ?? null,
         actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null,
         actualHeartRateBpm: this.latestHeartRateBpm,
-        actualSpeedKmh: this.latestTelemetry?.speedKmh ?? null
+        actualSpeedKmh: this.latestTelemetry?.speedKmh ?? null,
+        actualDistanceMeters: this.latestTelemetry?.distanceMeters ?? null
       };
 
       let applyTargetsError: string | null = null;
@@ -547,6 +566,14 @@ export class ErgWorkoutEngine {
     const avgPowerWatts = averages.avgPowerWatts !== null ? Math.round(averages.avgPowerWatts) : null;
     const avgCadenceRpm = averages.avgCadenceRpm !== null ? Math.round(averages.avgCadenceRpm) : null;
     const avgHeartRateBpm = averages.avgHeartRateBpm !== null ? Math.round(averages.avgHeartRateBpm) : null;
+    const avgSpeedKmh = averages.avgSpeedKmh !== null ? Math.round(averages.avgSpeedKmh * 10) / 10 : null;
+    // Many trainers never set the FTMS "Total Distance Present" flag (it's optional
+    // in the spec). When that's the case, estimate distance by integrating the
+    // per-second speed samples we do have instead of leaving it blank.
+    const distanceMeters =
+      averages.distanceMeters !== null
+        ? Math.round(averages.distanceMeters)
+        : this.estimateDistanceMetersFromSpeedSeries(this.persistence.workoutSessionTelemetry.getSeries(sessionId));
 
     this.persistence.workoutSessions.updateStatus({
       id: sessionId,
@@ -569,8 +596,38 @@ export class ErgWorkoutEngine {
       durationSec: this.state.elapsedSec,
       avgPowerWatts,
       avgCadenceRpm,
-      avgHeartRateBpm
+      avgHeartRateBpm,
+      avgSpeedKmh,
+      distanceMeters
     };
+  }
+
+  private estimateDistanceMetersFromSpeedSeries(
+    series: Array<{ elapsedSec: number; actualSpeedKmh: number | null }>
+  ): number | null {
+    let distanceMeters = 0;
+    let hasSpeed = false;
+    let previousElapsedSec = 0;
+    for (const sample of series) {
+      const deltaSec = Math.max(0, sample.elapsedSec - previousElapsedSec);
+      previousElapsedSec = sample.elapsedSec;
+      if (sample.actualSpeedKmh !== null) {
+        hasSpeed = true;
+        distanceMeters += sample.actualSpeedKmh * (1000 / 3600) * deltaSec;
+      }
+    }
+    return hasSpeed ? Math.round(distanceMeters) : null;
+  }
+
+  getSessionTelemetrySeries(sessionId: string): Array<{
+    elapsedSec: number;
+    actualPowerWatts: number | null;
+    actualCadenceRpm: number | null;
+    actualHeartRateBpm: number | null;
+    actualSpeedKmh: number | null;
+  }> {
+    this.requireActiveSession(sessionId);
+    return this.persistence.workoutSessionTelemetry.getSeries(sessionId);
   }
 
   discardSession(sessionId: string): void {

@@ -68,6 +68,7 @@ import {
   workoutSessionStartResultSchema,
   workoutSessionStateSchema,
   workoutSessionSummarySchema,
+  workoutSessionTelemetrySamplesSchema,
   workoutSummariesSchema
 } from "@shared/ipc/contracts";
 import { safeHandle } from "@main/ipc/safeHandle";
@@ -200,6 +201,12 @@ export const registerIpcHandlers = (
     workoutSessionControlRequestSchema,
     workoutSessionSummarySchema,
     async (_event, input) => workoutEngine.finalizeSession(input.sessionId)
+  );
+  safeHandle(
+    ipcChannels.workout.getSessionTelemetry,
+    workoutSessionControlRequestSchema,
+    workoutSessionTelemetrySamplesSchema,
+    async (_event, input) => workoutEngine.getSessionTelemetrySeries(input.sessionId)
   );
   safeHandle(
     ipcChannels.workout.discardSession,

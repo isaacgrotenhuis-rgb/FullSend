@@ -1,6 +1,12 @@
 import { useEffect, useState, type ReactElement } from "react";
-import type { WorkoutInterval, WorkoutSessionState, WorkoutSessionSummary } from "@shared/ipc/contracts";
+import type {
+  WorkoutInterval,
+  WorkoutSessionState,
+  WorkoutSessionSummary,
+  WorkoutSessionTelemetrySamples
+} from "@shared/ipc/contracts";
 import { formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
+import { SessionMetricChart } from "../SessionMetricChart";
 
 type Props = {
   activeIntervals: WorkoutInterval[];
@@ -13,6 +19,7 @@ type Props = {
   resumeWorkout: () => Promise<void>;
   stopWorkout: () => Promise<void>;
   saveWorkout: () => Promise<WorkoutSessionSummary | null>;
+  fetchSessionTelemetry: (sessionId: string) => Promise<WorkoutSessionTelemetrySamples>;
   discardWorkout: () => Promise<void>;
   finishRide: (postToStrava: boolean) => Promise<void>;
   adjustIntensity: (deltaFraction: number) => Promise<void>;
@@ -60,6 +67,7 @@ export const RidePage = ({
   resumeWorkout,
   stopWorkout,
   saveWorkout,
+  fetchSessionTelemetry,
   discardWorkout,
   finishRide,
   adjustIntensity,
@@ -71,6 +79,8 @@ export const RidePage = ({
   const [summaryStage, setSummaryStage] = useState<"none" | "pending" | "saved">("none");
   const [savedSummary, setSavedSummary] = useState<WorkoutSessionSummary | null>(null);
   const [speedUnit, setSpeedUnit] = useState<SpeedUnit>(readStoredSpeedUnit);
+  const [telemetrySeries, setTelemetrySeries] = useState<WorkoutSessionTelemetrySamples | null>(null);
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
 
   useEffect(() => {
     window.localStorage.setItem(SPEED_UNIT_STORAGE_KEY, speedUnit);
@@ -85,6 +95,14 @@ export const RidePage = ({
   const speedKmh = liveMetrics?.actualSpeedKmh ?? null;
   const displaySpeed =
     speedKmh !== null ? (speedUnit === "mph" ? (speedKmh * KMH_TO_MPH).toFixed(1) : speedKmh.toFixed(1)) : null;
+
+  const distanceMeters = savedSummary?.distanceMeters ?? null;
+  const displayDistance =
+    distanceMeters !== null
+      ? speedUnit === "mph"
+        ? `${((distanceMeters / 1000) * KMH_TO_MPH).toFixed(2)} mi`
+        : `${(distanceMeters / 1000).toFixed(2)} km`
+      : "—";
 
   const currentKind = liveMetrics?.blockKind ?? (currentIndex !== null ? activeIntervals[currentIndex]?.kind : undefined);
   const intervalPositionLabel =
@@ -114,6 +132,15 @@ export const RidePage = ({
     if (summary) {
       setSavedSummary(summary);
       setSummaryStage("saved");
+      setTelemetryLoading(true);
+      try {
+        const series = await fetchSessionTelemetry(summary.sessionId);
+        setTelemetrySeries(series);
+      } catch (error) {
+        console.error("[workout summary] failed to load telemetry series:", error);
+      } finally {
+        setTelemetryLoading(false);
+      }
     }
   };
 
@@ -377,9 +404,50 @@ export const RidePage = ({
                       {savedSummary?.avgHeartRateBpm != null ? `${savedSummary.avgHeartRateBpm} bpm` : "—"}
                     </div>
                   </div>
+                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
+                    <h6>Distance</h6>
+                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
+                      {displayDistance}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="hr" style={{ margin: "var(--space-2) 0" }} />
+                {telemetryLoading ? (
+                  <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", padding: "var(--space-2) 0" }}>
+                    Loading charts…
+                  </div>
+                ) : telemetrySeries && telemetrySeries.length > 0 ? (
+                  <>
+                    <SessionMetricChart
+                      label="Speed"
+                      unit={speedUnit}
+                      color="var(--color-accent-700)"
+                      samples={telemetrySeries.map((sample) => ({
+                        elapsedSec: sample.elapsedSec,
+                        value:
+                          sample.actualSpeedKmh !== null
+                            ? speedUnit === "mph"
+                              ? sample.actualSpeedKmh * KMH_TO_MPH
+                              : sample.actualSpeedKmh
+                            : null
+                      }))}
+                    />
+                    <SessionMetricChart
+                      label="Power output"
+                      unit="W"
+                      color="var(--color-accent)"
+                      samples={telemetrySeries.map((sample) => ({ elapsedSec: sample.elapsedSec, value: sample.actualPowerWatts }))}
+                    />
+                    <SessionMetricChart
+                      label="Heart rate"
+                      unit="bpm"
+                      color="var(--color-accent-2)"
+                      samples={telemetrySeries.map((sample) => ({ elapsedSec: sample.elapsedSec, value: sample.actualHeartRateBpm }))}
+                    />
+                    <div className="hr" style={{ margin: "var(--space-2) 0" }} />
+                  </>
+                ) : null}
                 <label className="radio" style={{ gap: 10 }}>
                   <input
                     type="checkbox"

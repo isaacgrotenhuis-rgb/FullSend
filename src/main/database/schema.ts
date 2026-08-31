@@ -283,4 +283,10 @@ export const applySchema = (db: Database): void => {
   if (!telemetryColumnNames.has("actual_heart_rate_bpm")) {
     db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN actual_heart_rate_bpm REAL;");
   }
+  if (!telemetryColumnNames.has("actual_speed_kmh")) {
+    db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN actual_speed_kmh REAL;");
+  }
+  if (!telemetryColumnNames.has("actual_distance_meters")) {
+    db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN actual_distance_meters REAL;");
+  }
 };
