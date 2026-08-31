@@ -7,11 +7,14 @@
   "type": "module",
   "main": "out/main/index.cjs",
   "scripts": {
+    "predev": "node scripts/ensure-native-build.mjs electron",
     "dev": "electron-vite dev",
+    "prebuild": "node scripts/ensure-native-build.mjs electron",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "pretest": "node scripts/ensure-native-build.mjs node",
     "test": "vitest run",
-    "postinstall": "electron-rebuild -f -w better-sqlite3 -w @abandonware/noble"
+    "postinstall": "node scripts/ensure-native-build.mjs electron --force"
   },
   "dependencies": {
     "@abandonware/noble": "^1.9.2-26",
