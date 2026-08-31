@@ -84,4 +84,24 @@ describe("EventPlanService — phase matrix + taper", () => {
       expect(taper.targetMinutes).toBeLessThan((lastBuildWeek?.targetMinutes ?? 0) * 0.7);
     }
   });
+
+  it("still schedules a peak phase on a short plan (8 weeks)", () => {
+    const result = service.generatePlan(baseRequest({ planLengthWeeks: 8 }));
+    const sessionTypes = new Set(
+      result.weeks.flatMap((week) => week.days.map((day) => day.sessionType).filter(Boolean))
+    );
+    // "anaerobic" is only produced by the peak-phase secondary day; before the
+    // derivePhase fix the peak window collapsed into the taper for short plans.
+    expect(sessionTypes.has("anaerobic")).toBe(true);
+  });
+
+  it("keeps the final week sharp when plan length is divisible by 4", () => {
+    const result = service.generatePlan(baseRequest({ planLengthWeeks: 8 }));
+    const finalWeek = result.weeks[result.weeks.length - 1];
+    expect(finalWeek.loadTag).toBe("taper");
+    const finalWeekTypes = finalWeek.days.map((day) => day.sessionType).filter(Boolean);
+    // Race week is a taper, not a 4-week recovery week: it still carries hard work.
+    expect(finalWeekTypes.some((type) => type === "threshold" || type === "neuromuscular")).toBe(true);
+    expect(finalWeekTypes.every((type) => type === "recovery" || type === "endurance")).toBe(false);
+  });
 });

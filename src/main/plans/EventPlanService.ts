@@ -123,17 +123,23 @@ const EVENT_PROFILE: Record<EventType, EventProfile> = {
   }
 };
 
-// Phase from position in the plan (doc §7.1): base = first ~1/3, taper = last 1-2 wk,
-// peak = final ~1/4 before taper, build = the middle.
+// Phase from position in the plan (doc §7.1): taper = last 2 wk, peak = the 1-2 wk
+// immediately before the taper, base = first ~1/3 of what's left, build = the middle.
+// Peak is carved out of the pre-taper weeks (not an independent 0.75*L threshold) so
+// it can never collapse into the taper — short plans previously got no peak phase at
+// all, so the event-specific key session was never scheduled.
 const derivePhase = (weekIndex: number, planLengthWeeks: number): TrainingPhase => {
-  if (weekIndex >= planLengthWeeks - 2) {
+  const taperStart = planLengthWeeks - 2;
+  if (weekIndex >= taperStart) {
     return "taper";
   }
-  if (weekIndex < planLengthWeeks / 3) {
-    return "base";
-  }
-  if (weekIndex >= Math.ceil(planLengthWeeks * 0.75)) {
+  const peakWeeks = clamp(Math.round(planLengthWeeks * 0.15), 1, 2);
+  const peakStart = taperStart - peakWeeks;
+  if (weekIndex >= peakStart) {
     return "peak";
+  }
+  if (weekIndex < peakStart / 3) {
+    return "base";
   }
   return "build";
 };
@@ -479,8 +485,11 @@ export class EventPlanService {
     const drafts: WeekDraft[] = [];
 
     for (let weekIndex = 0; weekIndex < input.planLengthWeeks; weekIndex += 1) {
-      const isRecovery = (weekIndex + 1) % 4 === 0;
       const isTaper = weekIndex >= input.planLengthWeeks - 2;
+      // A scheduled 4-week recovery week must not land on (and override) a taper
+      // week — otherwise the final week of any plan length divisible by 4 becomes
+      // all easy sessions and the taper phase's sharpening work never runs.
+      const isRecovery = !isTaper && (weekIndex + 1) % 4 === 0;
       const phase = derivePhase(weekIndex, input.planLengthWeeks);
       const loadTag: LoadTag = isTaper ? "taper" : isRecovery ? "recovery" : "build";
       if (weekIndex > 0 && !isRecovery && !isTaper) {
