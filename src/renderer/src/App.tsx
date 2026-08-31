@@ -229,14 +229,15 @@ export const App = (): ReactElement => {
     const { workoutId, name } = previewWorkout;
     const intervals = previewDetail.intervals;
     await runWorkoutAction(async () => {
-      setActiveIntervals(intervals);
-      setActiveWorkoutName(name);
       await window.kickr.workout.startSession({
         deviceId,
         workoutId,
         intervals,
         metadata: { source: "plan" }
       });
+      // Only leave the preview for the live view once the session is actually running.
+      setActiveIntervals(intervals);
+      setActiveWorkoutName(name);
       closeWorkoutPreview();
     });
   };
@@ -641,6 +642,7 @@ export const App = (): ReactElement => {
           detail={previewDetail}
           connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
           busy={liveWorkoutBusy}
+          error={liveWorkoutError}
           onStart={() => void confirmStartWorkout()}
           onBack={closeWorkoutPreview}
         />

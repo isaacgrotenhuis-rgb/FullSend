@@ -8,6 +8,7 @@ type Props = {
   detail: WorkoutDetail;
   connectedTrainerDeviceId: string | null;
   busy: boolean;
+  error: string | null;
   onStart: () => void;
   onBack: () => void;
 };
@@ -32,6 +33,7 @@ export const WorkoutPreviewPage = ({
   detail,
   connectedTrainerDeviceId,
   busy,
+  error,
   onStart,
   onBack
 }: Props): ReactElement => {
@@ -57,16 +59,8 @@ export const WorkoutPreviewPage = ({
 
   return (
     <main className="app">
-      <button className="btn btn-ghost" style={{ marginBottom: "var(--space-4)", paddingLeft: 0 }} onClick={onBack}>
-        ← Back
-      </button>
-
-      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "var(--space-4)" }}>
-        <div>
-          <span className="tag tag-accent" style={{ textTransform: "capitalize" }}>{typeLabel}</span>
-          <h1 style={{ margin: "var(--space-2) 0 0" }}>{name}</h1>
-        </div>
-      </div>
+      <span className="tag tag-accent" style={{ textTransform: "capitalize" }}>{typeLabel}</span>
+      <h1 style={{ margin: "var(--space-2) 0 0" }}>{name}</h1>
 
       <div className="hr" style={{ margin: "var(--space-4) 0 var(--space-6)" }} />
 
@@ -128,6 +122,10 @@ export const WorkoutPreviewPage = ({
         </div>
         <WorkoutTimelineChart intervals={detail.intervals} elapsedSec={0} currentIndex={null} actualPowerWatts={null} />
       </div>
+
+      {error ? (
+        <p style={{ color: "var(--color-accent-700)", marginBottom: "var(--space-3)" }}>{error}</p>
+      ) : null}
 
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-4)" }}>
         <button className="btn btn-secondary" disabled={busy} onClick={onBack}>
