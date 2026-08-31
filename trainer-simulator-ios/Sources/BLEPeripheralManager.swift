@@ -31,7 +31,9 @@ final class BLEPeripheralManager: NSObject, ObservableObject, CBPeripheralManage
     @Published var cadenceRpm: Double = 85
     @Published var speedKmh: Double = 25
     @Published var resistanceLevel: Double = 0
+    @Published var distanceMeters: Double = 0
     @Published var autoFollowErg: Bool = true
+    @Published var broadcastDistance: Bool = true
     @Published var ergTargetWatts: Int?
     @Published var rideState: String = "stopped"
     @Published var commandLog: [String] = []
@@ -42,11 +44,13 @@ final class BLEPeripheralManager: NSObject, ObservableObject, CBPeripheralManage
     private var controlPointCharacteristic: CBMutableCharacteristic!
     private var notifyTimer: Timer?
     private var rampTimer: Timer?
+    private var distanceTimer: Timer?
 
     override init() {
         super.init()
         peripheralManager = CBPeripheralManager(delegate: self, queue: nil)
         startErgRampLoop()
+        startDistanceAccumulationLoop()
     }
 
     // MARK: - CBPeripheralManagerDelegate
@@ -142,6 +146,7 @@ final class BLEPeripheralManager: NSObject, ObservableObject, CBPeripheralManage
         case opcodeReset:
             ergTargetWatts = nil
             rideState = "stopped"
+            distanceMeters = 0
             logCommand("Reset")
         case opcodeSetTargetPower:
             let target = Int(FTMSEncoding.readUInt16LE(data, at: 1))
@@ -152,6 +157,9 @@ final class BLEPeripheralManager: NSObject, ObservableObject, CBPeripheralManage
             resistanceLevel = target
             logCommand("Set Target Resistance -> \(target)")
         case opcodeStartOrResume:
+            if rideState == "stopped" {
+                distanceMeters = 0
+            }
             rideState = "running"
             logCommand("Start or Resume")
         case opcodeStopOrPause:
@@ -180,7 +188,8 @@ final class BLEPeripheralManager: NSObject, ObservableObject, CBPeripheralManage
             speedKmh: speedKmh,
             cadenceRpm: cadenceRpm,
             resistanceLevel: resistanceLevel,
-            powerWatts: powerWatts
+            powerWatts: powerWatts,
+            distanceMeters: broadcastDistance ? distanceMeters : nil
         )
         peripheralManager.updateValue(payload, for: indoorBikeDataCharacteristic, onSubscribedCentrals: nil)
     }
@@ -200,6 +209,19 @@ final class BLEPeripheralManager: NSObject, ObservableObject, CBPeripheralManage
         let delta = targetDouble - powerWatts
         let step = delta > 0 ? min(delta, ergRampStepWattsPerSecond) : max(delta, -ergRampStepWattsPerSecond)
         powerWatts += step
+    }
+
+    // MARK: - Distance accumulation
+
+    private func startDistanceAccumulationLoop() {
+        distanceTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.stepDistance()
+        }
+    }
+
+    private func stepDistance() {
+        guard rideState == "running" else { return }
+        distanceMeters += speedKmh / 3.6
     }
 
     // MARK: - Log
