@@ -71,4 +71,42 @@ describe("WorkoutBankService", () => {
     expect(detail.durationSec).toBe(3600);
     expect(detail.document.segments).toHaveLength(1);
   });
+
+  it("compileAndPersist stamps preview metadata (description, tags, estTSS) on the compiled workout", () => {
+    const doc: FswDocument = {
+      schemaVersion: 1,
+      id: "sst-2x10",
+      name: "Sweet Spot 2x10",
+      description: "Two sweet-spot blocks to build muscular endurance.",
+      discipline: "cycling",
+      primaryZone: "sweet-spot",
+      tags: ["muscular-endurance"],
+      phases: ["base"],
+      segments: [
+        { type: "warmup", durationSec: 300, powerLow: 0.5, powerHigh: 0.8 },
+        {
+          type: "intervals",
+          repeat: 2,
+          onDurationSec: 600,
+          onPower: 0.9,
+          offDurationSec: 180,
+          offPower: 0.55
+        }
+      ]
+    };
+    service.createBankWorkout(doc, "seed");
+    const { workoutId } = service.compileAndPersist({ bankWorkoutId: "sst-2x10", ftp: 250 });
+
+    const row = db
+      .prepare("SELECT metadata_json AS m FROM workouts WHERE id = ?")
+      .get(workoutId) as { m: string };
+    const metadata = JSON.parse(row.m) as Record<string, unknown>;
+    expect(metadata).toMatchObject({
+      bankWorkoutId: "sst-2x10",
+      primaryZone: "sweet-spot",
+      description: "Two sweet-spot blocks to build muscular endurance.",
+      tags: ["muscular-endurance"]
+    });
+    expect(typeof metadata.estTSS).toBe("number");
+  });
 });

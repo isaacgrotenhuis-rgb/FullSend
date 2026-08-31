@@ -89,10 +89,20 @@ export class WorkoutLibraryService {
   getWorkoutDetail(workoutId: string): {
     workout: { id: string; name: string; source: string; durationSec: number; intensityFactor: number | null };
     intervals: WorkoutBuilderInterval[];
+    metadata: Record<string, unknown> | null;
   } {
     const workout = this.repositories.workouts.getById(workoutId) as WorkoutRow | undefined;
     if (!workout) {
       throw new Error(`Workout not found: ${workoutId}`);
+    }
+    let metadata: Record<string, unknown> | null = null;
+    if (workout.metadata_json) {
+      try {
+        const parsed = JSON.parse(workout.metadata_json) as unknown;
+        metadata = parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : null;
+      } catch {
+        metadata = null;
+      }
     }
     const intervals: WorkoutBuilderInterval[] = (
       this.repositories.workoutIntervals.byWorkout(workoutId) as IntervalRow[]
@@ -114,7 +124,8 @@ export class WorkoutLibraryService {
         durationSec: workout.duration_seconds,
         intensityFactor: workout.intensity_factor
       },
-      intervals
+      intervals,
+      metadata
     };
   }
 

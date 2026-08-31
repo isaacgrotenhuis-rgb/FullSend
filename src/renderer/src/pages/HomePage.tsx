@@ -5,7 +5,8 @@ import {
   type BleRole,
   type BleState,
   type DashboardMetrics,
-  type EventPlanWeek
+  type EventPlanWeek,
+  type SessionType
 } from "@shared/ipc/contracts";
 
 export type BleSectionProps = {
@@ -30,7 +31,11 @@ type Props = {
   weeks: EventPlanWeek[];
   liveWorkoutBusy: boolean;
   isWorkoutSessionActive: boolean;
-  startWorkoutForDay: (workoutId: string, workoutName: string) => Promise<void>;
+  previewWorkoutForDay: (
+    workoutId: string,
+    workoutName: string,
+    sessionType: SessionType | null
+  ) => Promise<void>;
   onNavigateToPlan: () => void;
 };
 
@@ -61,7 +66,7 @@ export const HomePage = ({
   weeks,
   liveWorkoutBusy,
   isWorkoutSessionActive,
-  startWorkoutForDay,
+  previewWorkoutForDay,
   onNavigateToPlan
 }: Props): ReactElement => {
   const {
@@ -114,7 +119,6 @@ export const HomePage = ({
           ? "Event day"
           : "Event completed";
 
-  const connectedTrainerDeviceId = bleState?.connectedDeviceId ?? null;
   const selectedDay = currentWeek?.days.find((day) => day.dayIndex === selectedDayIndex) ?? null;
 
   return (
@@ -494,15 +498,16 @@ export const HomePage = ({
               </button>
               <button
                 className="btn btn-primary"
-                disabled={liveWorkoutBusy || isWorkoutSessionActive || !connectedTrainerDeviceId}
+                disabled={liveWorkoutBusy || isWorkoutSessionActive}
                 onClick={() => {
                   const workoutId = selectedDay.workoutId as string;
                   const workoutName = selectedDay.workoutName ?? "Workout";
+                  const sessionType = selectedDay.sessionType;
                   setSelectedDayIndex(null);
-                  void startWorkoutForDay(workoutId, workoutName);
+                  void previewWorkoutForDay(workoutId, workoutName, sessionType);
                 }}
               >
-                Start ride
+                Preview
               </button>
             </div>
           </div>

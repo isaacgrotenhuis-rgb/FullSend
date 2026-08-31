@@ -241,7 +241,12 @@ export class WorkoutBankService {
       metadataJson: JSON.stringify({
         bankWorkoutId: document.id,
         compiledAtFtp: input.ftp,
-        primaryZone: document.primaryZone
+        primaryZone: document.primaryZone,
+        // Denormalized for the pre-start workout preview (issue #13) so it renders
+        // from one getWorkoutDetail call without re-reading the bank row.
+        description: document.description ?? null,
+        tags: document.tags,
+        estTSS: row.est_tss
       }),
       bankWorkoutId: document.id,
       compiledAtFtp: input.ftp

@@ -1,5 +1,5 @@
 import { useState, type ReactElement } from "react";
-import type { DayAvailability, EventPlanWeek, EventType, PlanLengthWeeks } from "@shared/ipc/contracts";
+import type { DayAvailability, EventPlanWeek, EventType, PlanLengthWeeks, SessionType } from "@shared/ipc/contracts";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -61,8 +61,11 @@ type Props = {
   currentPlanName: string | null;
   liveWorkoutBusy: boolean;
   isWorkoutSessionActive: boolean;
-  connectedTrainerDeviceId: string | null;
-  startWorkoutForDay: (workoutId: string, workoutName: string) => Promise<void>;
+  previewWorkoutForDay: (
+    workoutId: string,
+    workoutName: string,
+    sessionType: SessionType | null
+  ) => Promise<void>;
   onDeletePlan: () => Promise<void>;
 };
 
@@ -73,8 +76,7 @@ export const PlanPage = ({
   currentPlanName,
   liveWorkoutBusy,
   isWorkoutSessionActive,
-  connectedTrainerDeviceId,
-  startWorkoutForDay,
+  previewWorkoutForDay,
   onDeletePlan
 }: Props): ReactElement => {
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -187,10 +189,16 @@ export const PlanPage = ({
                           <button
                             className="btn btn-ghost"
                             style={{ padding: "2px 8px", fontSize: 11 }}
-                            disabled={liveWorkoutBusy || isWorkoutSessionActive || !connectedTrainerDeviceId}
-                            onClick={() => void startWorkoutForDay(day.workoutId as string, day.workoutName ?? "Workout")}
+                            disabled={liveWorkoutBusy || isWorkoutSessionActive}
+                            onClick={() =>
+                              void previewWorkoutForDay(
+                                day.workoutId as string,
+                                day.workoutName ?? "Workout",
+                                day.sessionType
+                              )
+                            }
                           >
-                            Start
+                            Preview
                           </button>
                         ) : null}
                       </div>

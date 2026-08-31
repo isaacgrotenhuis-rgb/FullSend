@@ -404,7 +404,11 @@ export const workoutDetailRequestSchema = z.object({
 
 export const workoutDetailSchema = z.object({
   workout: workoutSummarySchema,
-  intervals: z.array(workoutBuilderIntervalSchema)
+  intervals: z.array(workoutBuilderIntervalSchema),
+  // Parsed metadata_json of the compiled workout row. For bank-sourced workouts this
+  // carries { bankWorkoutId, compiledAtFtp, primaryZone, description, tags, estTSS };
+  // null for older/manually-authored workouts.
+  metadata: z.record(z.unknown()).nullable()
 });
 
 export const createIntervalRequestSchema = z.object({
