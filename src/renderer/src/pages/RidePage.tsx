@@ -96,12 +96,20 @@ export const RidePage = ({
   const displaySpeed =
     speedKmh !== null ? (speedUnit === "mph" ? (speedKmh * KMH_TO_MPH).toFixed(1) : speedKmh.toFixed(1)) : null;
 
-  const distanceMeters = savedSummary?.distanceMeters ?? null;
-  const displayDistance =
-    distanceMeters !== null
+  const liveDistanceMeters = liveMetrics?.actualDistanceMeters ?? null;
+  const displayLiveDistance =
+    liveDistanceMeters !== null
       ? speedUnit === "mph"
-        ? `${((distanceMeters / 1000) * KMH_TO_MPH).toFixed(2)} mi`
-        : `${(distanceMeters / 1000).toFixed(2)} km`
+        ? ((liveDistanceMeters / 1000) * KMH_TO_MPH).toFixed(2)
+        : (liveDistanceMeters / 1000).toFixed(2)
+      : null;
+
+  const summaryDistanceMeters = savedSummary?.distanceMeters ?? null;
+  const displaySummaryDistance =
+    summaryDistanceMeters !== null
+      ? speedUnit === "mph"
+        ? `${((summaryDistanceMeters / 1000) * KMH_TO_MPH).toFixed(2)} mi`
+        : `${(summaryDistanceMeters / 1000).toFixed(2)} km`
       : "—";
 
   const currentKind = liveMetrics?.blockKind ?? (currentIndex !== null ? activeIntervals[currentIndex]?.kind : undefined);
@@ -175,7 +183,7 @@ export const RidePage = ({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr",
+          gridTemplateColumns: "1fr 1fr 1fr",
           gap: 2,
           background: "var(--color-divider)",
           border: "2px solid var(--color-divider)",
@@ -244,6 +252,10 @@ export const RidePage = ({
             </div>
           </div>
           <MetricTileValue value={displaySpeed} unit={speedUnit} />
+        </div>
+        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
+          <h6>Distance</h6>
+          <MetricTileValue value={displayLiveDistance} unit={speedUnit === "mph" ? "mi" : "km"} />
         </div>
       </div>
 
@@ -407,7 +419,7 @@ export const RidePage = ({
                   <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
                     <h6>Distance</h6>
                     <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
-                      {displayDistance}
+                      {displaySummaryDistance}
                     </div>
                   </div>
                 </div>
