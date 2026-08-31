@@ -187,7 +187,7 @@ export const RidePage = ({
           />
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginBottom: "var(--space-2)" }}>
             <h6 style={{ margin: 0 }}>Speed</h6>
             <div style={{ display: "flex", gap: 2 }}>
               <button
