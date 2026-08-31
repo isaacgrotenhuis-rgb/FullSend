@@ -115,6 +115,15 @@ export class ErgWorkoutEngine {
     distanceMeters: number | null;
   } | null = null;
   private latestHeartRateBpm: number | null = null;
+  // Trainers may report a cumulative odometer via FTMS (source of truth for this ride
+  // once seen); many never set that optional flag, so distance falls back to
+  // integrating speed live, tick by tick. Both paths are baselined to the first
+  // reading seen this session, so a trainer's persistent lifetime odometer doesn't
+  // leak into a single ride's distance.
+  private trainerDistanceBaselineMeters: number | null = null;
+  private fallbackDistanceMeters = 0;
+  private sessionDistanceMeters = 0;
+  private hasDistanceReading = false;
   private lastEndReason: string | null = null;
   private readonly terminalLifecycles = new Set<WorkoutSessionLifecycle>(["stopped", "completed", "degraded", "error"]);
   private listeners = new Set<(state: WorkoutSessionState) => void>();
@@ -282,6 +291,7 @@ export class ErgWorkoutEngine {
           clampedElapsedSec: elapsedSec
         });
       }
+      const deltaSec = Math.max(0, elapsedSec - this.lastElapsedSec);
       this.lastElapsedSec = elapsedSec;
       const cursor = this.scheduler.locate(elapsedSec);
 
@@ -336,7 +346,7 @@ export class ErgWorkoutEngine {
         actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null,
         actualHeartRateBpm: this.latestHeartRateBpm,
         actualSpeedKmh: this.latestTelemetry?.speedKmh ?? null,
-        actualDistanceMeters: this.latestTelemetry?.distanceMeters ?? null
+        actualDistanceMeters: this.updateDistance(deltaSec)
       };
 
       let applyTargetsError: string | null = null;
@@ -369,6 +379,25 @@ export class ErgWorkoutEngine {
       this.expectedNextTickAtMs = Date.now() + 1000;
       this.tickInFlight = false;
     }
+  }
+
+  private updateDistance(deltaSec: number): number | null {
+    const trainerDistanceMeters = this.latestTelemetry?.distanceMeters ?? null;
+    if (trainerDistanceMeters !== null) {
+      if (this.trainerDistanceBaselineMeters === null) {
+        this.trainerDistanceBaselineMeters = trainerDistanceMeters;
+      }
+      this.sessionDistanceMeters = Math.max(0, trainerDistanceMeters - this.trainerDistanceBaselineMeters);
+      this.hasDistanceReading = true;
+    } else if (this.trainerDistanceBaselineMeters === null) {
+      const speedKmh = this.latestTelemetry?.speedKmh ?? null;
+      if (speedKmh !== null) {
+        this.fallbackDistanceMeters += (speedKmh * 1000 * deltaSec) / 3600;
+        this.sessionDistanceMeters = this.fallbackDistanceMeters;
+        this.hasDistanceReading = true;
+      }
+    }
+    return this.hasDistanceReading ? this.sessionDistanceMeters : null;
   }
 
   private async safeErgStop(): Promise<void> {
@@ -443,6 +472,10 @@ export class ErgWorkoutEngine {
     this.rampFromWatts = null;
     this.forceRampReset = false;
     this.lastEndReason = null;
+    this.trainerDistanceBaselineMeters = null;
+    this.fallbackDistanceMeters = 0;
+    this.sessionDistanceMeters = 0;
+    this.hasDistanceReading = false;
 
     this.persistence.workoutSessions.create({
       id: sessionId,
@@ -567,13 +600,9 @@ export class ErgWorkoutEngine {
     const avgCadenceRpm = averages.avgCadenceRpm !== null ? Math.round(averages.avgCadenceRpm) : null;
     const avgHeartRateBpm = averages.avgHeartRateBpm !== null ? Math.round(averages.avgHeartRateBpm) : null;
     const avgSpeedKmh = averages.avgSpeedKmh !== null ? Math.round(averages.avgSpeedKmh * 10) / 10 : null;
-    // Many trainers never set the FTMS "Total Distance Present" flag (it's optional
-    // in the spec). When that's the case, estimate distance by integrating the
-    // per-second speed samples we do have instead of leaving it blank.
-    const distanceMeters =
-      averages.distanceMeters !== null
-        ? Math.round(averages.distanceMeters)
-        : this.estimateDistanceMetersFromSpeedSeries(this.persistence.workoutSessionTelemetry.getSeries(sessionId));
+    // Each tick's actualDistanceMeters is already baselined-and-integrated live (see
+    // updateDistance), so the max value recorded for the session is its total distance.
+    const distanceMeters = averages.distanceMeters !== null ? Math.round(averages.distanceMeters) : null;
 
     this.persistence.workoutSessions.updateStatus({
       id: sessionId,
@@ -600,23 +629,6 @@ export class ErgWorkoutEngine {
       avgSpeedKmh,
       distanceMeters
     };
-  }
-
-  private estimateDistanceMetersFromSpeedSeries(
-    series: Array<{ elapsedSec: number; actualSpeedKmh: number | null }>
-  ): number | null {
-    let distanceMeters = 0;
-    let hasSpeed = false;
-    let previousElapsedSec = 0;
-    for (const sample of series) {
-      const deltaSec = Math.max(0, sample.elapsedSec - previousElapsedSec);
-      previousElapsedSec = sample.elapsedSec;
-      if (sample.actualSpeedKmh !== null) {
-        hasSpeed = true;
-        distanceMeters += sample.actualSpeedKmh * (1000 / 3600) * deltaSec;
-      }
-    }
-    return hasSpeed ? Math.round(distanceMeters) : null;
   }
 
   getSessionTelemetrySeries(sessionId: string): Array<{
