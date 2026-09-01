@@ -335,51 +335,86 @@ export const HomePage = ({
       </div>
       <div className="hr" />
       {currentWeek ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 0, border: "2px solid var(--color-divider)", marginBottom: "var(--space-8)" }}>
-          {currentWeek.days.map((day, index) => {
-            const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
-            const isToday = cellDate.getTime() === today.getTime();
-            const dayLabel = dayLabels[day.dayIndex];
-            return (
-              <div
-                key={day.dayIndex}
-                style={{
-                  padding: "var(--space-3)",
-                  borderRight: index < 6 ? "1px solid var(--color-divider)" : undefined,
-                  background: isToday ? "var(--color-accent-100)" : "var(--color-bg)",
-                  minHeight: 96,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4
-                }}
-              >
-                <h6 style={{ margin: 0, color: isToday ? "var(--color-accent-700)" : undefined }}>
-                  {dayLabel} · {formatShortDate(cellDate)}
-                </h6>
-                <PlanDayWorkouts
-                  day={day}
-                  compact
-                  disabled={false}
-                  onPreview={(workoutId, workoutName, sessionType) =>
-                    void previewWorkoutForDay(workoutId, workoutName, sessionType, {
-                      weekIndex: currentWeek.weekIndex,
-                      dayIndex: day.dayIndex
-                    })
-                  }
-                  onAdd={() =>
+        (() => {
+          const todayDay = currentWeek.days.find(
+            (day) =>
+              addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex).getTime() ===
+              today.getTime()
+          );
+          const todayCanSwap =
+            todayDay !== undefined && todayDay.workoutId !== null && !todayDay.plannedReplaced;
+          return (
+            <div style={{ marginBottom: "var(--space-8)" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 0, border: "2px solid var(--color-divider)" }}>
+                {currentWeek.days.map((day, index) => {
+                  const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
+                  const isToday = cellDate.getTime() === today.getTime();
+                  const dayLabel = dayLabels[day.dayIndex];
+                  return (
+                    <div
+                      key={day.dayIndex}
+                      style={{
+                        padding: "var(--space-3)",
+                        borderRight: index < 6 ? "1px solid var(--color-divider)" : undefined,
+                        background: isToday ? "var(--color-accent-100)" : "var(--color-bg)",
+                        minHeight: 96,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4
+                      }}
+                    >
+                      <h6 style={{ margin: 0, color: isToday ? "var(--color-accent-700)" : undefined }}>
+                        {dayLabel} · {formatShortDate(cellDate)}
+                      </h6>
+                      <PlanDayWorkouts
+                        day={day}
+                        compact
+                        shortNames
+                        showAdd={false}
+                        disabled={false}
+                        onPreview={(workoutId, workoutName, sessionType) =>
+                          void previewWorkoutForDay(workoutId, workoutName, sessionType, {
+                            weekIndex: currentWeek.weekIndex,
+                            dayIndex: day.dayIndex
+                          })
+                        }
+                        onAdd={() =>
+                          onAddWorkoutForDay(
+                            currentWeek.weekIndex,
+                            day.dayIndex,
+                            dayLabel,
+                            day.workoutId !== null && !day.plannedReplaced
+                          )
+                        }
+                        onRemoveEntry={onRemoveDayEntry}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+              {todayDay ? (
+                <button
+                  className="btn btn-secondary"
+                  style={{
+                    width: "100%",
+                    borderTop: "none",
+                    justifyContent: "center"
+                  }}
+                  onClick={() =>
                     onAddWorkoutForDay(
                       currentWeek.weekIndex,
-                      day.dayIndex,
-                      dayLabel,
-                      day.workoutId !== null && !day.plannedReplaced
+                      todayDay.dayIndex,
+                      dayLabels[todayDay.dayIndex],
+                      todayCanSwap
                     )
                   }
-                  onRemoveEntry={onRemoveDayEntry}
-                />
-              </div>
-            );
-          })}
-        </div>
+                >
+                  {todayCanSwap ? "＋ Add / swap today's workout" : "＋ Add a workout today"}
+                </button>
+              ) : null}
+            </div>
+          );
+        })()
       ) : (
         <p className="text-muted" style={{ marginBottom: "var(--space-8)" }}>
           No workouts scheduled for the current week.

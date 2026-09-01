@@ -14,10 +14,26 @@ type Props = {
   onRemoveEntry: (entryId: string) => void;
   disabled: boolean;
   compact?: boolean;
+  /** Render the inline add/swap control (Home hoists it below the grid instead). */
+  showAdd?: boolean;
+  /**
+   * Drop the generator's "W1 Tue sweet-spot — " prefix from the planned workout
+   * name (the week/day is already obvious from the calendar).
+   */
+  shortNames?: boolean;
 };
 
 const meta = (durationMin: number, targetIF: number | null): string =>
   `${durationMin} min${targetIF !== null ? ` · IF ${targetIF}` : ""}`;
+
+/** "W1 Tue sweet-spot — Sweet Spot 3×12" -> "Sweet Spot 3×12" (leaves prefix-less names alone). */
+const shortName = (name: string | null): string => {
+  if (!name) {
+    return "Workout";
+  }
+  const marker = name.lastIndexOf(" — ");
+  return marker >= 0 ? name.slice(marker + 3) : name;
+};
 
 const mutedStrike = {
   textDecoration: "line-through",
@@ -30,7 +46,9 @@ export const PlanDayWorkouts = ({
   onAdd,
   onRemoveEntry,
   disabled,
-  compact = false
+  compact = false,
+  showAdd = true,
+  shortNames = false
 }: Props): ReactElement => {
   const hasPlanned = day.workoutId !== null;
   const nothing = !hasPlanned && day.entries.length === 0 && day.completed.length === 0;
@@ -66,7 +84,7 @@ export const PlanDayWorkouts = ({
               ...(day.plannedReplaced ? mutedStrike : {})
             }}
           >
-            {day.workoutName ?? "Workout"}
+            {shortNames ? shortName(day.workoutName) : day.workoutName ?? "Workout"}
           </span>
           <span className="card-meta" style={day.plannedReplaced ? mutedStrike : undefined}>
             {meta(day.durationMin, day.targetIF)}
@@ -120,15 +138,17 @@ export const PlanDayWorkouts = ({
         </div>
       ))}
 
-      <button
-        type="button"
-        className="btn btn-ghost"
-        style={{ alignSelf: "flex-start", padding: "2px 6px", fontSize: 11 }}
-        disabled={disabled}
-        onClick={onAdd}
-      >
-        {hasPlanned && !day.plannedReplaced ? "＋ Add / swap" : "＋ Add workout"}
-      </button>
+      {showAdd ? (
+        <button
+          type="button"
+          className="btn btn-ghost"
+          style={{ alignSelf: "flex-start", padding: "2px 6px", fontSize: 11 }}
+          disabled={disabled}
+          onClick={onAdd}
+        >
+          {hasPlanned && !day.plannedReplaced ? "＋ Add / swap" : "＋ Add workout"}
+        </button>
+      ) : null}
     </div>
   );
 };
