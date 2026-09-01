@@ -75,6 +75,7 @@ const api: KickrDesktopApi = {
   workoutBank: {
     list: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.list, request ?? {}),
     get: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.get, request),
+    compile: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.compile, request),
     create: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.create, request),
     update: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.update, request),
     archive: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.archive, request),

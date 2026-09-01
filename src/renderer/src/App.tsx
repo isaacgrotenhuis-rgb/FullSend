@@ -25,8 +25,9 @@ import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { ProfilePage, type SmokeCheck } from "./pages/ProfilePage";
+import { BankPage } from "./pages/BankPage";
 
-export type Page = "home" | "plan" | "profile";
+export type Page = "home" | "plan" | "profile" | "bank";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -240,6 +241,24 @@ export const App = (): ReactElement => {
       setActiveIntervals(intervals);
       setActiveWorkoutName(name);
       closeWorkoutPreview();
+    });
+  };
+
+  const startBankWorkoutAdhoc = async (
+    bankWorkoutId: string,
+    name: string,
+    intervals: WorkoutInterval[]
+  ): Promise<void> => {
+    if (!bleState?.connectedDeviceId) {
+      setLiveWorkoutError("Connect a trainer before starting a workout.");
+      return;
+    }
+    const deviceId = bleState.connectedDeviceId;
+    await runWorkoutAction(async () => {
+      await window.kickr.workoutBank.startAdhoc({ bankWorkoutId, deviceId, ftp: currentFtp });
+      setActiveIntervals(intervals);
+      setActiveWorkoutName(name);
+      setPage("home");
     });
   };
 
@@ -698,6 +717,16 @@ export const App = (): ReactElement => {
           }}
           versions={versions}
           auditEntries={auditEntries}
+        />
+      ) : page === "bank" ? (
+        <BankPage
+          ftp={currentFtp}
+          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
+          busy={liveWorkoutBusy}
+          error={liveWorkoutError}
+          onStartAdhoc={(bankWorkoutId, name, intervals) =>
+            void startBankWorkoutAdhoc(bankWorkoutId, name, intervals)
+          }
         />
       ) : (
         <HomePage

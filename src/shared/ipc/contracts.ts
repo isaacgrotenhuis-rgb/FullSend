@@ -57,6 +57,7 @@ export const ipcChannels = {
   workoutBank: {
     list: "workout-bank:list",
     get: "workout-bank:get",
+    compile: "workout-bank:compile",
     create: "workout-bank:create",
     update: "workout-bank:update",
     archive: "workout-bank:archive",
@@ -276,6 +277,16 @@ export const updateBankWorkoutRequestSchema = z.object({
   document: fswDocumentSchema
 });
 export const archiveBankWorkoutRequestSchema = z.object({ id: z.string().min(1) });
+export const compileBankWorkoutRequestSchema = z.object({
+  id: z.string().min(1),
+  ftp: z.number().int().min(100).max(600)
+});
+export const compileBankWorkoutResultSchema = z.object({
+  intervals: z.array(workoutIntervalSchema),
+  durationSec: z.number().int().min(0),
+  estIF: z.number().nullable(),
+  estTSS: z.number().nullable()
+});
 export const startAdhocBankWorkoutRequestSchema = z.object({
   bankWorkoutId: z.string().min(1),
   deviceId: z.string().min(1),
@@ -293,6 +304,8 @@ export type GetBankWorkoutRequest = z.infer<typeof getBankWorkoutRequestSchema>;
 export type CreateBankWorkoutRequest = z.infer<typeof createBankWorkoutRequestSchema>;
 export type UpdateBankWorkoutRequest = z.infer<typeof updateBankWorkoutRequestSchema>;
 export type ArchiveBankWorkoutRequest = z.infer<typeof archiveBankWorkoutRequestSchema>;
+export type CompileBankWorkoutRequest = z.infer<typeof compileBankWorkoutRequestSchema>;
+export type CompileBankWorkoutResult = z.infer<typeof compileBankWorkoutResultSchema>;
 export type StartAdhocBankWorkoutRequest = z.infer<typeof startAdhocBankWorkoutRequestSchema>;
 export type BankWorkoutIdResult = z.infer<typeof bankWorkoutIdResultSchema>;
 
