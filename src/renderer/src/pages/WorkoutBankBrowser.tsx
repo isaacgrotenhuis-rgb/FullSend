@@ -10,12 +10,25 @@ import type {
 import { ZONES } from "@shared/zones";
 import { averageTargetWatts, formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
 
+type AdhocAction = {
+  kind: "adhoc";
+  connectedTrainerDeviceId: string | null;
+  onStartAdhoc: (bankWorkoutId: string, name: string, intervals: WorkoutInterval[]) => void;
+};
+
+type AssignAction = {
+  kind: "assign";
+  dayLabel: string;
+  /** True when the day still has an un-replaced prescribed workout (enables "Swap"). */
+  canSwap: boolean;
+  onAssign: (bankWorkoutId: string, name: string, mode: "add" | "swap") => void;
+};
+
 type Props = {
   ftp: number;
-  connectedTrainerDeviceId: string | null;
   busy: boolean;
   error: string | null;
-  onStartAdhoc: (bankWorkoutId: string, name: string, intervals: WorkoutInterval[]) => void;
+  action: AdhocAction | AssignAction;
   onClose: () => void;
 };
 
@@ -79,14 +92,7 @@ const chipStyle = (active: boolean) =>
     color: active ? "var(--color-accent-800)" : "inherit"
   }) as const;
 
-export const WorkoutBankBrowser = ({
-  ftp,
-  connectedTrainerDeviceId,
-  busy,
-  error,
-  onStartAdhoc,
-  onClose
-}: Props): ReactElement => {
+export const WorkoutBankBrowser = ({ ftp, busy, error, action, onClose }: Props): ReactElement => {
   const [summaries, setSummaries] = useState<BankWorkoutSummary[]>([]);
   const [listError, setListError] = useState<string | null>(null);
   const [zone, setZone] = useState<TrainingZone | null>(null);
@@ -259,7 +265,8 @@ export const WorkoutBankBrowser = ({
           ])
         )
       : 0;
-    const canStart = ready && !busy && connectedTrainerDeviceId !== null;
+    const canStart =
+      ready && !busy && (action.kind !== "adhoc" || action.connectedTrainerDeviceId !== null);
 
     return (
       <>
@@ -385,7 +392,7 @@ export const WorkoutBankBrowser = ({
         ) : null}
 
         <div className="dialog-actions">
-          {connectedTrainerDeviceId === null ? (
+          {action.kind === "adhoc" && action.connectedTrainerDeviceId === null ? (
             <span className="card-meta" style={{ marginRight: "auto" }}>
               Connect a trainer to start
             </span>
@@ -393,16 +400,40 @@ export const WorkoutBankBrowser = ({
           <button className="btn btn-secondary" disabled={busy} onClick={() => setSelectedId(null)}>
             Back
           </button>
-          <button
-            className="btn btn-primary"
-            style={{ minWidth: 150 }}
-            disabled={!canStart}
-            onClick={() =>
-              detail && compiled ? onStartAdhoc(detail.id, detail.name, compiled.intervals) : undefined
-            }
-          >
-            Start now
-          </button>
+          {action.kind === "adhoc" ? (
+            <button
+              className="btn btn-primary"
+              style={{ minWidth: 150 }}
+              disabled={!canStart}
+              onClick={() =>
+                detail && compiled
+                  ? action.onStartAdhoc(detail.id, detail.name, compiled.intervals)
+                  : undefined
+              }
+            >
+              Start now
+            </button>
+          ) : (
+            <>
+              {action.canSwap ? (
+                <button
+                  className="btn btn-secondary"
+                  disabled={!canStart}
+                  onClick={() => (detail ? action.onAssign(detail.id, detail.name, "swap") : undefined)}
+                >
+                  Swap {action.dayLabel}
+                </button>
+              ) : null}
+              <button
+                className="btn btn-primary"
+                style={{ minWidth: 150 }}
+                disabled={!canStart}
+                onClick={() => (detail ? action.onAssign(detail.id, detail.name, "add") : undefined)}
+              >
+                Add to {action.dayLabel}
+              </button>
+            </>
+          )}
         </div>
       </>
     );

@@ -60,7 +60,10 @@ import type {
   ArchiveBankWorkoutRequest,
   CompileBankWorkoutRequest,
   CompileBankWorkoutResult,
-  StartAdhocBankWorkoutRequest
+  StartAdhocBankWorkoutRequest,
+  AddPlanDayWorkoutRequest,
+  RemovePlanDayWorkoutRequest,
+  PlanDayMutationResult
 } from "@shared/ipc/contracts";
 
 export interface KickrDesktopApi {
@@ -119,6 +122,8 @@ export interface KickrDesktopApi {
     listVersions: (request: PlanVersionsRequest) => Promise<EventPlanVersion[]>;
     listAuditEntries: (request: PlanAuditEntriesRequest) => Promise<EventPlanAuditEntry[]>;
     getCurrent: () => Promise<GetCurrentEventPlanResult>;
+    addDayWorkout: (request: AddPlanDayWorkoutRequest) => Promise<PlanDayMutationResult>;
+    removeDayWorkout: (request: RemovePlanDayWorkoutRequest) => Promise<PlanDayMutationResult>;
   };
   dashboard: {
     getMetrics: (request?: Partial<DashboardMetricsRequest>) => Promise<DashboardMetrics>;

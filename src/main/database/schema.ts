@@ -222,6 +222,27 @@ const migrations = [
   `,
   `
   CREATE INDEX IF NOT EXISTS idx_workout_bank_zone ON workout_bank(primary_zone, archived);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS plan_day_workouts (
+    id               TEXT PRIMARY KEY,
+    plan_id          TEXT NOT NULL REFERENCES training_plans(id) ON DELETE CASCADE,
+    week_index       INTEGER NOT NULL,
+    day_index        INTEGER NOT NULL CHECK(day_index BETWEEN 0 AND 6),
+    workout_id       TEXT NOT NULL REFERENCES workouts(id) ON DELETE CASCADE,
+    bank_workout_id  TEXT,
+    workout_name     TEXT NOT NULL,
+    session_type     TEXT,
+    duration_seconds INTEGER NOT NULL,
+    intensity_factor REAL,
+    mode             TEXT NOT NULL DEFAULT 'add',
+    sort_order       INTEGER NOT NULL DEFAULT 0,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
+  `
+  CREATE INDEX IF NOT EXISTS idx_plan_day_workouts_cell
+  ON plan_day_workouts(plan_id, week_index, day_index);
   `
 ];
 
@@ -288,5 +309,21 @@ export const applySchema = (db: Database): void => {
   }
   if (!telemetryColumnNames.has("actual_distance_meters")) {
     db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN actual_distance_meters REAL;");
+  }
+
+  // Optional back-pointer from a session to the plan day it was launched from.
+  // Ride history / Strava / dashboard ignore these; only the plan read-merge uses them.
+  const sessionColumns = db
+    .prepare("SELECT name FROM pragma_table_info('workout_sessions')")
+    .all() as Array<{ name: string }>;
+  const sessionColumnNames = new Set(sessionColumns.map((column) => column.name));
+  if (!sessionColumnNames.has("plan_id")) {
+    db.exec("ALTER TABLE workout_sessions ADD COLUMN plan_id TEXT;");
+  }
+  if (!sessionColumnNames.has("plan_week_index")) {
+    db.exec("ALTER TABLE workout_sessions ADD COLUMN plan_week_index INTEGER;");
+  }
+  if (!sessionColumnNames.has("plan_day_index")) {
+    db.exec("ALTER TABLE workout_sessions ADD COLUMN plan_day_index INTEGER;");
   }
 };

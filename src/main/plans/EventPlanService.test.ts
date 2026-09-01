@@ -105,3 +105,88 @@ describe("EventPlanService — phase matrix + taper", () => {
     expect(finalWeekTypes.every((type) => type === "recovery" || type === "endurance")).toBe(false);
   });
 });
+
+describe("EventPlanService — plan-day add / swap override layer", () => {
+  let db: Database.Database;
+  let repos: Repositories;
+  let service: EventPlanService;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    applySchema(db);
+    repos = new Repositories(db);
+    const bank = new WorkoutBankService(repos);
+    bank.createBankWorkout(
+      {
+        schemaVersion: 1,
+        id: "vo2-4x4",
+        name: "VO2 4×4",
+        discipline: "cycling",
+        primaryZone: "vo2",
+        tags: ["vo2"],
+        phases: ["build"],
+        segments: [
+          { type: "warmup", durationSec: 300, powerLow: 0.5, powerHigh: 0.8 },
+          {
+            type: "intervals",
+            repeat: 4,
+            onDurationSec: 240,
+            onPower: 1.1,
+            offDurationSec: 240,
+            offPower: 0.5
+          }
+        ]
+      },
+      "seed"
+    );
+    service = new EventPlanService(repos, createPlanAdaptationService(), bank);
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  it("adds a bank workout to a day as an entry without touching the snapshot's planned workout", () => {
+    const plan = service.generatePlan(baseRequest({ planLengthWeeks: 8 }));
+    const planned = plan.weeks[0].days[0];
+
+    const after = service.addDayWorkout({
+      planId: plan.planId,
+      weekIndex: 0,
+      dayIndex: 0,
+      bankWorkoutId: "vo2-4x4",
+      ftp: 250,
+      mode: "add"
+    });
+
+    const day = after.weeks[0].days[0];
+    expect(day.workoutId).toBe(planned.workoutId); // snapshot prescription unchanged
+    expect(day.plannedReplaced).toBe(false);
+    expect(day.entries).toHaveLength(1);
+    expect(day.entries[0]).toMatchObject({ bankWorkoutId: "vo2-4x4", mode: "add", sessionType: "vo2" });
+    // Still only one plan version — day edits are an override layer, not a plan edit.
+    expect(service.listPlanVersions(plan.planId)).toHaveLength(1);
+    // Survives a re-read.
+    expect(service.getCurrentPlan()?.weeks[0].days[0].entries).toHaveLength(1);
+  });
+
+  it("marks the planned workout replaced on a swap, and removeDayWorkout reverts it", () => {
+    const plan = service.generatePlan(baseRequest({ planLengthWeeks: 8 }));
+
+    const added = service.addDayWorkout({
+      planId: plan.planId,
+      weekIndex: 1,
+      dayIndex: 2,
+      bankWorkoutId: "vo2-4x4",
+      ftp: 250,
+      mode: "swap"
+    });
+    expect(added.weeks[1].days[2].plannedReplaced).toBe(true);
+    const entryId = added.weeks[1].days[2].entries[0].id;
+
+    const reverted = service.removeDayWorkout({ id: entryId });
+    expect(reverted.weeks[1].days[2].entries).toHaveLength(0);
+    expect(reverted.weeks[1].days[2].plannedReplaced).toBe(false);
+  });
+});

@@ -1,5 +1,6 @@
 import { useState, type ReactElement } from "react";
 import type { DayAvailability, EventPlanWeek, EventType, PlanLengthWeeks, SessionType } from "@shared/ipc/contracts";
+import { PlanDayWorkouts } from "./PlanDayWorkouts";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -64,8 +65,16 @@ type Props = {
   previewWorkoutForDay: (
     workoutId: string,
     workoutName: string,
-    sessionType: SessionType | null
+    sessionType: SessionType | null,
+    planContext?: { weekIndex: number; dayIndex: number }
   ) => Promise<void>;
+  onAddWorkoutForDay: (
+    weekIndex: number,
+    dayIndex: number,
+    dayLabel: string,
+    canSwap: boolean
+  ) => void;
+  onRemoveDayEntry: (entryId: string) => void;
   onDeletePlan: () => Promise<void>;
 };
 
@@ -77,6 +86,8 @@ export const PlanPage = ({
   liveWorkoutBusy,
   isWorkoutSessionActive,
   previewWorkoutForDay,
+  onAddWorkoutForDay,
+  onRemoveDayEntry,
   onDeletePlan
 }: Props): ReactElement => {
   const [wizardOpen, setWizardOpen] = useState(false);
@@ -163,6 +174,7 @@ export const PlanPage = ({
                   {week.days.map((day) => {
                     const cellDate = addDaysToDate(weekStart, day.dayIndex);
                     const hasWorkout = day.workoutId !== null;
+                    const dayLabel = dayLabels[day.dayIndex];
                     return (
                       <div
                         key={`${week.weekId}-${day.dayIndex}`}
@@ -170,37 +182,36 @@ export const PlanPage = ({
                           background: "var(--color-bg)",
                           padding: "var(--space-3) var(--space-4)",
                           display: "flex",
-                          alignItems: "center",
+                          alignItems: "flex-start",
                           gap: "var(--space-4)",
                           borderLeft: `3px solid ${hasWorkout ? "var(--color-accent)" : "var(--color-divider)"}`
                         }}
                       >
-                        <div style={{ width: 96, flexShrink: 0 }}>
+                        <div style={{ width: 96, flexShrink: 0, paddingTop: 2 }}>
                           <div style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>
-                            {dayLabels[day.dayIndex]}
+                            {dayLabel}
                           </div>
                           <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>{formatShortDate(cellDate)}</div>
                         </div>
-                        <div style={{ flex: 1, fontSize: 14, fontWeight: 600 }}>{day.workoutName ?? "Rest"}</div>
-                        <div className="card-meta">
-                          {hasWorkout ? `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}` : "Rest day"}
-                        </div>
-                        {hasWorkout ? (
-                          <button
-                            className="btn btn-ghost"
-                            style={{ padding: "2px 8px", fontSize: 11 }}
-                            disabled={liveWorkoutBusy || isWorkoutSessionActive}
-                            onClick={() =>
-                              void previewWorkoutForDay(
-                                day.workoutId as string,
-                                day.workoutName ?? "Workout",
-                                day.sessionType
-                              )
-                            }
-                          >
-                            Preview
-                          </button>
-                        ) : null}
+                        <PlanDayWorkouts
+                          day={day}
+                          disabled={liveWorkoutBusy || isWorkoutSessionActive}
+                          onPreview={(workoutId, workoutName, sessionType) =>
+                            void previewWorkoutForDay(workoutId, workoutName, sessionType, {
+                              weekIndex: week.weekIndex,
+                              dayIndex: day.dayIndex
+                            })
+                          }
+                          onAdd={() =>
+                            onAddWorkoutForDay(
+                              week.weekIndex,
+                              day.dayIndex,
+                              dayLabel,
+                              day.workoutId !== null && !day.plannedReplaced
+                            )
+                          }
+                          onRemoveEntry={onRemoveDayEntry}
+                        />
                       </div>
                     );
                   })}

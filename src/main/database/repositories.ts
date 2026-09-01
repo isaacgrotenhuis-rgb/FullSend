@@ -209,12 +209,41 @@ export class WorkoutSessionsRepository extends BaseRepository {
     startedAt: string;
     status: string;
     summaryJson: string;
+    planId?: string | null;
+    planWeekIndex?: number | null;
+    planDayIndex?: number | null;
   }): void {
     this.db
       .prepare(
-        "INSERT INTO workout_sessions (id, workout_id, device_id, started_at, status, summary_json) VALUES (?, ?, ?, ?, ?, ?)"
+        `INSERT INTO workout_sessions
+           (id, workout_id, device_id, started_at, status, summary_json, plan_id, plan_week_index, plan_day_index)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(input.id, input.workoutId, input.deviceId, input.startedAt, input.status, input.summaryJson);
+      .run(
+        input.id,
+        input.workoutId,
+        input.deviceId,
+        input.startedAt,
+        input.status,
+        input.summaryJson,
+        input.planId ?? null,
+        input.planWeekIndex ?? null,
+        input.planDayIndex ?? null
+      );
+  }
+
+  /** Terminal sessions launched from a plan day, for the plan read-merge. */
+  listPlanCompletions(planId: string): Row[] {
+    return this.db
+      .prepare(
+        `SELECT ws.id, ws.workout_id, ws.started_at, ws.status,
+                ws.plan_week_index, ws.plan_day_index, w.name AS workout_name
+         FROM workout_sessions ws
+         LEFT JOIN workouts w ON w.id = ws.workout_id
+         WHERE ws.plan_id = ? AND ws.status = 'completed'
+         ORDER BY ws.started_at ASC`
+      )
+      .all(planId) as Row[];
   }
 
   updateStatus(input: {
@@ -494,6 +523,73 @@ export class PlanWeekWorkoutsRepository extends BaseRepository {
          ORDER BY pw.start_date ASC, pww.day_index ASC`
       )
       .all() as Row[];
+  }
+}
+
+export class PlanDayWorkoutsRepository extends BaseRepository {
+  create(input: {
+    id: string;
+    planId: string;
+    weekIndex: number;
+    dayIndex: number;
+    workoutId: string;
+    bankWorkoutId: string | null;
+    workoutName: string;
+    sessionType: string | null;
+    durationSeconds: number;
+    intensityFactor: number | null;
+    mode: string;
+    sortOrder: number;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO plan_day_workouts
+           (id, plan_id, week_index, day_index, workout_id, bank_workout_id, workout_name,
+            session_type, duration_seconds, intensity_factor, mode, sort_order)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.id,
+        input.planId,
+        input.weekIndex,
+        input.dayIndex,
+        input.workoutId,
+        input.bankWorkoutId,
+        input.workoutName,
+        input.sessionType,
+        input.durationSeconds,
+        input.intensityFactor,
+        input.mode,
+        input.sortOrder
+      );
+  }
+
+  getById(id: string): Row | undefined {
+    return this.db.prepare("SELECT * FROM plan_day_workouts WHERE id = ?").get(id) as Row | undefined;
+  }
+
+  listForPlan(planId: string): Row[] {
+    return this.db
+      .prepare(
+        `SELECT * FROM plan_day_workouts
+         WHERE plan_id = ?
+         ORDER BY week_index ASC, day_index ASC, sort_order ASC, created_at ASC`
+      )
+      .all(planId) as Row[];
+  }
+
+  countForCell(planId: string, weekIndex: number, dayIndex: number): number {
+    return (
+      this.db
+        .prepare(
+          "SELECT COUNT(1) AS count FROM plan_day_workouts WHERE plan_id = ? AND week_index = ? AND day_index = ?"
+        )
+        .get(planId, weekIndex, dayIndex) as { count: number }
+    ).count;
+  }
+
+  deleteById(id: string): void {
+    this.db.prepare("DELETE FROM plan_day_workouts WHERE id = ?").run(id);
   }
 }
 
@@ -886,6 +982,7 @@ export class Repositories {
   public readonly trainingPlans: TrainingPlansRepository;
   public readonly planWeeks: PlanWeeksRepository;
   public readonly planWeekWorkouts: PlanWeekWorkoutsRepository;
+  public readonly planDayWorkouts: PlanDayWorkoutsRepository;
   public readonly goals: GoalsRepository;
   public readonly metricsSnapshots: MetricsSnapshotsRepository;
   public readonly stravaSyncEvents: StravaSyncEventsRepository;
@@ -906,6 +1003,7 @@ export class Repositories {
     this.trainingPlans = new TrainingPlansRepository(db);
     this.planWeeks = new PlanWeeksRepository(db);
     this.planWeekWorkouts = new PlanWeekWorkoutsRepository(db);
+    this.planDayWorkouts = new PlanDayWorkoutsRepository(db);
     this.goals = new GoalsRepository(db);
     this.metricsSnapshots = new MetricsSnapshotsRepository(db);
     this.stravaSyncEvents = new StravaSyncEventsRepository(db);

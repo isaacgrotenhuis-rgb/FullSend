@@ -35,10 +35,9 @@ export const BankPage = ({
       {open ? (
         <WorkoutBankBrowser
           ftp={ftp}
-          connectedTrainerDeviceId={connectedTrainerDeviceId}
           busy={busy}
           error={error}
-          onStartAdhoc={onStartAdhoc}
+          action={{ kind: "adhoc", connectedTrainerDeviceId, onStartAdhoc }}
           onClose={() => setOpen(false)}
         />
       ) : null}

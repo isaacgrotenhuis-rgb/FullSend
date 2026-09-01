@@ -26,6 +26,7 @@ import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { ProfilePage, type SmokeCheck } from "./pages/ProfilePage";
 import { BankPage } from "./pages/BankPage";
+import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
 
 export type Page = "home" | "plan" | "profile" | "bank";
 
@@ -75,7 +76,15 @@ export const App = (): ReactElement => {
   const [activeIntervals, setActiveIntervals] = useState<WorkoutInterval[] | null>(null);
   const [activeWorkoutName, setActiveWorkoutName] = useState<string | null>(null);
   const [previewWorkout, setPreviewWorkout] = useState<
-    { workoutId: string; name: string; sessionType: SessionType | null } | null
+    {
+      workoutId: string;
+      name: string;
+      sessionType: SessionType | null;
+      planContext?: { weekIndex: number; dayIndex: number };
+    } | null
+  >(null);
+  const [bankDayTarget, setBankDayTarget] = useState<
+    { weekIndex: number; dayIndex: number; dayLabel: string; canSwap: boolean } | null
   >(null);
   const [previewDetail, setPreviewDetail] = useState<WorkoutDetail | null>(null);
   const [liveWorkoutBusy, setLiveWorkoutBusy] = useState(false);
@@ -201,17 +210,57 @@ export const App = (): ReactElement => {
   const previewWorkoutForDay = async (
     workoutId: string,
     workoutName: string,
-    sessionType: SessionType | null
+    sessionType: SessionType | null,
+    planContext?: { weekIndex: number; dayIndex: number }
   ): Promise<void> => {
     setLiveWorkoutError(null);
     try {
       const detail = await window.kickr.workoutLibrary.getWorkoutDetail({ workoutId });
       setPreviewDetail(detail);
-      setPreviewWorkout({ workoutId, name: workoutName, sessionType });
+      setPreviewWorkout({ workoutId, name: workoutName, sessionType, planContext });
     } catch (error) {
       console.error("[workout preview]", error);
       setLiveWorkoutError(error instanceof Error ? error.message : "Could not load workout");
     }
+  };
+
+  const openBankForDay = (
+    weekIndex: number,
+    dayIndex: number,
+    dayLabel: string,
+    canSwap: boolean
+  ): void => {
+    setLiveWorkoutError(null);
+    setBankDayTarget({ weekIndex, dayIndex, dayLabel, canSwap });
+  };
+
+  const assignBankWorkoutToDay = async (
+    bankWorkoutId: string,
+    mode: "add" | "swap"
+  ): Promise<void> => {
+    if (!bankDayTarget || !planId) {
+      return;
+    }
+    const { weekIndex, dayIndex } = bankDayTarget;
+    await runWorkoutAction(async () => {
+      const result = await window.kickr.eventPlan.addDayWorkout({
+        planId,
+        weekIndex,
+        dayIndex,
+        bankWorkoutId,
+        ftp: currentFtp,
+        mode
+      });
+      setWeeks(result.weeks);
+      setBankDayTarget(null);
+    });
+  };
+
+  const removeDayEntry = async (entryId: string): Promise<void> => {
+    await runWorkoutAction(async () => {
+      const result = await window.kickr.eventPlan.removeDayWorkout({ id: entryId });
+      setWeeks(result.weeks);
+    });
   };
 
   const closeWorkoutPreview = (): void => {
@@ -228,14 +277,15 @@ export const App = (): ReactElement => {
       return;
     }
     const deviceId = bleState.connectedDeviceId;
-    const { workoutId, name } = previewWorkout;
+    const { workoutId, name, planContext } = previewWorkout;
     const intervals = previewDetail.intervals;
     await runWorkoutAction(async () => {
       await window.kickr.workout.startSession({
         deviceId,
         workoutId,
         intervals,
-        metadata: { source: "plan" }
+        metadata: { source: "plan" },
+        ...(planContext ? { planContext: { planId, ...planContext } } : {})
       });
       // Only leave the preview for the live view once the session is actually running.
       setActiveIntervals(intervals);
@@ -693,6 +743,8 @@ export const App = (): ReactElement => {
           liveWorkoutBusy={liveWorkoutBusy}
           isWorkoutSessionActive={isWorkoutSessionActive}
           previewWorkoutForDay={previewWorkoutForDay}
+          onAddWorkoutForDay={openBankForDay}
+          onRemoveDayEntry={(entryId) => void removeDayEntry(entryId)}
           onDeletePlan={deletePlan}
         />
       ) : page === "profile" ? (
@@ -748,6 +800,8 @@ export const App = (): ReactElement => {
           eventDate={eventDate}
           weeks={weeks}
           previewWorkoutForDay={previewWorkoutForDay}
+          onAddWorkoutForDay={openBankForDay}
+          onRemoveDayEntry={(entryId) => void removeDayEntry(entryId)}
           onNavigateToPlan={() => setPage("plan")}
         />
       )}
@@ -762,6 +816,21 @@ export const App = (): ReactElement => {
           error={liveWorkoutError}
           onStart={() => void confirmStartWorkout()}
           onBack={closeWorkoutPreview}
+        />
+      ) : null}
+
+      {activeIntervals === null && bankDayTarget !== null ? (
+        <WorkoutBankBrowser
+          ftp={currentFtp}
+          busy={liveWorkoutBusy}
+          error={liveWorkoutError}
+          action={{
+            kind: "assign",
+            dayLabel: bankDayTarget.dayLabel,
+            canSwap: bankDayTarget.canSwap,
+            onAssign: (bankWorkoutId, _name, mode) => void assignBankWorkoutToDay(bankWorkoutId, mode)
+          }}
+          onClose={() => setBankDayTarget(null)}
         />
       ) : null}
     </>

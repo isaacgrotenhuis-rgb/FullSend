@@ -8,6 +8,7 @@ import {
   type EventPlanWeek,
   type SessionType
 } from "@shared/ipc/contracts";
+import { PlanDayWorkouts } from "./PlanDayWorkouts";
 
 export type BleSectionProps = {
   bleState: BleState | null;
@@ -32,8 +33,16 @@ type Props = {
   previewWorkoutForDay: (
     workoutId: string,
     workoutName: string,
-    sessionType: SessionType | null
+    sessionType: SessionType | null,
+    planContext?: { weekIndex: number; dayIndex: number }
   ) => Promise<void>;
+  onAddWorkoutForDay: (
+    weekIndex: number,
+    dayIndex: number,
+    dayLabel: string,
+    canSwap: boolean
+  ) => void;
+  onRemoveDayEntry: (entryId: string) => void;
   onNavigateToPlan: () => void;
 };
 
@@ -63,6 +72,8 @@ export const HomePage = ({
   eventDate,
   weeks,
   previewWorkoutForDay,
+  onAddWorkoutForDay,
+  onRemoveDayEntry,
   onNavigateToPlan
 }: Props): ReactElement => {
   const {
@@ -328,25 +339,14 @@ export const HomePage = ({
           {currentWeek.days.map((day, index) => {
             const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
             const isToday = cellDate.getTime() === today.getTime();
-            const hasWorkout = day.workoutId !== null;
+            const dayLabel = dayLabels[day.dayIndex];
             return (
               <div
                 key={day.dayIndex}
-                onClick={
-                  hasWorkout
-                    ? () =>
-                        void previewWorkoutForDay(
-                          day.workoutId as string,
-                          day.workoutName ?? "Workout",
-                          day.sessionType
-                        )
-                    : undefined
-                }
                 style={{
                   padding: "var(--space-3)",
                   borderRight: index < 6 ? "1px solid var(--color-divider)" : undefined,
                   background: isToday ? "var(--color-accent-100)" : "var(--color-bg)",
-                  cursor: hasWorkout ? "pointer" : "default",
                   minHeight: 96,
                   display: "flex",
                   flexDirection: "column",
@@ -354,16 +354,28 @@ export const HomePage = ({
                 }}
               >
                 <h6 style={{ margin: 0, color: isToday ? "var(--color-accent-700)" : undefined }}>
-                  {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
+                  {dayLabel} · {formatShortDate(cellDate)}
                 </h6>
-                <div style={{ flex: 1, fontSize: 13, fontWeight: 600, overflowWrap: "break-word" }}>
-                  {day.workoutName ?? "Rest"}
-                </div>
-                {hasWorkout ? (
-                  <div className="card-meta">
-                    {day.durationMin} min{day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}
-                  </div>
-                ) : null}
+                <PlanDayWorkouts
+                  day={day}
+                  compact
+                  disabled={false}
+                  onPreview={(workoutId, workoutName, sessionType) =>
+                    void previewWorkoutForDay(workoutId, workoutName, sessionType, {
+                      weekIndex: currentWeek.weekIndex,
+                      dayIndex: day.dayIndex
+                    })
+                  }
+                  onAdd={() =>
+                    onAddWorkoutForDay(
+                      currentWeek.weekIndex,
+                      day.dayIndex,
+                      dayLabel,
+                      day.workoutId !== null && !day.plannedReplaced
+                    )
+                  }
+                  onRemoveEntry={onRemoveDayEntry}
+                />
               </div>
             );
           })}

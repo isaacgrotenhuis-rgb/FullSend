@@ -87,7 +87,9 @@ const api: KickrDesktopApi = {
     delete: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.delete, request),
     listVersions: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.listVersions, request),
     listAuditEntries: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.listAuditEntries, request),
-    getCurrent: async () => ipcRenderer.invoke(ipcChannels.eventPlan.getCurrent, {})
+    getCurrent: async () => ipcRenderer.invoke(ipcChannels.eventPlan.getCurrent, {}),
+    addDayWorkout: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.addDayWorkout, request),
+    removeDayWorkout: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.removeDayWorkout, request)
   },
   dashboard: {
     getMetrics: async (request) => ipcRenderer.invoke(ipcChannels.dashboard.getMetrics, request ?? {})

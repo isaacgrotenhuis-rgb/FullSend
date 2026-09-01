@@ -3,11 +3,11 @@ import type { Repositories } from "@main/database/repositories";
 import type { AdaptationDecision, PlanAdaptationService } from "@main/plans/PlanAdaptationService";
 import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import type {
+  AddPlanDayWorkoutRequest,
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
   DayAvailability,
   EventPlanAuditEntry,
-  EventPlanDay,
   EventPlanInput,
   EventPlanVersion,
   EventPlanWeek,
@@ -16,6 +16,8 @@ import type {
   GenerateEventPlanResult,
   GetCurrentEventPlanResult,
   LoadTag,
+  PlanDayMutationResult,
+  RemovePlanDayWorkoutRequest,
   SessionType,
   TrainingPhase,
   TrainingZone,
@@ -69,17 +71,35 @@ type WeekDraft = {
   days: DayDraft[];
 };
 
+/**
+ * The generator's prescription for one day, as stored in the version snapshot.
+ * Equal to the historical `EventPlanDay` shape; the contract `EventPlanDay` now
+ * additionally carries the override layer (entries / completed / plannedReplaced),
+ * which `hydrateWeeks` attaches at read time.
+ */
+type SnapshotDay = {
+  dayIndex: number;
+  workoutId: string | null;
+  workoutName: string | null;
+  sessionType: SessionType | null;
+  durationMin: number;
+  targetIF: number | null;
+};
+
+type SnapshotWeek = {
+  weekId: string;
+  weekIndex: number;
+  startDate: string;
+  loadTag: LoadTag;
+  targetMinutes: number;
+  targetIF: number;
+  notes: string | null;
+  days: SnapshotDay[];
+};
+
 type PlanSnapshot = {
   input: EventPlanInput;
-  weeks: Array<{
-    weekIndex: number;
-    startDate: string;
-    loadTag: LoadTag;
-    targetMinutes: number;
-    targetIF: number;
-    notes: string | null;
-    days: EventPlanDay[];
-  }>;
+  weeks: SnapshotWeek[];
 };
 
 const DAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -351,8 +371,8 @@ const templateIntervals = (
   return vo2Intervals;
 };
 
-const summarizeChanges = (beforeWeeks: EventPlanWeek[], afterWeeks: EventPlanWeek[]): Record<string, unknown> => {
-  const beforeByWeek = new Map<number, EventPlanWeek>(beforeWeeks.map((week) => [week.weekIndex, week]));
+const summarizeChanges = (beforeWeeks: SnapshotWeek[], afterWeeks: SnapshotWeek[]): Record<string, unknown> => {
+  const beforeByWeek = new Map<number, SnapshotWeek>(beforeWeeks.map((week) => [week.weekIndex, week]));
   let changedWeeks = 0;
   let changedDays = 0;
   for (const nextWeek of afterWeeks) {
@@ -601,7 +621,7 @@ export class EventPlanService {
     planTitle: string,
     planNotes: string,
     weeks: WeekDraft[]
-  ): EventPlanWeek[] {
+  ): SnapshotWeek[] {
     const existing = this.repositories.trainingPlans.getById(planId) as PlanRow | undefined;
     if (!existing) {
       this.repositories.trainingPlans.create({
@@ -619,7 +639,7 @@ export class EventPlanService {
     }
 
     this.repositories.planWeeks.deleteByPlan(planId);
-    const persistedWeeks: EventPlanWeek[] = [];
+    const persistedWeeks: SnapshotWeek[] = [];
     // Bank-workout rotation: id -> weeks it was used for a zone, so a workout isn't
     // repeated within 2 weeks for the same zone (doc §7.2).
     const bankUsage: Array<{ weekIndex: number; zone: TrainingZone; id: string }> = [];
@@ -634,7 +654,7 @@ export class EventPlanService {
         notes: week.notes
       });
 
-      const days: EventPlanDay[] = week.days.map((day) => ({
+      const days: SnapshotDay[] = week.days.map((day) => ({
         dayIndex: day.dayIndex,
         workoutId: null,
         workoutName: null,
@@ -830,7 +850,7 @@ export class EventPlanService {
         name: planTitle,
         versionId: version.versionId,
         versionNumber: version.versionNumber,
-        weeks
+        weeks: this.hydrateWeeks(planId, weeks)
       };
     });
   }
@@ -880,7 +900,7 @@ export class EventPlanService {
           strategy: adaptation.strategy,
           tuning: adaptation.tuning,
           ...adaptation.metadata,
-          ...summarizeChanges(latestSnapshot.weeks as EventPlanWeek[], weeks)
+          ...summarizeChanges(latestSnapshot.weeks, weeks)
         }
       });
       return {
@@ -889,7 +909,7 @@ export class EventPlanService {
         name: planTitle,
         versionId: version.versionId,
         versionNumber: version.versionNumber,
-        weeks,
+        weeks: this.hydrateWeeks(request.planId, weeks),
         appliedStrategy: adaptation.strategy
       };
     });
@@ -918,8 +938,158 @@ export class EventPlanService {
     return {
       planId: latestPlan.id,
       name: latestPlan.name,
-      weeks: snapshot.weeks as EventPlanWeek[]
+      weeks: this.hydrateWeeks(latestPlan.id, snapshot.weeks)
     };
+  }
+
+  /**
+   * Overlay the user's plan-day override layer (`plan_day_workouts`) and any
+   * completed sessions back-pointed at a day onto the generator's snapshot weeks.
+   */
+  private hydrateWeeks(planId: string, weeks: SnapshotWeek[]): EventPlanWeek[] {
+    const overridesByCell = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of this.repositories.planDayWorkouts.listForPlan(planId)) {
+      const key = `${row.week_index}:${row.day_index}`;
+      const list = overridesByCell.get(key) ?? [];
+      list.push(row);
+      overridesByCell.set(key, list);
+    }
+
+    const completedByCell = new Map<string, Array<Record<string, unknown>>>();
+    for (const row of this.repositories.workoutSessions.listPlanCompletions(planId)) {
+      if (row.plan_week_index === null || row.plan_day_index === null) {
+        continue;
+      }
+      const key = `${row.plan_week_index}:${row.plan_day_index}`;
+      const list = completedByCell.get(key) ?? [];
+      list.push(row);
+      completedByCell.set(key, list);
+    }
+
+    return weeks.map((week) => ({
+      weekId: week.weekId,
+      weekIndex: week.weekIndex,
+      startDate: week.startDate,
+      loadTag: week.loadTag,
+      targetMinutes: week.targetMinutes,
+      targetIF: week.targetIF,
+      notes: week.notes,
+      days: week.days.map((day) => {
+        const key = `${week.weekIndex}:${day.dayIndex}`;
+        const entries = (overridesByCell.get(key) ?? []).map((row) => ({
+          id: String(row.id),
+          workoutId: String(row.workout_id),
+          workoutName: String(row.workout_name),
+          sessionType: (row.session_type as SessionType | null) ?? null,
+          durationMin: Math.round(Number(row.duration_seconds) / 60),
+          targetIF: row.intensity_factor === null ? null : Number(row.intensity_factor),
+          bankWorkoutId: row.bank_workout_id === null ? null : String(row.bank_workout_id),
+          mode: row.mode === "swap" ? ("swap" as const) : ("add" as const)
+        }));
+        const completed = (completedByCell.get(key) ?? []).map((row) => ({
+          sessionId: String(row.id),
+          workoutId: row.workout_id == null ? null : String(row.workout_id),
+          workoutName: row.workout_name == null ? null : String(row.workout_name),
+          startedAt: String(row.started_at),
+          status: String(row.status)
+        }));
+        return {
+          dayIndex: day.dayIndex,
+          workoutId: day.workoutId,
+          workoutName: day.workoutName,
+          sessionType: day.sessionType,
+          durationMin: day.durationMin,
+          targetIF: day.targetIF,
+          plannedReplaced: entries.some((entry) => entry.mode === "swap"),
+          entries,
+          completed
+        };
+      })
+    }));
+  }
+
+  addDayWorkout(request: AddPlanDayWorkoutRequest): PlanDayMutationResult {
+    return this.repositories.transaction(() => {
+      const plan = this.repositories.trainingPlans.getById(request.planId) as PlanRow | undefined;
+      const latestVersion = this.repositories.planVersions.getLatestByPlan(
+        request.planId
+      ) as PlanVersionRow | undefined;
+      if (!plan || !latestVersion) {
+        throw new Error(`Plan ${request.planId} not found`);
+      }
+      const snapshot = JSON.parse(latestVersion.snapshot_json) as PlanSnapshot;
+      const week = snapshot.weeks.find((entry) => entry.weekIndex === request.weekIndex);
+      if (!week || !week.days.some((day) => day.dayIndex === request.dayIndex)) {
+        throw new Error(`Day ${request.weekIndex}/${request.dayIndex} is not part of plan ${request.planId}`);
+      }
+
+      const bank = this.workoutBankService.getBankWorkout(request.bankWorkoutId);
+      const compiled = this.workoutBankService.compileAndPersist({
+        bankWorkoutId: request.bankWorkoutId,
+        ftp: request.ftp,
+        name: bank.name
+      });
+      const durationSeconds = compiled.intervals.reduce((sum, interval) => sum + interval.durationSec, 0);
+      const sortOrder = this.repositories.planDayWorkouts.countForCell(
+        request.planId,
+        request.weekIndex,
+        request.dayIndex
+      );
+
+      this.repositories.planDayWorkouts.create({
+        id: randomUUID(),
+        planId: request.planId,
+        weekIndex: request.weekIndex,
+        dayIndex: request.dayIndex,
+        workoutId: compiled.workoutId,
+        bankWorkoutId: request.bankWorkoutId,
+        workoutName: bank.name,
+        // The bank's primaryZone enum is a superset-equal of sessionType.
+        sessionType: bank.primaryZone,
+        durationSeconds,
+        intensityFactor: bank.estIF,
+        mode: request.mode,
+        sortOrder
+      });
+
+      return {
+        planId: request.planId,
+        name: plan.name,
+        weeks: this.hydrateWeeks(request.planId, snapshot.weeks)
+      };
+    });
+  }
+
+  removeDayWorkout(request: RemovePlanDayWorkoutRequest): PlanDayMutationResult {
+    return this.repositories.transaction(() => {
+      const row = this.repositories.planDayWorkouts.getById(request.id);
+      if (!row) {
+        throw new Error(`Plan-day workout ${request.id} not found`);
+      }
+      const planId = String(row.plan_id);
+      const workoutId = String(row.workout_id);
+      this.repositories.planDayWorkouts.deleteById(request.id);
+
+      // Drop the compiled workout unless a session already references it (ride history).
+      const referenced = (this.repositories.workoutSessions.list() as Array<Record<string, unknown>>).some(
+        (session) => session.workout_id === workoutId
+      );
+      if (!referenced) {
+        this.repositories.workouts.delete(workoutId);
+      }
+
+      const plan = this.repositories.trainingPlans.getById(planId) as PlanRow | undefined;
+      const latestVersion = this.repositories.planVersions.getLatestByPlan(planId) as PlanVersionRow | undefined;
+      if (!plan || !latestVersion) {
+        throw new Error(`Plan ${planId} not found`);
+      }
+      const snapshot = JSON.parse(latestVersion.snapshot_json) as PlanSnapshot;
+      return {
+        planId,
+        name: plan.name,
+        weeks: this.hydrateWeeks(planId, snapshot.weeks)
+      };
+    });
   }
 
   listPlanVersions(planId: string): EventPlanVersion[] {

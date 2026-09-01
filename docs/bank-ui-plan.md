@@ -204,6 +204,26 @@ Preload (`src/preload/index.ts`) + `registerIpcHandlers.ts` wiring for all three
 
 ---
 
+## Implementation notes
+
+**PR 1** (`feature/workout-bank-ui`, commit 585a429): `workoutBank.compile` IPC +
+`WorkoutBankBrowser` modal + `BankPage` nav entry + ad-hoc "Start now".
+
+**PR 2** (`feature/workout-bank-plan-day`): plan-day add/swap + "actually did".
+Deviation from §3: `eventPlanDaySchema` was **extended additively**, not renamed.
+The flat `workoutId` / `workoutName` / … fields keep a single clear meaning — the
+generator's prescription (the "planned" workout) — and three fields are added:
+`plannedReplaced`, `entries[]`, `completed[]`. This avoids a rename touching every
+day consumer while giving the renderer everything it needs (planned shown greyed +
+struck when `plannedReplaced`; `entries` = user add/swap; `completed` = sessions
+back-pointed at the day). `EventPlanService` keeps building the flat snapshot shape
+internally (`SnapshotDay` / `SnapshotWeek`); `hydrateWeeks()` overlays the override
+layer at read time in `generate` / `adapt` / `getCurrentPlan`.
+
+`removeDayWorkout` deletes the `plan_day_workouts` row and, unless a session already
+references it, the compiled `workouts` row too (kept when referenced so ride history
+joins stay intact).
+
 ## 5. Decisions (locked 2026-08-31)
 
 1. **Contract reshape** — migrate every day consumer to `planned` / `entries` /

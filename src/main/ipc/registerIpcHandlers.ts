@@ -10,6 +10,9 @@ import type { StravaService } from "@main/strava/StravaService";
 import {
   adaptEventPlanResultSchema,
   adaptEventPlanRequestSchema,
+  addPlanDayWorkoutRequestSchema,
+  removePlanDayWorkoutRequestSchema,
+  planDayMutationResultSchema,
   assignWorkoutToPlanDayRequestSchema,
   bleDeviceListResultSchema,
   eventPlanAuditEntriesSchema,
@@ -454,6 +457,18 @@ export const registerIpcHandlers = (
   );
   safeHandle(ipcChannels.eventPlan.getCurrent, emptySchema, getCurrentEventPlanResultSchema, () =>
     eventPlanService.getCurrentPlan()
+  );
+  safeHandle(
+    ipcChannels.eventPlan.addDayWorkout,
+    addPlanDayWorkoutRequestSchema,
+    planDayMutationResultSchema,
+    (_event, input) => eventPlanService.addDayWorkout({ ...input, mode: input.mode ?? "add" })
+  );
+  safeHandle(
+    ipcChannels.eventPlan.removeDayWorkout,
+    removePlanDayWorkoutRequestSchema,
+    planDayMutationResultSchema,
+    (_event, input) => eventPlanService.removeDayWorkout(input)
   );
   safeHandle(
     ipcChannels.dashboard.getMetrics,

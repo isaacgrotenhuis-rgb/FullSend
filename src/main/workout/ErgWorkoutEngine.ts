@@ -18,6 +18,9 @@ type WorkoutPersistence = {
       startedAt: string;
       status: string;
       summaryJson: string;
+      planId?: string | null;
+      planWeekIndex?: number | null;
+      planDayIndex?: number | null;
     }) => void;
     updateStatus: (input: {
       id: string;
@@ -486,7 +489,10 @@ export class ErgWorkoutEngine {
       summaryJson: JSON.stringify({
         intervalsTotal: request.intervals.length,
         metadata: request.metadata ?? {}
-      })
+      }),
+      planId: request.planContext?.planId ?? null,
+      planWeekIndex: request.planContext?.weekIndex ?? null,
+      planDayIndex: request.planContext?.dayIndex ?? null
     });
 
     this.emitState({

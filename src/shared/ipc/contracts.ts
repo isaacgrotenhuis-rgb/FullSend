@@ -69,7 +69,9 @@ export const ipcChannels = {
     delete: "event-plan:delete",
     listVersions: "event-plan:list-versions",
     listAuditEntries: "event-plan:list-audit-entries",
-    getCurrent: "event-plan:get-current"
+    getCurrent: "event-plan:get-current",
+    addDayWorkout: "event-plan:add-day-workout",
+    removeDayWorkout: "event-plan:remove-day-workout"
   },
   dashboard: {
     getMetrics: "dashboard:get-metrics"
@@ -309,11 +311,19 @@ export type CompileBankWorkoutResult = z.infer<typeof compileBankWorkoutResultSc
 export type StartAdhocBankWorkoutRequest = z.infer<typeof startAdhocBankWorkoutRequestSchema>;
 export type BankWorkoutIdResult = z.infer<typeof bankWorkoutIdResultSchema>;
 
+export const planContextSchema = z.object({
+  planId: z.string().min(1),
+  weekIndex: z.number().int().min(0),
+  dayIndex: z.number().int().min(0).max(6)
+});
+
 export const startWorkoutSessionRequestSchema = z.object({
   workoutId: z.string().min(1).nullable().optional(),
   deviceId: z.string().min(1),
   intervals: z.array(workoutIntervalSchema).min(1),
-  metadata: z.record(z.unknown()).optional()
+  metadata: z.record(z.unknown()).optional(),
+  // Optional back-pointer so a completed session can attach to the plan day it came from.
+  planContext: planContextSchema.optional()
 });
 
 export const workoutSessionControlRequestSchema = z.object({
@@ -526,13 +536,41 @@ export const sessionTypeSchema = z.enum([
   "neuromuscular"
 ]);
 
+export const planDayWorkoutModeSchema = z.enum(["add", "swap"]);
+
+/** A user-added or swapped-in workout on a plan day (override layer, not the snapshot). */
+export const planDayEntrySchema = z.object({
+  id: z.string().min(1),
+  workoutId: z.string().min(1),
+  workoutName: z.string().min(1),
+  sessionType: sessionTypeSchema.nullable(),
+  durationMin: z.number().int().min(0),
+  targetIF: z.number().min(0).max(1).nullable(),
+  bankWorkoutId: z.string().min(1).nullable(),
+  mode: planDayWorkoutModeSchema
+});
+
+/** A terminal session that was launched from this plan day. */
+export const planDayCompletedSchema = z.object({
+  sessionId: z.string().min(1),
+  workoutId: z.string().min(1).nullable(),
+  workoutName: z.string().min(1).nullable(),
+  startedAt: z.string(),
+  status: z.string()
+});
+
 export const eventPlanDaySchema = z.object({
   dayIndex: z.number().int().min(0).max(6),
+  // The generator's prescription for this day (unchanged; the "planned" workout).
   workoutId: z.string().min(1).nullable(),
   workoutName: z.string().min(1).nullable(),
   sessionType: sessionTypeSchema.nullable(),
   durationMin: z.number().int().min(0),
-  targetIF: z.number().min(0).max(1).nullable()
+  targetIF: z.number().min(0).max(1).nullable(),
+  // Override layer, merged in at read time by getCurrentPlan.
+  plannedReplaced: z.boolean().default(false),
+  entries: z.array(planDayEntrySchema).default([]),
+  completed: z.array(planDayCompletedSchema).default([])
 });
 
 export const eventPlanWeekSchema = z.object({
@@ -632,6 +670,26 @@ export const adaptEventPlanResultSchema = z.object({
   versionNumber: z.number().int().min(1),
   weeks: z.array(eventPlanWeekSchema),
   appliedStrategy: z.string().min(1)
+});
+
+export const addPlanDayWorkoutRequestSchema = z.object({
+  planId: z.string().min(1),
+  weekIndex: z.number().int().min(0),
+  dayIndex: z.number().int().min(0).max(6),
+  bankWorkoutId: z.string().min(1),
+  ftp: z.number().int().min(100).max(600),
+  mode: planDayWorkoutModeSchema.default("add")
+});
+
+export const removePlanDayWorkoutRequestSchema = z.object({
+  id: z.string().min(1)
+});
+
+/** Non-null plan projection returned after a plan-day add/remove. */
+export const planDayMutationResultSchema = z.object({
+  planId: z.string().min(1),
+  name: z.string().min(1),
+  weeks: z.array(eventPlanWeekSchema)
 });
 
 export const dashboardMetricsRequestSchema = z.object({
@@ -755,6 +813,7 @@ export type WorkoutIntervalKind = z.infer<typeof workoutIntervalKindSchema>;
 export type WorkoutInterval = z.infer<typeof workoutIntervalSchema>;
 export type WorkoutBuilderInterval = z.infer<typeof workoutBuilderIntervalSchema>;
 export type StartWorkoutSessionRequest = z.infer<typeof startWorkoutSessionRequestSchema>;
+export type PlanContext = z.infer<typeof planContextSchema>;
 export type WorkoutSessionControlRequest = z.infer<typeof workoutSessionControlRequestSchema>;
 export type IntensityMultiplier = z.infer<typeof intensityMultiplierSchema>;
 export type WorkoutSessionSetIntensityRequest = z.infer<typeof workoutSessionSetIntensityRequestSchema>;
@@ -801,6 +860,12 @@ export type EventPlanAuditEntry = z.infer<typeof eventPlanAuditEntrySchema>;
 export type GenerateEventPlanResult = z.infer<typeof generateEventPlanResultSchema>;
 export type AdaptEventPlanResult = z.infer<typeof adaptEventPlanResultSchema>;
 export type GetCurrentEventPlanResult = z.infer<typeof getCurrentEventPlanResultSchema>;
+export type PlanDayEntry = z.infer<typeof planDayEntrySchema>;
+export type PlanDayCompleted = z.infer<typeof planDayCompletedSchema>;
+export type PlanDayWorkoutMode = z.infer<typeof planDayWorkoutModeSchema>;
+export type AddPlanDayWorkoutRequest = z.infer<typeof addPlanDayWorkoutRequestSchema>;
+export type RemovePlanDayWorkoutRequest = z.infer<typeof removePlanDayWorkoutRequestSchema>;
+export type PlanDayMutationResult = z.infer<typeof planDayMutationResultSchema>;
 export type DashboardMetricsRequest = z.infer<typeof dashboardMetricsRequestSchema>;
 export type FtpTrendPoint = z.infer<typeof ftpTrendPointSchema>;
 export type WeeklyLoadPoint = z.infer<typeof weeklyLoadPointSchema>;
