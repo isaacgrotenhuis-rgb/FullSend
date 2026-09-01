@@ -39,6 +39,8 @@ import {
   bankWorkoutDetailSchema,
   bankWorkoutIdResultSchema,
   bankWorkoutSummariesSchema,
+  compileBankWorkoutRequestSchema,
+  compileBankWorkoutResultSchema,
   createBankWorkoutRequestSchema,
   getBankWorkoutRequestSchema,
   listBankWorkoutsRequestSchema,
@@ -357,6 +359,21 @@ export const registerIpcHandlers = (
     getBankWorkoutRequestSchema,
     bankWorkoutDetailSchema,
     (_event, input) => workoutBankService.getBankWorkout(input.id)
+  );
+  safeHandle(
+    ipcChannels.workoutBank.compile,
+    compileBankWorkoutRequestSchema,
+    compileBankWorkoutResultSchema,
+    (_event, input) => {
+      const { intervals } = workoutBankService.compileForFtp(input.id, input.ftp);
+      const detail = workoutBankService.getBankWorkout(input.id);
+      return {
+        intervals,
+        durationSec: intervals.reduce((sum, interval) => sum + interval.durationSec, 0),
+        estIF: detail.estIF,
+        estTSS: detail.estTSS
+      };
+    }
   );
   safeHandle(
     ipcChannels.workoutBank.create,

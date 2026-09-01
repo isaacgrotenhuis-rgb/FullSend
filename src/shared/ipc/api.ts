@@ -58,6 +58,8 @@ import type {
   CreateBankWorkoutRequest,
   UpdateBankWorkoutRequest,
   ArchiveBankWorkoutRequest,
+  CompileBankWorkoutRequest,
+  CompileBankWorkoutResult,
   StartAdhocBankWorkoutRequest
 } from "@shared/ipc/contracts";
 
@@ -104,6 +106,7 @@ export interface KickrDesktopApi {
   workoutBank: {
     list: (request?: ListBankWorkoutsRequest) => Promise<BankWorkoutSummary[]>;
     get: (request: GetBankWorkoutRequest) => Promise<BankWorkoutDetail>;
+    compile: (request: CompileBankWorkoutRequest) => Promise<CompileBankWorkoutResult>;
     create: (request: CreateBankWorkoutRequest) => Promise<BankWorkoutIdResult>;
     update: (request: UpdateBankWorkoutRequest) => Promise<BankWorkoutIdResult>;
     archive: (request: ArchiveBankWorkoutRequest) => Promise<OkResult>;

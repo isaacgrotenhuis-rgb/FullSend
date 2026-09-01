@@ -109,4 +109,27 @@ describe("WorkoutBankService", () => {
     });
     expect(typeof metadata.estTSS).toBe("number");
   });
+
+  it("compileForFtp returns intervals without persisting, and scales targets with FTP", () => {
+    const doc: FswDocument = {
+      schemaVersion: 1,
+      id: "steady-1x20",
+      name: "Steady 1x20",
+      discipline: "cycling",
+      primaryZone: "threshold",
+      tags: [],
+      phases: [],
+      segments: [{ type: "steady", durationSec: 1200, power: 1.0 }]
+    };
+    service.createBankWorkout(doc, "seed");
+
+    const low = service.compileForFtp("steady-1x20", 200);
+    const high = service.compileForFtp("steady-1x20", 300);
+
+    expect(low.intervals.reduce((sum, i) => sum + i.durationSec, 0)).toBe(1200);
+    expect(low.intervals[0].targetPowerWatts).toBe(200);
+    expect(high.intervals[0].targetPowerWatts).toBe(300);
+    // Nothing was written to the workouts table.
+    expect((db.prepare("SELECT COUNT(*) AS n FROM workouts").get() as { n: number }).n).toBe(0);
+  });
 });

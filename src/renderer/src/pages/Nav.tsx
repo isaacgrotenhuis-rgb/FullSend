@@ -22,6 +22,17 @@ export const Nav = ({ page, onNavigate }: Props): ReactElement => (
     >
       Plan
     </span>
+    <span
+      onClick={() => onNavigate("bank")}
+      aria-current={page === "bank" ? "page" : undefined}
+      style={{
+        cursor: "pointer",
+        fontSize: 14,
+        color: page === "bank" ? "var(--color-accent)" : "inherit"
+      }}
+    >
+      Bank
+    </span>
     <button
       className="btn btn-icon"
       style={{
