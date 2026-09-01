@@ -400,7 +400,7 @@ export const HomePage = ({
           <h2>Training detail</h2>
           <div className="hr" />
           <p className="card-meta">{dashboard.trendSummary}</p>
-          <table className="table">
+          <table className="table" style={{ marginBottom: "var(--space-8)" }}>
             <thead>
               <tr>
                 <th>Metric</th>
@@ -420,8 +420,9 @@ export const HomePage = ({
           </table>
           {dashboard.ftpTrend.length > 0 ? (
             <>
-              <h3>FTP trend</h3>
-              <table className="table">
+              <h2>FTP trend</h2>
+              <div className="hr" />
+              <table className="table" style={{ marginBottom: "var(--space-8)" }}>
                 <thead>
                   <tr>
                     <th>Captured</th>
@@ -441,8 +442,9 @@ export const HomePage = ({
           ) : null}
           {dashboard.weeklyLoad.length > 0 ? (
             <>
-              <h3>Weekly load</h3>
-              <table className="table">
+              <h2>Weekly load</h2>
+              <div className="hr" />
+              <table className="table" style={{ marginBottom: "var(--space-8)" }}>
                 <thead>
                   <tr>
                     <th>Week start</th>
