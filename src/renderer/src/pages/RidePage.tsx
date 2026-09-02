@@ -22,6 +22,7 @@ type Props = {
   fetchSessionTelemetry: (sessionId: string) => Promise<WorkoutSessionTelemetrySamples>;
   discardWorkout: () => Promise<void>;
   finishRide: (postToStrava: boolean) => Promise<void>;
+  isStravaConnected: boolean;
   adjustIntensity: (deltaFraction: number) => Promise<void>;
   rampDurationInput: string;
   setRampDurationInput: (value: string) => void;
@@ -70,12 +71,13 @@ export const RidePage = ({
   fetchSessionTelemetry,
   discardWorkout,
   finishRide,
+  isStravaConnected,
   adjustIntensity,
   rampDurationInput,
   setRampDurationInput,
   applyRampDuration
 }: Props): ReactElement => {
-  const [postToStrava, setPostToStrava] = useState(true);
+  const [postToStrava, setPostToStrava] = useState(isStravaConnected);
   const [summaryStage, setSummaryStage] = useState<"none" | "pending" | "saved">("none");
   const [savedSummary, setSavedSummary] = useState<WorkoutSessionSummary | null>(null);
   const [speedUnit, setSpeedUnit] = useState<SpeedUnit>(readStoredSpeedUnit);
@@ -140,6 +142,7 @@ export const RidePage = ({
     if (summary) {
       setSavedSummary(summary);
       setSummaryStage("saved");
+      setPostToStrava(isStravaConnected);
       setTelemetryLoading(true);
       try {
         const series = await fetchSessionTelemetry(summary.sessionId);
@@ -424,6 +427,16 @@ export const RidePage = ({
                   </div>
                 </div>
 
+                <label className="radio" style={{ gap: 10, margin: "var(--space-3) 0" }}>
+                  <input
+                    type="checkbox"
+                    checked={postToStrava}
+                    onChange={(event) => setPostToStrava(event.target.checked)}
+                    style={{ position: "static", opacity: 1, width: 16, height: 16, pointerEvents: "auto" }}
+                  />
+                  <span style={{ fontSize: 13 }}>Post this workout to Strava</span>
+                </label>
+
                 <div className="hr" style={{ margin: "var(--space-2) 0" }} />
                 {telemetryLoading ? (
                   <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", padding: "var(--space-2) 0" }}>
@@ -460,15 +473,6 @@ export const RidePage = ({
                     <div className="hr" style={{ margin: "var(--space-2) 0" }} />
                   </>
                 ) : null}
-                <label className="radio" style={{ gap: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={postToStrava}
-                    onChange={(event) => setPostToStrava(event.target.checked)}
-                    style={{ position: "static", opacity: 1, width: 16, height: 16, pointerEvents: "auto" }}
-                  />
-                  <span style={{ fontSize: 13 }}>Post this workout to Strava</span>
-                </label>
 
                 <div className="dialog-actions">
                   <button className="btn btn-primary" disabled={liveWorkoutBusy} onClick={() => void finishRide(postToStrava)}>

@@ -431,6 +431,10 @@ export const App = (): ReactElement => {
     setStravaStatus(nextStatus);
   };
 
+  useEffect(() => {
+    void refreshStravaStatus();
+  }, []);
+
   const startStravaConnect = async (): Promise<void> => {
     setStatus("Starting Strava authorization...");
     const result = await window.kickr.strava.connect();
@@ -475,7 +479,11 @@ export const App = (): ReactElement => {
 
   const finishRide = async (postToStrava: boolean): Promise<void> => {
     if (postToStrava) {
-      await syncStrava();
+      try {
+        await syncStrava();
+      } catch (error) {
+        setStatus(`Couldn't post to Strava: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     closeLiveWorkout();
   };
@@ -653,6 +661,7 @@ export const App = (): ReactElement => {
           fetchSessionTelemetry={fetchSessionTelemetry}
           discardWorkout={discardWorkout}
           finishRide={finishRide}
+          isStravaConnected={stravaStatus?.connected ?? false}
           adjustIntensity={adjustIntensity}
           rampDurationInput={rampDurationInput}
           setRampDurationInput={setRampDurationInput}
