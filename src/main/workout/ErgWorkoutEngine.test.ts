@@ -220,6 +220,9 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     // engine auto-completes without any user action.
     await vi.advanceTimersByTimeAsync(1000);
     expect(engine.getState().lifecycle).toBe("completed");
+    // Natural completion snaps elapsed to the full workout length (2s here), not
+    // the last in-bounds tick (1s) — a 66:00 workout records 66:00, not 65:59.
+    expect(engine.getState().elapsedSec).toBe(2);
 
     const preFinalizeRow = db.prepare("SELECT status FROM workout_sessions WHERE id = ?").get(sessionId) as {
       status: string;
@@ -227,7 +230,13 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     expect(preFinalizeRow.status).toBe("completed");
 
     const summary = engine.finalizeSession(sessionId);
+    expect(summary.durationSec).toBe(2);
     expect(summary.avgPowerWatts).toBe(110);
+
+    const finalizedRow = db.prepare("SELECT summary_json FROM workout_sessions WHERE id = ?").get(sessionId) as {
+      summary_json: string;
+    };
+    expect(JSON.parse(finalizedRow.summary_json).elapsedSec).toBe(2);
 
     const row = db.prepare("SELECT summary_json FROM workout_sessions WHERE id = ?").get(sessionId) as {
       summary_json: string;

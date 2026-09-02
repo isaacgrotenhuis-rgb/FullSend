@@ -299,6 +299,12 @@ export class ErgWorkoutEngine {
       const cursor = this.scheduler.locate(elapsedSec);
 
       if (!cursor) {
+        // The scheduler reports "past the end" the instant elapsed reaches the
+        // total duration, so this tick's elapsedSec (e.g. 3960 for a 66:00
+        // workout) is never patched into state before we bail. Snap state up to
+        // the full duration here so the recorded/displayed length is 66:00, not
+        // 65:59 — this value also feeds Strava elapsed_time and "actually did".
+        this.patchState({ elapsedSec: this.scheduler.getTotalDurationSec() });
         await this.completeSession("completed", "all-intervals-finished");
         await this.safeErgStop();
         return;
