@@ -1,0 +1,48 @@
+appId: com.fullsend.app
+productName: Full Send
+copyright: Copyright © 2026 Isaac Grotenhuis
+
+directories:
+  output: dist
+  buildResources: build
+
+# electron-vite emits the compiled app into out/
+files:
+  - out/**
+  - package.json
+
+# Native modules must load from disk, not from inside the asar archive.
+asarUnpack:
+  - "**/*.node"
+  - node_modules/better-sqlite3/**
+  - node_modules/@abandonware/noble/**
+
+# Rebuild better-sqlite3 / noble against the packaged Electron ABI + target arch.
+npmRebuild: true
+
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+    - target: zip
+      arch:
+        - arm64
+  category: public.app-category.healthcare-fitness
+  icon: build/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSBluetoothAlwaysUsageDescription: Full Send connects to your smart trainer and sensors over Bluetooth.
+    NSBluetoothPeripheralUsageDescription: Full Send connects to your smart trainer and sensors over Bluetooth.
+
+dmg:
+  contents:
+    - x: 130
+      y: 220
+    - x: 410
+      y: 220
+      type: link
+      path: /Applications
