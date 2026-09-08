@@ -1,11 +1,5 @@
 import type { ReactElement } from "react";
-import type { EventPlanAuditEntry, EventPlanVersion, StravaStatus, StravaSyncEventSummary } from "@shared/ipc/contracts";
-
-export type SmokeCheck = {
-  name: string;
-  status: "pending" | "passed" | "failed" | "warning";
-  detail: string;
-};
+import type { StravaStatus, StravaSyncEventSummary } from "@shared/ipc/contracts";
 
 export type StravaSectionProps = {
   stravaStatus: StravaStatus | null;
@@ -24,12 +18,7 @@ export type StravaSectionProps = {
 
 type Props = {
   currentFtp: number;
-  smokeChecks: SmokeCheck[];
-  runningSmoke: boolean;
-  runSmokeWorkflow: () => Promise<void>;
   strava: StravaSectionProps;
-  versions: EventPlanVersion[];
-  auditEntries: EventPlanAuditEntry[];
 };
 
 const trainingZoneNames = [
@@ -42,15 +31,7 @@ const trainingZoneNames = [
   "Neuromuscular"
 ];
 
-export const ProfilePage = ({
-  currentFtp,
-  smokeChecks,
-  runningSmoke,
-  runSmokeWorkflow,
-  strava,
-  versions,
-  auditEntries
-}: Props): ReactElement => {
+export const ProfilePage = ({ currentFtp, strava }: Props): ReactElement => {
   const stravaConnected = strava.stravaStatus?.connected ?? false;
 
   return (
@@ -228,98 +209,6 @@ export const ProfilePage = ({
           ))}
         </tbody>
       </table>
-
-      <h2>Dev tools</h2>
-      <div className="hr" />
-
-      <h3>Release smoke workflow</h3>
-      <button className="btn btn-secondary" disabled={runningSmoke} onClick={() => void runSmokeWorkflow()}>
-        {runningSmoke ? "Running..." : "Run smoke workflow"}
-      </button>
-      {smokeChecks.length === 0 ? (
-        <p className="text-muted">No smoke run yet.</p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Check</th>
-              <th>Status</th>
-              <th>Detail</th>
-            </tr>
-          </thead>
-          <tbody>
-            {smokeChecks.map((check) => (
-              <tr key={check.name}>
-                <td>{check.name}</td>
-                <td>
-                  <span
-                    className={`tag ${
-                      check.status === "passed" ? "tag-accent" : check.status === "failed" ? "tag-outline" : "tag-neutral"
-                    }`}
-                  >
-                    {check.status}
-                  </span>
-                </td>
-                <td>{check.detail}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <h3>Version history</h3>
-      {versions.length === 0 ? (
-        <p className="text-muted">No versions yet.</p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Version</th>
-              <th>Source</th>
-              <th>Reason</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {versions.map((version) => (
-              <tr key={version.id}>
-                <td>
-                  v{version.versionNumber} {version.isCurrent ? "(current)" : ""}
-                </td>
-                <td>{version.source}</td>
-                <td>{version.reason}</td>
-                <td>{version.createdAt}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-
-      <h3>Audit entries</h3>
-      {auditEntries.length === 0 ? (
-        <p className="text-muted">No audit entries yet.</p>
-      ) : (
-        <table className="table">
-          <thead>
-            <tr>
-              <th>Action</th>
-              <th>Reason</th>
-              <th>Source</th>
-              <th>Created</th>
-            </tr>
-          </thead>
-          <tbody>
-            {auditEntries.map((entry) => (
-              <tr key={entry.id}>
-                <td>{entry.action}</td>
-                <td>{entry.reason}</td>
-                <td>{entry.source}</td>
-                <td>{entry.createdAt}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </main>
   );
 };

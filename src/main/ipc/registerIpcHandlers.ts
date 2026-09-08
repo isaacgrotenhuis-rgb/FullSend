@@ -12,8 +12,6 @@ import {
   adaptEventPlanRequestSchema,
   assignWorkoutToPlanDayRequestSchema,
   bleDeviceListResultSchema,
-  eventPlanAuditEntriesSchema,
-  eventPlanVersionsSchema,
   generateEventPlanRequestSchema,
   generateEventPlanResultSchema,
   getCurrentEventPlanResultSchema,
@@ -52,9 +50,7 @@ import {
   ipcChannels,
   intervalIdResultSchema,
   okResultSchema,
-  planAuditEntriesRequestSchema,
   planWeekSummariesSchema,
-  planVersionsRequestSchema,
   pingResultSchema,
   reorderIntervalsRequestSchema,
   startWorkoutSessionRequestSchema,
@@ -440,18 +436,6 @@ export const registerIpcHandlers = (
     eventPlanService.deletePlan(input.planId);
     return { ok: true as const };
   });
-  safeHandle(
-    ipcChannels.eventPlan.listVersions,
-    planVersionsRequestSchema,
-    eventPlanVersionsSchema,
-    (_event, input) => eventPlanService.listPlanVersions(input.planId)
-  );
-  safeHandle(
-    ipcChannels.eventPlan.listAuditEntries,
-    planAuditEntriesRequestSchema,
-    eventPlanAuditEntriesSchema,
-    (_event, input) => eventPlanService.listPlanAuditEntries(input.planId)
-  );
   safeHandle(ipcChannels.eventPlan.getCurrent, emptySchema, getCurrentEventPlanResultSchema, () =>
     eventPlanService.getCurrentPlan()
   );
