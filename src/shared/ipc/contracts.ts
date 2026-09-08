@@ -67,8 +67,6 @@ export const ipcChannels = {
     generate: "event-plan:generate",
     adapt: "event-plan:adapt",
     delete: "event-plan:delete",
-    listVersions: "event-plan:list-versions",
-    listAuditEntries: "event-plan:list-audit-entries",
     getCurrent: "event-plan:get-current"
   },
   dashboard: {
@@ -578,14 +576,6 @@ export const deleteEventPlanRequestSchema = z.object({
   planId: z.string().min(1)
 });
 
-export const planVersionsRequestSchema = z.object({
-  planId: z.string().min(1)
-});
-
-export const planAuditEntriesRequestSchema = z.object({
-  planId: z.string().min(1)
-});
-
 export const eventPlanVersionSchema = z.object({
   id: z.string().min(1),
   planId: z.string().min(1),
@@ -724,8 +714,6 @@ export const okResultSchema = z.object({
 export const bleDeviceListResultSchema = z.array(bleDeviceSchema);
 export const workoutSummariesSchema = z.array(workoutSummarySchema);
 export const planWeekSummariesSchema = z.array(planWeekSummarySchema);
-export const eventPlanVersionsSchema = z.array(eventPlanVersionSchema);
-export const eventPlanAuditEntriesSchema = z.array(eventPlanAuditEntrySchema);
 export const dashboardMetricsResultSchema = dashboardMetricsSchema;
 export const stravaSyncEventsSchema = z.array(stravaSyncEventSummarySchema);
 
@@ -794,8 +782,6 @@ export type EventPlanInput = z.infer<typeof eventPlanInputSchema>;
 export type GenerateEventPlanRequest = z.infer<typeof generateEventPlanRequestSchema>;
 export type AdaptEventPlanRequest = z.infer<typeof adaptEventPlanRequestSchema>;
 export type DeleteEventPlanRequest = z.infer<typeof deleteEventPlanRequestSchema>;
-export type PlanVersionsRequest = z.infer<typeof planVersionsRequestSchema>;
-export type PlanAuditEntriesRequest = z.infer<typeof planAuditEntriesRequestSchema>;
 export type EventPlanVersion = z.infer<typeof eventPlanVersionSchema>;
 export type EventPlanAuditEntry = z.infer<typeof eventPlanAuditEntrySchema>;
 export type GenerateEventPlanResult = z.infer<typeof generateEventPlanResultSchema>;

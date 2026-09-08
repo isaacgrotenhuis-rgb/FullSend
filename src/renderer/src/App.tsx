@@ -5,8 +5,6 @@ import {
   type BleState,
   type DashboardMetrics,
   type DayAvailability,
-  type EventPlanAuditEntry,
-  type EventPlanVersion,
   type EventPlanWeek,
   type EventType,
   type PlanLengthWeeks,
@@ -24,13 +22,12 @@ import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
-import { ProfilePage, type SmokeCheck } from "./pages/ProfilePage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { BankPage } from "./pages/BankPage";
 
 export type Page = "home" | "plan" | "profile" | "bank";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
 const defaultAvailability = (): DayAvailability[] =>
   dayLabels.map((_label, dayIndex) => ({
@@ -64,8 +61,6 @@ export const App = (): ReactElement => {
   const [stravaAuthCode, setStravaAuthCode] = useState("");
   const [stravaAuthState, setStravaAuthState] = useState("");
   const [stravaAuthUrl, setStravaAuthUrl] = useState("");
-  const [smokeChecks, setSmokeChecks] = useState<SmokeCheck[]>([]);
-  const [runningSmoke, setRunningSmoke] = useState(false);
 
   const [bleState, setBleState] = useState<BleState | null>(null);
   const [bleActionPending, setBleActionPending] = useState(false);
@@ -84,8 +79,6 @@ export const App = (): ReactElement => {
 
   const [planId, setPlanId] = useState("");
   const [weeks, setWeeks] = useState<EventPlanWeek[]>([]);
-  const [versions, setVersions] = useState<EventPlanVersion[]>([]);
-  const [auditEntries, setAuditEntries] = useState<EventPlanAuditEntry[]>([]);
 
   const [adaptReason, setAdaptReason] = useState("Adapt plan based on latest constraints");
   const [adaptationPrompt, setAdaptationPrompt] = useState("");
@@ -111,7 +104,6 @@ export const App = (): ReactElement => {
         setPlanId(current.planId);
         setWeeks(current.weeks);
         setCurrentPlanName(current.name);
-        await refreshHistory(current.planId);
       }
     })();
   }, []);
@@ -347,15 +339,6 @@ export const App = (): ReactElement => {
     setLiveWorkoutError(null);
   };
 
-  const refreshHistory = async (activePlanId: string): Promise<void> => {
-    const [nextVersions, nextAudits] = await Promise.all([
-      window.kickr.eventPlan.listVersions({ planId: activePlanId }),
-      window.kickr.eventPlan.listAuditEntries({ planId: activePlanId })
-    ]);
-    setVersions(nextVersions);
-    setAuditEntries(nextAudits);
-  };
-
   const generatePlan = async (): Promise<void> => {
     setStatus("Generating event plan...");
     const result = await window.kickr.eventPlan.generate({
@@ -371,7 +354,6 @@ export const App = (): ReactElement => {
     setPlanId(result.planId);
     setWeeks(result.weeks);
     setCurrentPlanName(result.name);
-    await refreshHistory(result.planId);
     setStatus(`Generated plan "${result.name}", version ${result.versionNumber}`);
   };
 
@@ -396,7 +378,6 @@ export const App = (): ReactElement => {
     });
     setWeeks(result.weeks);
     setCurrentPlanName(result.name);
-    await refreshHistory(planId);
     setStatus(`Adapted to version ${result.versionNumber} using ${result.appliedStrategy}`);
   };
 
@@ -408,8 +389,6 @@ export const App = (): ReactElement => {
     await window.kickr.eventPlan.delete({ planId });
     setPlanId("");
     setWeeks([]);
-    setVersions([]);
-    setAuditEntries([]);
     setStatus("Plan deleted");
   };
 
@@ -485,139 +464,6 @@ export const App = (): ReactElement => {
     const result = await window.kickr.strava.retry({ eventId: event.id });
     setStatus(`Retry result: success ${result.successCount}, failed ${result.failedCount}`);
     await refreshStravaStatus();
-  };
-
-  const runSmokeWorkflow = async (): Promise<void> => {
-    if (runningSmoke) {
-      return;
-    }
-    setRunningSmoke(true);
-    setStatus("Running release smoke workflow...");
-    const checks: SmokeCheck[] = [];
-    const pushCheck = (check: SmokeCheck): void => {
-      checks.push(check);
-      setSmokeChecks([...checks]);
-    };
-
-    try {
-      await window.kickr.ble.startScan({ timeoutMs: 4000 });
-      await sleep(4500);
-      const devices = await window.kickr.ble.listDevices();
-      const trainer = devices.find((device) => device.roles.includes("power"));
-      if (!trainer) {
-        pushCheck({
-          name: "Connect trainer",
-          status: "warning",
-          detail: "No trainer discovered in scan window."
-        });
-      } else {
-        await window.kickr.ble.connect({ deviceId: trainer.id, role: "power" });
-        await window.kickr.ble.discoverFtms({ deviceId: trainer.id });
-        pushCheck({
-          name: "Connect trainer",
-          status: "passed",
-          detail: `Connected and discovered FTMS on ${trainer.id}.`
-        });
-      }
-    } catch (error) {
-      pushCheck({
-        name: "Connect trainer",
-        status: "failed",
-        detail: error instanceof Error ? error.message : "Unknown BLE error"
-      });
-    }
-
-    try {
-      const ble = await window.kickr.ble.getState();
-      if (!ble.connectedDeviceId) {
-        pushCheck({
-          name: "Run workout session",
-          status: "warning",
-          detail: "Skipped: no connected trainer."
-        });
-      } else {
-        const session = await window.kickr.workout.startSession({
-          deviceId: ble.connectedDeviceId,
-          workoutId: null,
-          intervals: [
-            { kind: "warmup", durationSec: 2, targetPowerWatts: 120, targetResistancePercent: null },
-            { kind: "work", durationSec: 2, targetPowerWatts: 160, targetResistancePercent: null },
-            { kind: "cooldown", durationSec: 2, targetPowerWatts: 100, targetResistancePercent: null }
-          ],
-          metadata: { smoke: true }
-        });
-        await sleep(7000);
-        await window.kickr.workout.stopSession({ sessionId: session.sessionId });
-        pushCheck({
-          name: "Run workout session",
-          status: "passed",
-          detail: "Workout session start/stop flow completed."
-        });
-      }
-    } catch (error) {
-      pushCheck({
-        name: "Run workout session",
-        status: "failed",
-        detail: error instanceof Error ? error.message : "Unknown workout session error"
-      });
-    }
-
-    try {
-      const generated = await window.kickr.eventPlan.generate({
-        eventType: "road-race",
-        eventDate,
-        planLengthWeeks: 8,
-        currentFtp,
-        weeklyAvailability,
-        reason: "smoke-generate",
-        source: "system"
-      });
-      await window.kickr.eventPlan.adapt({
-        planId: generated.planId,
-        reason: "smoke-adapt",
-        source: "system",
-        adaptationPrompt: "verify adaptation path"
-      });
-      pushCheck({
-        name: "Generate/adapt plan",
-        status: "passed",
-        detail: "Generate and adapt operations succeeded."
-      });
-    } catch (error) {
-      pushCheck({
-        name: "Generate/adapt plan",
-        status: "failed",
-        detail: error instanceof Error ? error.message : "Unknown event plan error"
-      });
-    }
-
-    try {
-      const statusBefore = await window.kickr.strava.getStatus();
-      if (!statusBefore.connected) {
-        pushCheck({
-          name: "Complete workout + Strava status",
-          status: "warning",
-          detail: "Strava not connected; reported status only."
-        });
-      } else {
-        const syncResult = await window.kickr.strava.sync({ limit: 1 });
-        pushCheck({
-          name: "Complete workout + Strava status",
-          status: syncResult.failedCount > 0 ? "warning" : "passed",
-          detail: `Sync processed ${syncResult.processedCount} (success ${syncResult.successCount}, failed ${syncResult.failedCount}).`
-        });
-      }
-      await refreshStravaStatus();
-    } catch (error) {
-      pushCheck({
-        name: "Complete workout + Strava status",
-        status: "failed",
-        detail: error instanceof Error ? error.message : "Unknown Strava error"
-      });
-    }
-
-    setStatus("Release smoke workflow completed.");
-    setRunningSmoke(false);
   };
 
   return (
@@ -698,9 +544,6 @@ export const App = (): ReactElement => {
       ) : page === "profile" ? (
         <ProfilePage
           currentFtp={currentFtp}
-          smokeChecks={smokeChecks}
-          runningSmoke={runningSmoke}
-          runSmokeWorkflow={runSmokeWorkflow}
           strava={{
             stravaStatus,
             stravaAuthCode,
@@ -715,8 +558,6 @@ export const App = (): ReactElement => {
             syncStrava,
             retryStrava
           }}
-          versions={versions}
-          auditEntries={auditEntries}
         />
       ) : page === "bank" ? (
         <BankPage

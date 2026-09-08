@@ -20,10 +20,6 @@ import type {
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
   DeleteEventPlanRequest,
-  PlanVersionsRequest,
-  EventPlanVersion,
-  PlanAuditEntriesRequest,
-  EventPlanAuditEntry,
   DashboardMetricsRequest,
   DashboardMetrics,
   StravaConnectRequest,
@@ -116,8 +112,6 @@ export interface KickrDesktopApi {
     generate: (request: GenerateEventPlanRequest) => Promise<GenerateEventPlanResult>;
     adapt: (request: AdaptEventPlanRequest) => Promise<AdaptEventPlanResult>;
     delete: (request: DeleteEventPlanRequest) => Promise<OkResult>;
-    listVersions: (request: PlanVersionsRequest) => Promise<EventPlanVersion[]>;
-    listAuditEntries: (request: PlanAuditEntriesRequest) => Promise<EventPlanAuditEntry[]>;
     getCurrent: () => Promise<GetCurrentEventPlanResult>;
   };
   dashboard: {

@@ -85,7 +85,6 @@ Out of scope in this phase:
 1. Install dependencies: `npm install`
 2. Start app in development: `npm run dev`
 3. Validate release readiness gate: `npm run typecheck && npm run build`
-4. In app, run **Release smoke workflow** to execute core flow checks (BLE/workout/plan/Strava status path).
 
 ## Scripts
 
@@ -103,16 +102,10 @@ Out of scope in this phase:
   - tick overlap prevention
   - timing drift detection and event logging
   - elapsed-jump clamping to limit transition/timing drift impact
-- In-app smoke workflow coverage:
-  - connect trainer
-  - run workout session
-  - generate/adapt plan
-  - Strava workflow status check (and sync attempt when connected)
 
 ## Known limitations / open decisions
 
 - BLE auto-reconnect is intentionally conservative (limited retries) and does not guarantee recovery on all adapters/firmware combinations.
-- Smoke workflow is practical and environment-dependent (real hardware/network/account state affects outcomes).
 - Strava auth currently uses browser authorization with manual code/state completion in UI; tokens remain main-process only.
 - Strava posting uses activity creation payload mapping from completed sessions (not FIT/TCX file upload in this phase).
 
@@ -121,7 +114,7 @@ Out of scope in this phase:
 - This repository currently tracks third-party dependencies via `package.json` / lockfile and runtime attribution in source docs.
 - No dedicated dependency-license report artifact is generated in-repo yet; add one if distribution packaging policy requires explicit bundled license manifests.
 
-## macOS BLE setup and smoke checks
+## macOS BLE setup and checks
 
 1. On first BLE scan attempt, macOS should prompt for Bluetooth permission for the app process; allow it.
 2. Ensure Bluetooth is enabled in macOS settings and the trainer is awake/broadcasting.
