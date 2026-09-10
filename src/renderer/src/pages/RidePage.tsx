@@ -135,7 +135,26 @@ export const RidePage = ({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "var(--space-4)" }}>
         <div>
           <h6 style={{ color: "var(--color-accent-700)", marginBottom: 2 }}>{currentKind ? blockKindLabel(currentKind) : "Workout"}</h6>
-          <h2 style={{ margin: 0 }}>{activeWorkoutName ?? "Workout"}</h2>
+          <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+            {activeWorkoutName ?? "Workout"}
+            {isPaused ? (
+              <span
+                style={{
+                  fontFamily: "var(--font-heading)",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: "color-mix(in srgb, var(--color-accent-700) 15%, transparent)",
+                  color: "var(--color-accent-700)"
+                }}
+              >
+                Paused
+              </span>
+            ) : null}
+          </h2>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-6)" }}>
           <div style={{ textAlign: "right" }}>
@@ -168,8 +187,8 @@ export const RidePage = ({
           marginBottom: "var(--space-6)"
         }}
       >
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
-          <h6>Target power</h6>
+        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)", opacity: isPaused ? 0.45 : 1 }}>
+          <h6>Target power{isPaused ? " · holding" : ""}</h6>
           <MetricTileValue value={liveMetrics?.targetPowerWatts ?? null} unit="W" />
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
