@@ -152,6 +152,9 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     expect(summaryJson.avgPowerWatts).toBe(150);
     expect(summaryJson.avgCadenceRpm).toBe(85);
     expect(summaryJson.avgHeartRateBpm).toBe(130);
+    // Speed/distance are persisted too now, so ride-history reads don't re-scan telemetry.
+    expect(summaryJson.avgSpeedKmh).toBe(null);
+    expect(summaryJson.distanceMeters).toBe(null);
 
     const secondCall = engine.finalizeSession(sessionId);
     expect(secondCall).toEqual(summary);
