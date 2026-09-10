@@ -82,6 +82,7 @@ const createIdleState = (): WorkoutSessionState => ({
   currentIntervalIndex: null,
   intervalsTotal: 0,
   lastError: null,
+  interruptReason: null,
   liveMetrics: null,
   intensityMultiplier: 1,
   rampDurationSec: 10
@@ -136,6 +137,21 @@ export class ErgWorkoutEngine {
   private sessionDistanceMeters = 0;
   private hasDistanceReading = false;
   private lastEndReason: string | null = null;
+  // Trainer-disconnect handling (#52). A mid-ride BLE drop pauses the session and
+  // prompts the rider to reconnect instead of ending it outright.
+  //   - debounce: ignore a brief blip; only treat it as an interruption after this.
+  //   - grace: auto-finalize the session if it never reconnects within this window.
+  //   - poll: how often the engine itself retries the trainer connection.
+  private readonly disconnectDebounceMs = 3000;
+  private readonly reconnectGraceMs = 5 * 60_000;
+  private readonly reconnectPollMs = 4000;
+  private disconnectDebounceTimer: NodeJS.Timeout | null = null;
+  private reconnectGraceTimer: NodeJS.Timeout | null = null;
+  private reconnectPollTimer: NodeJS.Timeout | null = null;
+  private interruptReason: WorkoutSessionState["interruptReason"] = null;
+  // Where a successful reconnect should return the session: "running" when the drop
+  // interrupted an active ride, "paused" when the rider had already paused.
+  private interruptResumeLifecycle: "running" | "paused" | null = null;
   private readonly terminalLifecycles = new Set<WorkoutSessionLifecycle>(["stopped", "completed", "degraded", "error"]);
   private listeners = new Set<(state: WorkoutSessionState) => void>();
 
@@ -165,12 +181,17 @@ export class ErgWorkoutEngine {
         this.latestHeartRateBpm = bleState.heartRate?.bpm ?? null;
         this.latestHeartRateAtMs = bleState.heartRate ? nowMs : null;
       }
-      if (
-        this.state.sessionId &&
-        (this.state.lifecycle === "running" || this.state.lifecycle === "paused") &&
-        (bleState.lifecycle === "disconnected" || bleState.lifecycle === "error")
-      ) {
-        void this.handleDisconnectFailsafe(bleState.lifecycle);
+      const sessionInProgress =
+        this.state.sessionId !== null &&
+        (this.state.lifecycle === "running" || this.state.lifecycle === "paused");
+      const trainerDown = bleState.lifecycle === "disconnected" || bleState.lifecycle === "error";
+      if (sessionInProgress && trainerDown && this.interruptReason === null && this.disconnectDebounceTimer === null) {
+        this.beginDisconnectDebounce();
+      } else if (bleState.lifecycle === "connected") {
+        this.cancelDisconnectDebounce();
+        if (sessionInProgress && this.interruptReason !== null) {
+          void this.handleTrainerReconnected();
+        }
       }
     });
   }
@@ -270,6 +291,9 @@ export class ErgWorkoutEngine {
       return;
     }
     this.stopTicking();
+    this.clearInterruptTimers();
+    this.interruptReason = null;
+    this.interruptResumeLifecycle = null;
     this.expectedNextTickAtMs = null;
     this.tickInFlight = false;
     this.lastEndReason = reason;
@@ -287,7 +311,8 @@ export class ErgWorkoutEngine {
     this.persistEvent("session-finalized", { lifecycle, reason });
     this.patchState({
       lifecycle,
-      endedAt
+      endedAt,
+      interruptReason: null
     });
     this.scheduler = null;
   }
@@ -537,12 +562,131 @@ export class ErgWorkoutEngine {
     }
   }
 
-  private async handleDisconnectFailsafe(disconnectLifecycle: "disconnected" | "error"): Promise<void> {
-    if (!this.state.sessionId || this.state.lifecycle === "degraded" || this.state.lifecycle === "stopped") {
+  private clearInterruptTimers(): void {
+    this.cancelDisconnectDebounce();
+    if (this.reconnectGraceTimer) {
+      clearTimeout(this.reconnectGraceTimer);
+      this.reconnectGraceTimer = null;
+    }
+    if (this.reconnectPollTimer) {
+      clearInterval(this.reconnectPollTimer);
+      this.reconnectPollTimer = null;
+    }
+  }
+
+  private cancelDisconnectDebounce(): void {
+    if (this.disconnectDebounceTimer) {
+      clearTimeout(this.disconnectDebounceTimer);
+      this.disconnectDebounceTimer = null;
+    }
+  }
+
+  // A trainer dropout fires BLE "disconnected"/"error" events that can also be a
+  // momentary blip. Wait out disconnectDebounceMs before treating it as a real
+  // interruption; if the link is back by then, the ride never noticed.
+  private beginDisconnectDebounce(): void {
+    this.persistEvent("trainer-disconnect-detected", {});
+    this.disconnectDebounceTimer = setTimeout(() => {
+      this.disconnectDebounceTimer = null;
+      if (this.bleService.getState().lifecycle === "connected") {
+        return;
+      }
+      void this.enterInterrupted();
+    }, this.disconnectDebounceMs);
+  }
+
+  // Trainer is really gone: freeze the session like a pause (clock, cursor and
+  // targets hold — see tickPaused), surface interruptReason so the ride screen can
+  // prompt for reconnect, and start both the background reconnect poll and the
+  // auto-finalize grace timer. Data collected so far is untouched.
+  private async enterInterrupted(): Promise<void> {
+    if (!this.state.sessionId || this.interruptReason !== null) {
       return;
     }
-    this.persistEvent("disconnect-failsafe", { disconnectLifecycle });
-    await this.completeSession("degraded", "ble-disconnect-failsafe");
+    if (this.state.lifecycle !== "running" && this.state.lifecycle !== "paused") {
+      return;
+    }
+    this.interruptResumeLifecycle = this.state.lifecycle === "running" ? "running" : "paused";
+    this.interruptReason = "trainer-disconnected";
+    if (this.state.lifecycle === "running") {
+      // Same freeze bookkeeping as pause(): stop the elapsed clock from here.
+      this.pausedAtMs = Date.now();
+      this.expectedNextTickAtMs = null;
+    }
+    this.persistence.workoutSessions.updateStatus({ id: this.state.sessionId, status: "paused" });
+    this.persistEvent("session-interrupted", {
+      reason: this.interruptReason,
+      resumeLifecycle: this.interruptResumeLifecycle,
+      elapsedSec: this.state.elapsedSec
+    });
+    this.patchState({
+      lifecycle: "paused",
+      pausedAt: this.state.pausedAt ?? new Date().toISOString(),
+      interruptReason: this.interruptReason
+    });
+    await this.pauseErg();
+    // Arm both timers before the first reconnect attempt: a reconnect that lands
+    // synchronously (e.g. in tests) runs handleTrainerReconnected, which clears
+    // these — so they must already exist for that teardown to catch them.
+    this.reconnectGraceTimer = setTimeout(() => {
+      this.reconnectGraceTimer = null;
+      void this.finalizeInterrupted("reconnect-grace-expired");
+    }, this.reconnectGraceMs);
+    this.reconnectPollTimer = setInterval(() => {
+      this.attemptReconnect();
+    }, this.reconnectPollMs);
+    this.attemptReconnect();
+  }
+
+  // BleService runs its own short-lived auto-reconnect; this keeps retrying for the
+  // whole grace window so a longer outage still recovers. connect() is a no-op while
+  // BleService is already connecting or connected, so calling it on a timer is safe.
+  private attemptReconnect(): void {
+    if (this.interruptReason === null) {
+      return;
+    }
+    const deviceId = this.state.deviceId;
+    if (!deviceId || this.bleService.getState().lifecycle === "connected") {
+      return;
+    }
+    void this.bleService.connect(deviceId, "power").catch((error) => {
+      this.persistEvent("reconnect-attempt-failed", {
+        message: error instanceof Error ? error.message : "Unknown reconnect error"
+      });
+    });
+  }
+
+  // Trainer came back before the grace window expired. Tear down the interrupt
+  // timers and either resume the ride or, if the rider had already paused before
+  // the drop, just leave it paused for them to resume by hand.
+  private async handleTrainerReconnected(): Promise<void> {
+    if (this.interruptReason === null || !this.state.sessionId) {
+      return;
+    }
+    const resumeTo = this.interruptResumeLifecycle ?? "running";
+    this.clearInterruptTimers();
+    this.interruptReason = null;
+    this.interruptResumeLifecycle = null;
+    this.persistEvent("session-reconnected", { resumeTo, elapsedSec: this.state.elapsedSec });
+    if (resumeTo === "running") {
+      await this.resumeInternal(this.state.sessionId, "trainer-reconnected");
+    } else {
+      this.persistence.workoutSessions.updateStatus({ id: this.state.sessionId, status: "paused" });
+      this.patchState({ interruptReason: null });
+    }
+  }
+
+  // Grace window elapsed with no reconnect: finalize as "degraded" so everything
+  // recorded up to the disconnect is preserved and can still be saved.
+  private async finalizeInterrupted(reason: string): Promise<void> {
+    if (this.interruptReason === null) {
+      return;
+    }
+    this.interruptReason = null;
+    this.interruptResumeLifecycle = null;
+    this.persistEvent("session-interrupt-timeout", { reason });
+    this.patchState({ interruptReason: null });
+    await this.completeSession("degraded", reason);
     await this.safeErgStop();
   }
 
@@ -570,6 +714,9 @@ export class ErgWorkoutEngine {
     this.fallbackDistanceMeters = 0;
     this.sessionDistanceMeters = 0;
     this.hasDistanceReading = false;
+    this.clearInterruptTimers();
+    this.interruptReason = null;
+    this.interruptResumeLifecycle = null;
 
     this.persistence.workoutSessions.create({
       id: sessionId,
@@ -595,6 +742,7 @@ export class ErgWorkoutEngine {
       currentIntervalIndex: 0,
       intervalsTotal: request.intervals.length,
       lastError: null,
+      interruptReason: null,
       liveMetrics: null,
       intensityMultiplier: 1,
       rampDurationSec: this.state.rampDurationSec
@@ -638,16 +786,31 @@ export class ErgWorkoutEngine {
     if (this.state.lifecycle !== "paused" || !this.pausedAtMs) {
       throw new Error("Session must be paused to resume");
     }
-    this.totalPausedMs += Date.now() - this.pausedAtMs;
+    if (this.interruptReason !== null) {
+      throw new Error("Trainer disconnected — reconnect the trainer to resume");
+    }
+    await this.resumeInternal(sessionId, "user-resumed");
+  }
+
+  // Shared by the manual resume() and the auto-resume after a trainer reconnect.
+  // Both fold the paused span into totalPausedMs so elapsed time never counts the
+  // seconds the rider (or the trainer) was away.
+  private async resumeInternal(sessionId: string, reason: string): Promise<void> {
+    if (this.pausedAtMs) {
+      this.totalPausedMs += Date.now() - this.pausedAtMs;
+    }
     this.pausedAtMs = null;
+    this.interruptReason = null;
+    this.interruptResumeLifecycle = null;
     this.persistence.workoutSessions.updateStatus({
       id: sessionId,
       status: "running"
     });
-    this.persistEvent("session-resumed", { elapsedSec: this.state.elapsedSec });
+    this.persistEvent("session-resumed", { elapsedSec: this.state.elapsedSec, reason });
     this.patchState({
       lifecycle: "running",
-      pausedAt: null
+      pausedAt: null,
+      interruptReason: null
     });
     this.forceRampReset = true;
     await this.safeStartOrResume();

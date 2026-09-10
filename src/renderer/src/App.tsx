@@ -278,6 +278,14 @@ export const App = (): ReactElement => {
     await runWorkoutAction(() => window.kickr.workout.stopSession({ sessionId }));
   };
 
+  const reconnectTrainer = async (): Promise<void> => {
+    const deviceId = workoutSessionState?.deviceId ?? bleState?.connectedDeviceId ?? null;
+    if (!deviceId) {
+      return;
+    }
+    await connectToDevice(deviceId, "power");
+  };
+
   const saveWorkout = async (): Promise<WorkoutSessionSummary | null> => {
     const sessionId = workoutSessionState?.sessionId;
     if (!sessionId) {
@@ -495,6 +503,7 @@ export const App = (): ReactElement => {
           pauseWorkout={pauseWorkout}
           resumeWorkout={resumeWorkout}
           stopWorkout={stopWorkout}
+          reconnectTrainer={reconnectTrainer}
           saveWorkout={saveWorkout}
           fetchSessionTelemetry={fetchSessionTelemetry}
           discardWorkout={discardWorkout}
