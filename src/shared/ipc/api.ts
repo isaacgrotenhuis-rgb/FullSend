@@ -44,6 +44,10 @@ import type {
   WorkoutSessionState,
   WorkoutSessionSummary,
   WorkoutSessionTelemetrySamples,
+  ListCompletedSessionsRequest,
+  CompletedSessionSummary,
+  SessionRecapRequest,
+  SessionRecap,
   AssignWorkoutToPlanDayRequest,
   UnassignWorkoutFromPlanDayRequest,
   BankWorkoutSummary,
@@ -83,6 +87,10 @@ export interface KickrDesktopApi {
     setRampDuration: (request: WorkoutSessionSetRampDurationRequest) => Promise<OkResult>;
     getSessionState: () => Promise<WorkoutSessionState>;
     getSessionTelemetry: (request: WorkoutSessionControlRequest) => Promise<WorkoutSessionTelemetrySamples>;
+    listCompletedSessions: (
+      request?: Partial<ListCompletedSessionsRequest>
+    ) => Promise<CompletedSessionSummary[]>;
+    getSessionRecap: (request: SessionRecapRequest) => Promise<SessionRecap>;
     subscribeSession: (listener: (state: WorkoutSessionState) => void) => () => void;
   };
   workoutLibrary: {

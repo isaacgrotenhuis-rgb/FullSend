@@ -620,6 +620,11 @@ export class ErgWorkoutEngine {
         avgPowerWatts,
         avgCadenceRpm,
         avgHeartRateBpm,
+        // Persisted so historical reads (ride history / recap) don't have to re-scan
+        // telemetry. Older completed rows predate these keys — readers fall back to a
+        // telemetry MAX/AVG for those.
+        avgSpeedKmh,
+        distanceMeters,
         savedAt: new Date().toISOString()
       })
     });

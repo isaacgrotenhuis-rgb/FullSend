@@ -272,6 +272,35 @@ export class WorkoutSessionsRepository extends BaseRepository {
       .get(sessionId) as Row | undefined;
   }
 
+  // Ride-history / recap reads. summary_json carries the averages (avgSpeedKmh /
+  // distanceMeters added by ErgWorkoutEngine.finalizeSession); the joined telemetry
+  // aggregate is the fallback for older completed rows written before those keys.
+  private readonly recapSelect = `
+    SELECT ws.id, ws.workout_id, ws.started_at, ws.summary_json,
+           w.name AS workout_name,
+           t.telemetry_distance_meters,
+           t.telemetry_avg_speed_kmh
+    FROM workout_sessions ws
+    LEFT JOIN workouts w ON w.id = ws.workout_id
+    LEFT JOIN (
+      SELECT session_id,
+             MAX(actual_distance_meters) AS telemetry_distance_meters,
+             AVG(actual_speed_kmh) AS telemetry_avg_speed_kmh
+      FROM workout_session_telemetry
+      GROUP BY session_id
+    ) t ON t.session_id = ws.id
+    WHERE ws.status = 'completed'`;
+
+  listCompletedForRecap(limit: number): Row[] {
+    return this.db
+      .prepare(`${this.recapSelect} ORDER BY ws.started_at DESC LIMIT ?`)
+      .all(limit) as Row[];
+  }
+
+  getCompletedForRecap(sessionId: string): Row | undefined {
+    return this.db.prepare(`${this.recapSelect} AND ws.id = ?`).get(sessionId) as Row | undefined;
+  }
+
   deleteById(id: string): void {
     this.db.prepare("DELETE FROM strava_sync_events WHERE session_id = ?").run(id);
     this.db.prepare("DELETE FROM workout_sessions WHERE id = ?").run(id);

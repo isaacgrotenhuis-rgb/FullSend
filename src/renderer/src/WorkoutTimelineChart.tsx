@@ -44,6 +44,8 @@ type Props = {
   elapsedSec: number;
   currentIndex: number | null;
   actualPowerWatts: number | null;
+  /** Shrink the SVG for use as a small thumbnail (overrides the .workout-timeline height). */
+  compact?: boolean;
 };
 
 const width = 1000;
@@ -56,7 +58,8 @@ export const WorkoutTimelineChart = ({
   intervals,
   elapsedSec,
   currentIndex,
-  actualPowerWatts
+  actualPowerWatts,
+  compact = false
 }: Props): ReactElement => {
   const totalDurationSec = intervals.reduce((sum, interval) => sum + interval.durationSec, 0) || 1;
   const maxWatts = Math.max(
@@ -97,7 +100,13 @@ export const WorkoutTimelineChart = ({
       : null;
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="workout-timeline" role="img" aria-label="Workout power timeline">
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className="workout-timeline"
+      style={compact ? { height: 72 } : undefined}
+      role="img"
+      aria-label="Workout power timeline"
+    >
       <line x1={0} y1={topMargin + plotHeight} x2={width} y2={topMargin + plotHeight} stroke="var(--color-divider)" strokeWidth={1} />
       {bars.map((bar) =>
         bar.isRamp ? (

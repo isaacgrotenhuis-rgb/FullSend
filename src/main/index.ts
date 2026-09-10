@@ -6,6 +6,7 @@ import { BleService } from "@main/ble/BleService";
 import { DatabaseService } from "@main/database/DatabaseService";
 import { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
+import { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import { seedWorkoutBankIfEmpty } from "@main/workout/seedWorkoutBank";
 import { createPlanAdaptationService } from "@main/plans/PlanAdaptationService";
@@ -48,6 +49,7 @@ const bootstrap = async (): Promise<void> => {
     workoutSessionTelemetry: databaseService.repositories.workoutSessionTelemetry
   });
   const workoutLibraryService = new WorkoutLibraryService(databaseService.repositories);
+  const workoutRecapService = new WorkoutRecapService(databaseService.repositories);
   const workoutBankService = new WorkoutBankService(databaseService.repositories);
   seedWorkoutBankIfEmpty(workoutBankService);
   const adaptationService = createPlanAdaptationService();
@@ -71,7 +73,8 @@ const bootstrap = async (): Promise<void> => {
     workoutBankService,
     eventPlanService,
     progressDashboardService,
-    stravaService
+    stravaService,
+    workoutRecapService
   );
 
   await createWindow();

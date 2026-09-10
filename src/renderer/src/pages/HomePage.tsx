@@ -8,6 +8,7 @@ import {
   type EventPlanWeek,
   type SessionType
 } from "@shared/ipc/contracts";
+import { RecentWorkoutsSection } from "./RecentWorkoutsSection";
 
 export type BleSectionProps = {
   bleState: BleState | null;
@@ -374,100 +375,7 @@ export const HomePage = ({
         </p>
       )}
 
-      <h2>Recent activity</h2>
-      <div className="hr" />
-      <table className="table" style={{ marginBottom: "var(--space-8)" }}>
-        <thead>
-          <tr>
-            <th>Date</th>
-            <th>Workout</th>
-            <th>Duration</th>
-            <th>Avg power</th>
-            <th>Compliance</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td colSpan={5} className="text-muted">
-              No completed workouts recorded yet.
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      {dashboard ? (
-        <>
-          <h2>Training detail</h2>
-          <div className="hr" />
-          <p className="card-meta">{dashboard.trendSummary}</p>
-          <table className="table" style={{ marginBottom: "var(--space-8)" }}>
-            <thead>
-              <tr>
-                <th>Metric</th>
-                <th>Value</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>Completed workouts</td>
-                <td>{dashboard.completedWorkoutsCount}</td>
-              </tr>
-              <tr>
-                <td>Planned vs actual load variance %</td>
-                <td>{dashboard.plannedVsActualLoadVariancePercent ?? "N/A"}</td>
-              </tr>
-            </tbody>
-          </table>
-          {dashboard.ftpTrend.length > 0 ? (
-            <>
-              <h2>FTP trend</h2>
-              <div className="hr" />
-              <table className="table" style={{ marginBottom: "var(--space-8)" }}>
-                <thead>
-                  <tr>
-                    <th>Captured</th>
-                    <th>FTP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dashboard.ftpTrend.map((point) => (
-                    <tr key={point.capturedAt}>
-                      <td>{point.capturedAt}</td>
-                      <td>{point.ftpWatts ?? "N/A"} W</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          ) : null}
-          {dashboard.weeklyLoad.length > 0 ? (
-            <>
-              <h2>Weekly load</h2>
-              <div className="hr" />
-              <table className="table" style={{ marginBottom: "var(--space-8)" }}>
-                <thead>
-                  <tr>
-                    <th>Week start</th>
-                    <th>Planned</th>
-                    <th>Actual</th>
-                    <th>Variance</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {dashboard.weeklyLoad.map((row) => (
-                    <tr key={row.weekStart}>
-                      <td>{row.weekStart}</td>
-                      <td>{row.plannedLoad}</td>
-                      <td>{row.actualLoad}</td>
-                      <td>{row.variance}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </>
-          ) : null}
-        </>
-      ) : null}
+      <RecentWorkoutsSection />
     </main>
   );
 };
