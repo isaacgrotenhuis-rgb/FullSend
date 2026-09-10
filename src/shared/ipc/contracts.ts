@@ -371,6 +371,10 @@ export const workoutSessionStateSchema = z.object({
   currentIntervalIndex: z.number().int().min(0).nullable(),
   intervalsTotal: z.number().int().min(0),
   lastError: z.string().nullable(),
+  // Non-null while a session is paused because something external interrupted it
+  // rather than the rider choosing to stop — currently only "trainer-disconnected".
+  // The ride screen shows a reconnect prompt; the engine auto-reconnects and resumes.
+  interruptReason: z.enum(["trainer-disconnected"]).nullable(),
   liveMetrics: workoutLiveMetricsSchema.nullable(),
   intensityMultiplier: intensityMultiplierSchema,
   rampDurationSec: rampDurationSecSchema

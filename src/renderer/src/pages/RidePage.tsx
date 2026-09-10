@@ -19,6 +19,7 @@ type Props = {
   pauseWorkout: () => Promise<void>;
   resumeWorkout: () => Promise<void>;
   stopWorkout: () => Promise<void>;
+  reconnectTrainer: () => Promise<void>;
   saveWorkout: () => Promise<WorkoutSessionSummary | null>;
   fetchSessionTelemetry: (sessionId: string) => Promise<WorkoutSessionTelemetrySamples>;
   discardWorkout: () => Promise<void>;
@@ -56,6 +57,7 @@ export const RidePage = ({
   pauseWorkout,
   resumeWorkout,
   stopWorkout,
+  reconnectTrainer,
   saveWorkout,
   fetchSessionTelemetry,
   discardWorkout,
@@ -94,7 +96,8 @@ export const RidePage = ({
   const intervalPositionLabel =
     currentIndex !== null && activeIntervals.length > 0 ? `Interval ${currentIndex + 1} of ${activeIntervals.length}` : "";
 
-  const isPaused = workoutSessionState?.lifecycle === "paused";
+  const isInterrupted = (workoutSessionState?.interruptReason ?? null) !== null;
+  const isPaused = workoutSessionState?.lifecycle === "paused" && !isInterrupted;
   const hasEndedLifecycle =
     workoutSessionState?.lifecycle === "stopped" ||
     workoutSessionState?.lifecycle === "completed" ||
@@ -176,6 +179,40 @@ export const RidePage = ({
         <p style={{ color: "var(--color-accent-700)" }}>{liveWorkoutError}</p>
       ) : null}
       {workoutSessionState?.lastError ? <p style={{ color: "var(--color-accent-700)" }}>{workoutSessionState.lastError}</p> : null}
+
+      {isInterrupted ? (
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: "var(--space-4)",
+            padding: "var(--space-4)",
+            marginBottom: "var(--space-6)",
+            border: "2px solid var(--color-accent-700)",
+            background: "color-mix(in srgb, var(--color-accent-700) 8%, transparent)"
+          }}
+        >
+          <div>
+            <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 15 }}>
+              Trainer disconnected
+            </div>
+            <div className="card-meta">
+              The workout is paused. Reconnect the trainer to pick up where you left off — it retries on its own, or end
+              the workout to save what you've done.
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: "var(--space-3)" }}>
+            <button className="btn btn-secondary" disabled={liveWorkoutBusy} onClick={() => void stopWorkout()}>
+              End workout
+            </button>
+            <button className="btn btn-primary" disabled={liveWorkoutBusy} onClick={() => void reconnectTrainer()}>
+              Reconnect
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -310,7 +347,7 @@ export const RidePage = ({
         <button
           className="btn btn-primary"
           style={{ minWidth: 140 }}
-          disabled={liveWorkoutBusy || !isWorkoutSessionActive}
+          disabled={liveWorkoutBusy || !isWorkoutSessionActive || isInterrupted}
           onClick={() => void (isPaused ? resumeWorkout() : pauseWorkout())}
         >
           {isPaused ? "Resume" : "Pause"}

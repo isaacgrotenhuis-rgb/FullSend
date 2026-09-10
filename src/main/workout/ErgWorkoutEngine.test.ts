@@ -43,12 +43,25 @@ class FakeBleService implements BleService {
     this.listener?.(this.state);
   }
 
+  // Simulate the trainer (power role) link going down / coming back. BleService nulls
+  // liveTelemetry on a real disconnect, so mirror that here.
+  setBleLifecycle(lifecycle: BleState["lifecycle"]): void {
+    const down = lifecycle === "disconnected" || lifecycle === "error";
+    this.state = {
+      ...this.state,
+      lifecycle,
+      connectedDeviceId: down ? null : "dev1",
+      liveTelemetry: down ? null : this.state.liveTelemetry
+    };
+    this.listener?.(this.state);
+  }
+
   async startScan(): Promise<void> {}
   async stopScan(): Promise<void> {}
   listDevices() {
     return [];
   }
-  async connect(): Promise<void> {}
+  connect = vi.fn(async (): Promise<void> => {});
   async disconnect(): Promise<void> {}
   getState(): BleState {
     return this.state;
@@ -455,5 +468,187 @@ describe("ErgWorkoutEngine pause freezes targets, not live metrics", () => {
     await vi.advanceTimersByTimeAsync(4000);
     expect(engine.getState().liveMetrics?.actualPowerWatts).toBeNull();
     expect(engine.getState().liveMetrics?.actualCadenceRpm).toBeNull();
+  });
+});
+
+describe("ErgWorkoutEngine trainer-disconnect handling", () => {
+  let db: Database.Database;
+  let repos: Repositories;
+  let ble: FakeBleService;
+  let engine: ErgWorkoutEngine;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    applySchema(db);
+    db.prepare("INSERT INTO devices (id, name) VALUES ('dev1', 'Test Trainer')").run();
+    repos = new Repositories(db);
+    ble = new FakeBleService();
+    ble.setBleLifecycle("connected");
+    engine = new ErgWorkoutEngine(ble, {
+      workoutSessions: repos.workoutSessions,
+      workoutSessionEvents: repos.workoutSessionEvents,
+      workoutSessionTelemetry: repos.workoutSessionTelemetry
+    });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    db.close();
+  });
+
+  const startSession = async (): Promise<string> => {
+    ble.setTelemetry(150, 88);
+    const sessionId = await engine.start({
+      workoutId: null,
+      deviceId: "dev1",
+      intervals: [{ kind: "work", durationSec: 600, targetPowerWatts: 150, targetResistancePercent: null }]
+    });
+    engine.setRampDuration(sessionId, 0);
+    return sessionId;
+  };
+
+  const sessionStatus = (sessionId: string): string =>
+    (db.prepare("SELECT status FROM workout_sessions WHERE id = ?").get(sessionId) as { status: string }).status;
+
+  it("rides through a brief BLE blip shorter than the debounce", async () => {
+    const sessionId = await startSession();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    ble.setBleLifecycle("disconnected");
+    await vi.advanceTimersByTimeAsync(1500); // < 3s debounce
+    ble.setBleLifecycle("connected");
+    ble.setTelemetry(150, 88);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("running");
+    expect(state.interruptReason).toBeNull();
+    expect(state.elapsedSec).toBeGreaterThanOrEqual(5);
+    expect(sessionStatus(sessionId)).toBe("running");
+  });
+
+  it("pauses and flags an interrupt when the trainer stays gone past the debounce", async () => {
+    const sessionId = await startSession();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    ble.setBleLifecycle("disconnected");
+    await vi.advanceTimersByTimeAsync(3200); // debounce elapses, still down
+
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("paused");
+    expect(state.interruptReason).toBe("trainer-disconnected");
+    expect(state.endedAt).toBeNull();
+    expect(sessionStatus(sessionId)).toBe("paused");
+    expect(ble.stopOrPause).toHaveBeenCalled(); // ERG told to pause
+    expect(ble.connect).toHaveBeenCalledWith("dev1", "power"); // reconnect poll started
+
+    // Clock is frozen from the interrupt onward.
+    const frozenElapsed = state.elapsedSec;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(engine.getState().elapsedSec).toBe(frozenElapsed);
+
+    // Session is not finalized — it can't be saved yet.
+    expect(() => engine.finalizeSession(sessionId)).toThrow();
+  });
+
+  it("resumes the same session when the trainer reconnects within the grace window", async () => {
+    const sessionId = await startSession();
+    await vi.advanceTimersByTimeAsync(3000);
+    const elapsedAtDrop = engine.getState().elapsedSec;
+
+    ble.setBleLifecycle("disconnected");
+    await vi.advanceTimersByTimeAsync(3200);
+    expect(engine.getState().interruptReason).toBe("trainer-disconnected");
+
+    // Trainer comes back a minute later.
+    await vi.advanceTimersByTimeAsync(60_000);
+    ble.setBleLifecycle("connected");
+    ble.setTelemetry(150, 88);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("running");
+    expect(state.interruptReason).toBeNull();
+    expect(state.sessionId).toBe(sessionId);
+    // Elapsed continues from the drop point; the ~63s offline don't count.
+    expect(state.elapsedSec).toBeGreaterThanOrEqual(elapsedAtDrop + 1);
+    expect(state.elapsedSec).toBeLessThan(elapsedAtDrop + 10);
+  });
+
+  it("stays paused (does not auto-run) when the drop happened while already user-paused", async () => {
+    const sessionId = await startSession();
+    await vi.advanceTimersByTimeAsync(2000);
+    await engine.pause(sessionId);
+    const elapsedAtPause = engine.getState().elapsedSec;
+
+    ble.setBleLifecycle("disconnected");
+    await vi.advanceTimersByTimeAsync(3200);
+    expect(engine.getState().interruptReason).toBe("trainer-disconnected");
+
+    ble.setBleLifecycle("connected");
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("paused");
+    expect(state.interruptReason).toBeNull();
+    expect(state.elapsedSec).toBe(elapsedAtPause);
+  });
+
+  it("auto-finalizes as degraded, preserving data, when the grace window expires", async () => {
+    const sessionId = await startSession();
+    ble.setTelemetry(150, 90);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    ble.setBleLifecycle("disconnected");
+    await vi.advanceTimersByTimeAsync(3200);
+    expect(engine.getState().interruptReason).toBe("trainer-disconnected");
+
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1000); // past the grace window
+
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("degraded");
+    expect(state.interruptReason).toBeNull();
+    expect(sessionStatus(sessionId)).toBe("degraded");
+
+    // Everything recorded before the drop is still there and can be saved.
+    const summary = engine.finalizeSession(sessionId);
+    expect(summary.avgPowerWatts).toBe(150);
+  });
+
+  it("lets the rider end the workout during an interruption, keeping data up to the drop", async () => {
+    const sessionId = await startSession();
+    ble.setTelemetry(150, 90);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    ble.setBleLifecycle("disconnected");
+    await vi.advanceTimersByTimeAsync(3200);
+    expect(engine.getState().interruptReason).toBe("trainer-disconnected");
+
+    await engine.stop(sessionId);
+
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("stopped");
+    expect(state.interruptReason).toBeNull();
+
+    const summary = engine.finalizeSession(sessionId);
+    expect(summary.avgPowerWatts).toBe(150);
+
+    // No lingering grace timer to fire later.
+    await vi.advanceTimersByTimeAsync(5 * 60_000 + 1000);
+    expect(engine.getState().lifecycle).toBe("completed"); // finalizeSession's terminal state, unchanged
+  });
+
+  it("refuses a manual resume while the trainer is still disconnected", async () => {
+    const sessionId = await startSession();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    ble.setBleLifecycle("disconnected");
+    await vi.advanceTimersByTimeAsync(3200);
+
+    await expect(engine.resume(sessionId)).rejects.toThrow(/reconnect/i);
+    expect(engine.getState().lifecycle).toBe("paused");
+    expect(engine.getState().interruptReason).toBe("trainer-disconnected");
   });
 });
