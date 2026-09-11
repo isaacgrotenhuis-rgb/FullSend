@@ -24,10 +24,10 @@ import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
+import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
 import { ProfilePage, type SmokeCheck } from "./pages/ProfilePage";
-import { BankPage } from "./pages/BankPage";
 
-export type Page = "home" | "plan" | "profile" | "bank";
+export type Page = "home" | "plan" | "profile";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
@@ -78,6 +78,7 @@ export const App = (): ReactElement => {
     { workoutId: string; name: string; sessionType: SessionType | null } | null
   >(null);
   const [previewDetail, setPreviewDetail] = useState<WorkoutDetail | null>(null);
+  const [bankBrowserOpen, setBankBrowserOpen] = useState(false);
   const [liveWorkoutBusy, setLiveWorkoutBusy] = useState(false);
   const [liveWorkoutError, setLiveWorkoutError] = useState<string | null>(null);
   const [rampDurationInput, setRampDurationInput] = useState("15");
@@ -258,6 +259,7 @@ export const App = (): ReactElement => {
       await window.kickr.workoutBank.startAdhoc({ bankWorkoutId, deviceId, ftp: currentFtp });
       setActiveIntervals(intervals);
       setActiveWorkoutName(name);
+      setBankBrowserOpen(false);
       setPage("home");
     });
   };
@@ -622,7 +624,9 @@ export const App = (): ReactElement => {
 
   return (
     <>
-      {activeIntervals === null ? <Nav page={page} onNavigate={setPage} /> : null}
+      {activeIntervals === null ? (
+        <Nav page={page} onNavigate={setPage} />
+      ) : null}
 
       {status && activeIntervals === null ? (
         <div
@@ -694,6 +698,7 @@ export const App = (): ReactElement => {
           isWorkoutSessionActive={isWorkoutSessionActive}
           previewWorkoutForDay={previewWorkoutForDay}
           onDeletePlan={deletePlan}
+          onOpenWorkoutBank={() => setBankBrowserOpen(true)}
         />
       ) : page === "profile" ? (
         <ProfilePage
@@ -717,16 +722,6 @@ export const App = (): ReactElement => {
           }}
           versions={versions}
           auditEntries={auditEntries}
-        />
-      ) : page === "bank" ? (
-        <BankPage
-          ftp={currentFtp}
-          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
-          busy={liveWorkoutBusy}
-          error={liveWorkoutError}
-          onStartAdhoc={(bankWorkoutId, name, intervals) =>
-            void startBankWorkoutAdhoc(bankWorkoutId, name, intervals)
-          }
         />
       ) : (
         <HomePage
@@ -762,6 +757,19 @@ export const App = (): ReactElement => {
           error={liveWorkoutError}
           onStart={() => void confirmStartWorkout()}
           onBack={closeWorkoutPreview}
+        />
+      ) : null}
+
+      {activeIntervals === null && bankBrowserOpen ? (
+        <WorkoutBankBrowser
+          ftp={currentFtp}
+          connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
+          busy={liveWorkoutBusy}
+          error={liveWorkoutError}
+          onStartAdhoc={(bankWorkoutId, name, intervals) =>
+            void startBankWorkoutAdhoc(bankWorkoutId, name, intervals)
+          }
+          onClose={() => setBankBrowserOpen(false)}
         />
       ) : null}
     </>

@@ -11,32 +11,20 @@ export const Nav = ({ page, onNavigate }: Props): ReactElement => (
     <span className="nav-brand" style={{ cursor: "pointer" }} onClick={() => onNavigate("home")}>
       FULLSEND
     </span>
-    <span
-      onClick={() => onNavigate("plan")}
-      aria-current={page === "plan" ? "page" : undefined}
-      style={{
-        cursor: "pointer",
-        fontSize: 14,
-        color: page === "plan" ? "var(--color-accent)" : "inherit"
-      }}
-    >
-      Plan
-    </span>
-    <span
-      onClick={() => onNavigate("bank")}
-      aria-current={page === "bank" ? "page" : undefined}
-      style={{
-        cursor: "pointer",
-        fontSize: 14,
-        color: page === "bank" ? "var(--color-accent)" : "inherit"
-      }}
-    >
-      Bank
-    </span>
+
+    <div className="nav-seg">
+      <span className="nav-seg-opt" onClick={() => onNavigate("home")} aria-current={page === "home" ? "page" : undefined}>
+        Home
+      </span>
+      <span className="nav-seg-opt" onClick={() => onNavigate("plan")} aria-current={page === "plan" ? "page" : undefined}>
+        Plan
+      </span>
+    </div>
+
     <button
       className="btn btn-icon"
       style={{
-        marginLeft: "auto",
+        justifySelf: "end",
         background: page === "profile" ? "var(--color-accent)" : "var(--color-text)",
         color: "var(--color-bg)"
       }}
