@@ -23,7 +23,7 @@ import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { ProfilePage } from "./pages/ProfilePage";
-import { BankPage } from "./pages/BankPage";
+import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
 
 export type Page = "home" | "plan" | "profile";
 
