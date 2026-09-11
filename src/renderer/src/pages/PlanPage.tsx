@@ -67,6 +67,7 @@ type Props = {
     sessionType: SessionType | null
   ) => Promise<void>;
   onDeletePlan: () => Promise<void>;
+  onOpenWorkoutBank: () => void;
 };
 
 export const PlanPage = ({
@@ -77,7 +78,8 @@ export const PlanPage = ({
   liveWorkoutBusy,
   isWorkoutSessionActive,
   previewWorkoutForDay,
-  onDeletePlan
+  onDeletePlan,
+  onOpenWorkoutBank
 }: Props): ReactElement => {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
@@ -132,11 +134,16 @@ export const PlanPage = ({
     <main className="app">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: "var(--space-4)", marginBottom: "var(--space-2)" }}>
         <h1 style={{ margin: 0 }}>{hasPlan && currentPlanName ? currentPlanName : "Your plan"}</h1>
-        {hasPlan ? (
-          <button className="btn btn-primary" onClick={() => setAdaptOpen(true)}>
-            Edit plan
+        <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <button className="btn btn-accent-outline" onClick={onOpenWorkoutBank}>
+            Browse workout bank
           </button>
-        ) : null}
+          {hasPlan ? (
+            <button className="btn btn-primary" onClick={() => setAdaptOpen(true)}>
+              Edit plan
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {hasPlan ? (

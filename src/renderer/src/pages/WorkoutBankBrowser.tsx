@@ -163,7 +163,18 @@ export const WorkoutBankBrowser = ({
 
   const renderList = (): ReactElement => (
     <>
-      <div className="dialog-title">Workout Bank</div>
+      <div className="dialog-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)" }}>
+        <span>Workout Bank</span>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          aria-label="Close"
+          onClick={onClose}
+          style={{ padding: "2px 8px", fontSize: 18, lineHeight: 1 }}
+        >
+          ✕
+        </button>
+      </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -237,12 +248,6 @@ export const WorkoutBankBrowser = ({
           </button>
         ))}
       </div>
-
-      <div className="dialog-actions">
-        <button className="btn btn-secondary" onClick={onClose}>
-          Close
-        </button>
-      </div>
     </>
   );
 
@@ -265,14 +270,25 @@ export const WorkoutBankBrowser = ({
       <>
         <div
           className="dialog-title"
-          style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", flexWrap: "wrap" }}
         >
-          {detail ? (
-            <span className="tag tag-accent" style={{ textTransform: "capitalize" }}>
-              {zoneLabel(detail.primaryZone)}
-            </span>
-          ) : null}
-          <span>{detail?.name ?? "Loading…"}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
+            {detail ? (
+              <span className="tag tag-accent" style={{ textTransform: "capitalize" }}>
+                {zoneLabel(detail.primaryZone)}
+              </span>
+            ) : null}
+            <span>{detail?.name ?? "Loading…"}</span>
+          </div>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            aria-label="Close"
+            onClick={onClose}
+            style={{ padding: "2px 8px", fontSize: 18, lineHeight: 1 }}
+          >
+            ✕
+          </button>
         </div>
 
         {detailError ? (
