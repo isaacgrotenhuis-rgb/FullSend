@@ -6,7 +6,8 @@ import type {
   WorkoutSessionTelemetrySamples
 } from "@shared/ipc/contracts";
 import { formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
-import { SessionMetricChart } from "../SessionMetricChart";
+import { KMH_TO_MPH, useSpeedUnit } from "../speedUnit";
+import { WorkoutSummaryView } from "../WorkoutSummaryView";
 
 type Props = {
   activeIntervals: WorkoutInterval[];
@@ -45,17 +46,6 @@ const MetricTileValue = ({
   </div>
 );
 
-type SpeedUnit = "mph" | "kph";
-const SPEED_UNIT_STORAGE_KEY = "fullsend.speedUnit";
-const KMH_TO_MPH = 0.621371;
-
-const readStoredSpeedUnit = (): SpeedUnit => {
-  if (typeof window === "undefined") {
-    return "mph";
-  }
-  return window.localStorage.getItem(SPEED_UNIT_STORAGE_KEY) === "kph" ? "kph" : "mph";
-};
-
 export const RidePage = ({
   activeIntervals,
   activeWorkoutName,
@@ -78,13 +68,9 @@ export const RidePage = ({
   const [postToStrava, setPostToStrava] = useState(true);
   const [summaryStage, setSummaryStage] = useState<"none" | "pending" | "saved">("none");
   const [savedSummary, setSavedSummary] = useState<WorkoutSessionSummary | null>(null);
-  const [speedUnit, setSpeedUnit] = useState<SpeedUnit>(readStoredSpeedUnit);
+  const [speedUnit, setSpeedUnit] = useSpeedUnit();
   const [telemetrySeries, setTelemetrySeries] = useState<WorkoutSessionTelemetrySamples | null>(null);
   const [telemetryLoading, setTelemetryLoading] = useState(false);
-
-  useEffect(() => {
-    window.localStorage.setItem(SPEED_UNIT_STORAGE_KEY, speedUnit);
-  }, [speedUnit]);
 
   const totalDurationSec = activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0);
   const elapsedSec = workoutSessionState?.elapsedSec ?? 0;
@@ -103,14 +89,6 @@ export const RidePage = ({
         ? ((liveDistanceMeters / 1000) * KMH_TO_MPH).toFixed(2)
         : (liveDistanceMeters / 1000).toFixed(2)
       : null;
-
-  const summaryDistanceMeters = savedSummary?.distanceMeters ?? null;
-  const displaySummaryDistance =
-    summaryDistanceMeters !== null
-      ? speedUnit === "mph"
-        ? `${((summaryDistanceMeters / 1000) * KMH_TO_MPH).toFixed(2)} mi`
-        : `${(summaryDistanceMeters / 1000).toFixed(2)} km`
-      : "—";
 
   const currentKind = liveMetrics?.blockKind ?? (currentIndex !== null ? activeIntervals[currentIndex]?.kind : undefined);
   const intervalPositionLabel =
@@ -157,7 +135,26 @@ export const RidePage = ({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "var(--space-4)" }}>
         <div>
           <h6 style={{ color: "var(--color-accent-700)", marginBottom: 2 }}>{currentKind ? blockKindLabel(currentKind) : "Workout"}</h6>
-          <h2 style={{ margin: 0 }}>{activeWorkoutName ?? "Workout"}</h2>
+          <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+            {activeWorkoutName ?? "Workout"}
+            {isPaused ? (
+              <span
+                style={{
+                  fontFamily: "var(--font-heading)",
+                  fontSize: 12,
+                  fontWeight: 800,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  padding: "2px 8px",
+                  borderRadius: 999,
+                  background: "color-mix(in srgb, var(--color-accent-700) 15%, transparent)",
+                  color: "var(--color-accent-700)"
+                }}
+              >
+                Paused
+              </span>
+            ) : null}
+          </h2>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-6)" }}>
           <div style={{ textAlign: "right" }}>
@@ -190,8 +187,8 @@ export const RidePage = ({
           marginBottom: "var(--space-6)"
         }}
       >
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
-          <h6>Target power</h6>
+        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)", opacity: isPaused ? 0.45 : 1 }}>
+          <h6>Target power{isPaused ? " · holding" : ""}</h6>
           <MetricTileValue value={liveMetrics?.targetPowerWatts ?? null} unit="W" />
         </div>
         <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
@@ -391,74 +388,13 @@ export const RidePage = ({
               </>
             ) : (
               <>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 2, background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
-                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                    <h6>Duration</h6>
-                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
-                      {formatClock(savedSummary?.durationSec ?? elapsedSec)}
-                    </div>
-                  </div>
-                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                    <h6>Avg power</h6>
-                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
-                      {savedSummary?.avgPowerWatts != null ? `${savedSummary.avgPowerWatts} W` : "—"}
-                    </div>
-                  </div>
-                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                    <h6>Avg cadence</h6>
-                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
-                      {savedSummary?.avgCadenceRpm != null ? `${savedSummary.avgCadenceRpm} rpm` : "—"}
-                    </div>
-                  </div>
-                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                    <h6>Avg HR</h6>
-                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
-                      {savedSummary?.avgHeartRateBpm != null ? `${savedSummary.avgHeartRateBpm} bpm` : "—"}
-                    </div>
-                  </div>
-                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                    <h6>Distance</h6>
-                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
-                      {displaySummaryDistance}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="hr" style={{ margin: "var(--space-2) 0" }} />
-                {telemetryLoading ? (
-                  <div style={{ fontSize: 12, color: "color-mix(in srgb, var(--color-text) 55%, transparent)", padding: "var(--space-2) 0" }}>
-                    Loading charts…
-                  </div>
-                ) : telemetrySeries && telemetrySeries.length > 0 ? (
-                  <>
-                    <SessionMetricChart
-                      label="Speed"
-                      unit={speedUnit}
-                      color="var(--color-accent-700)"
-                      samples={telemetrySeries.map((sample) => ({
-                        elapsedSec: sample.elapsedSec,
-                        value:
-                          sample.actualSpeedKmh !== null
-                            ? speedUnit === "mph"
-                              ? sample.actualSpeedKmh * KMH_TO_MPH
-                              : sample.actualSpeedKmh
-                            : null
-                      }))}
-                    />
-                    <SessionMetricChart
-                      label="Power output"
-                      unit="W"
-                      color="var(--color-accent)"
-                      samples={telemetrySeries.map((sample) => ({ elapsedSec: sample.elapsedSec, value: sample.actualPowerWatts }))}
-                    />
-                    <SessionMetricChart
-                      label="Heart rate"
-                      unit="bpm"
-                      color="var(--color-accent-2)"
-                      samples={telemetrySeries.map((sample) => ({ elapsedSec: sample.elapsedSec, value: sample.actualHeartRateBpm }))}
-                    />
-                    <div className="hr" style={{ margin: "var(--space-2) 0" }} />
-                  </>
+                {savedSummary ? (
+                  <WorkoutSummaryView
+                    summary={savedSummary}
+                    telemetry={telemetrySeries}
+                    telemetryLoading={telemetryLoading}
+                    speedUnit={speedUnit}
+                  />
                 ) : null}
                 <label className="radio" style={{ gap: 10 }}>
                   <input

@@ -42,6 +42,9 @@ const api: KickrDesktopApi = {
     setRampDuration: async (request) => ipcRenderer.invoke(ipcChannels.workout.setRampDuration, request),
     getSessionState: async () => ipcRenderer.invoke(ipcChannels.workout.getSessionState, {}),
     getSessionTelemetry: async (request) => ipcRenderer.invoke(ipcChannels.workout.getSessionTelemetry, request),
+    listCompletedSessions: async (request) =>
+      ipcRenderer.invoke(ipcChannels.workout.listCompletedSessions, request ?? {}),
+    getSessionRecap: async (request) => ipcRenderer.invoke(ipcChannels.workout.getSessionRecap, request),
     subscribeSession: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, rawState: WorkoutSessionState) => {
         listener(workoutSessionStateSchema.parse(rawState));
@@ -85,8 +88,6 @@ const api: KickrDesktopApi = {
     generate: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.generate, request),
     adapt: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.adapt, request),
     delete: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.delete, request),
-    listVersions: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.listVersions, request),
-    listAuditEntries: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.listAuditEntries, request),
     getCurrent: async () => ipcRenderer.invoke(ipcChannels.eventPlan.getCurrent, {})
   },
   dashboard: {

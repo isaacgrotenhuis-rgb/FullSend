@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { IntervalScheduler } from "@main/workout/intervalScheduler";
 import type { BleService } from "@main/ble/types";
 import type {
+  BleState,
   StartWorkoutSessionRequest,
   WorkoutLiveMetrics,
   WorkoutSessionLifecycle,
@@ -105,6 +106,12 @@ export class ErgWorkoutEngine {
   private readonly minIntensityMultiplier = 0.5;
   private readonly maxIntensityMultiplier = 1.5;
   private readonly maxRampDurationSec = 60;
+  // A live tile (power/cadence/speed/HR) reflects a real sensor reading only while a
+  // fresh sample keeps arriving. Trainers and straps go quiet when you stop pedaling
+  // or the signal drops rather than sending an explicit 0, so once a source hasn't
+  // reported for this long we surface it as "no reading" (null → em dash) instead of
+  // freezing the last value. Matters most while paused, where nothing else moves.
+  private readonly staleTelemetryMs = 3000;
   private rampBlockIndex: number | null = null;
   private rampFromWatts: number | null = null;
   private forceRampReset = false;
@@ -114,7 +121,11 @@ export class ErgWorkoutEngine {
     speedKmh: number | null;
     distanceMeters: number | null;
   } | null = null;
+  private latestTelemetryAtMs: number | null = null;
   private latestHeartRateBpm: number | null = null;
+  private latestHeartRateAtMs: number | null = null;
+  private lastSeenTelemetryRef: BleState["liveTelemetry"] = null;
+  private lastSeenHeartRateRef: BleState["heartRate"] = null;
   // Trainers may report a cumulative odometer via FTMS (source of truth for this ride
   // once seen); many never set that optional flag, so distance falls back to
   // integrating speed live, tick by tick. Both paths are baselined to the first
@@ -132,15 +143,28 @@ export class ErgWorkoutEngine {
     this.bleService = bleService;
     this.persistence = persistence;
     this.bleService.subscribeState((bleState) => {
-      this.latestTelemetry = bleState.liveTelemetry
-        ? {
-            powerWatts: bleState.liveTelemetry.powerWatts,
-            cadenceRpm: bleState.liveTelemetry.cadenceRpm,
-            speedKmh: bleState.liveTelemetry.speedKmh,
-            distanceMeters: bleState.liveTelemetry.distanceMeters
-          }
-        : null;
-      this.latestHeartRateBpm = bleState.heartRate?.bpm ?? null;
+      const nowMs = Date.now();
+      // subscribeState fires on every BLE state change, not only telemetry updates.
+      // The BLE layer swaps in a fresh liveTelemetry / heartRate object for each new
+      // sample and leaves the reference untouched otherwise, so an identity change is
+      // our "a new reading landed" signal — used to age out stale tiles below.
+      if (bleState.liveTelemetry !== this.lastSeenTelemetryRef) {
+        this.lastSeenTelemetryRef = bleState.liveTelemetry ?? null;
+        this.latestTelemetry = bleState.liveTelemetry
+          ? {
+              powerWatts: bleState.liveTelemetry.powerWatts,
+              cadenceRpm: bleState.liveTelemetry.cadenceRpm,
+              speedKmh: bleState.liveTelemetry.speedKmh,
+              distanceMeters: bleState.liveTelemetry.distanceMeters
+            }
+          : null;
+        this.latestTelemetryAtMs = bleState.liveTelemetry ? nowMs : null;
+      }
+      if (bleState.heartRate !== this.lastSeenHeartRateRef) {
+        this.lastSeenHeartRateRef = bleState.heartRate ?? null;
+        this.latestHeartRateBpm = bleState.heartRate?.bpm ?? null;
+        this.latestHeartRateAtMs = bleState.heartRate ? nowMs : null;
+      }
       if (
         this.state.sessionId &&
         (this.state.lifecycle === "running" || this.state.lifecycle === "paused") &&
@@ -268,8 +292,71 @@ export class ErgWorkoutEngine {
     this.scheduler = null;
   }
 
+  // A live actual is real only while its sensor keeps reporting. Once a source has
+  // been silent past staleTelemetryMs — you stopped pedaling, or the signal dropped —
+  // surface it as "no reading" (null) rather than the frozen last value. The held
+  // last-known reading stays in this.latestTelemetry so it can recover instantly.
+  private resolveActuals(nowMs: number): {
+    telemetry: ErgWorkoutEngine["latestTelemetry"];
+    powerWatts: number | null;
+    cadenceRpm: number | null;
+    speedKmh: number | null;
+    heartRateBpm: number | null;
+  } {
+    const telemetryFresh =
+      this.latestTelemetryAtMs !== null && nowMs - this.latestTelemetryAtMs <= this.staleTelemetryMs;
+    const heartRateFresh =
+      this.latestHeartRateAtMs !== null && nowMs - this.latestHeartRateAtMs <= this.staleTelemetryMs;
+    const telemetry = telemetryFresh ? this.latestTelemetry : null;
+    return {
+      telemetry,
+      powerWatts: telemetry?.powerWatts ?? null,
+      cadenceRpm: telemetry?.cadenceRpm ?? null,
+      speedKmh: telemetry?.speedKmh ?? null,
+      heartRateBpm: heartRateFresh ? this.latestHeartRateBpm : null
+    };
+  }
+
+  // While paused, keep the live tiles (HR, cadence, power, speed) tracking the sensor
+  // stream, but hold everything the rider controls: elapsed clock, interval cursor,
+  // and target tiles stay put, and no ERG control-point write goes out. Target tiles
+  // hold their last programmed value; live tiles that go quiet fall to "no reading".
+  private tickPaused(): void {
+    if (!this.scheduler) {
+      return;
+    }
+    const nowMs = Date.now();
+    const frozenElapsedSec = this.lastElapsedSec;
+    const held = this.state.liveMetrics;
+    const cursor = this.scheduler.locate(frozenElapsedSec);
+    const actuals = this.resolveActuals(nowMs);
+    const metrics: WorkoutLiveMetrics = {
+      timestamp: new Date().toISOString(),
+      elapsedSec: frozenElapsedSec,
+      blockIndex: held?.blockIndex ?? cursor?.index ?? this.state.currentIntervalIndex ?? 0,
+      blockKind: held?.blockKind ?? cursor?.interval.kind ?? "work",
+      targetPowerWatts: held?.targetPowerWatts ?? null,
+      targetResistancePercent: held?.targetResistancePercent ?? null,
+      targetCadenceRpm: held?.targetCadenceRpm ?? cursor?.interval.targetCadenceRpm ?? null,
+      actualPowerWatts: actuals.powerWatts,
+      actualCadenceRpm: actuals.cadenceRpm,
+      actualHeartRateBpm: actuals.heartRateBpm,
+      actualSpeedKmh: actuals.speedKmh,
+      // Distance is frozen — a paused rider isn't covering ground.
+      actualDistanceMeters: held?.actualDistanceMeters ?? (this.hasDistanceReading ? this.sessionDistanceMeters : null)
+    };
+    this.patchState({ liveMetrics: metrics });
+  }
+
   private async tick(): Promise<void> {
-    if (!this.scheduler || this.state.lifecycle !== "running" || this.tickInFlight) {
+    if (!this.scheduler || this.tickInFlight) {
+      return;
+    }
+    if (this.state.lifecycle === "paused") {
+      this.tickPaused();
+      return;
+    }
+    if (this.state.lifecycle !== "running") {
       return;
     }
     this.tickInFlight = true;
@@ -296,6 +383,12 @@ export class ErgWorkoutEngine {
       const cursor = this.scheduler.locate(elapsedSec);
 
       if (!cursor) {
+        // The scheduler reports "past the end" the instant elapsed reaches the
+        // total duration, so this tick's elapsedSec (e.g. 3960 for a 66:00
+        // workout) is never patched into state before we bail. Snap state up to
+        // the full duration here so the recorded/displayed length is 66:00, not
+        // 65:59 — this value also feeds Strava elapsed_time and "actually did".
+        this.patchState({ elapsedSec: this.scheduler.getTotalDurationSec() });
         await this.completeSession("completed", "all-intervals-finished");
         await this.safeErgStop();
         return;
@@ -331,6 +424,7 @@ export class ErgWorkoutEngine {
         scaledTargetPowerWatts = Math.round(this.rampFromWatts + (blockTargetPowerWatts - this.rampFromWatts) * progress);
       }
 
+      const actuals = this.resolveActuals(nowMs);
       const metrics: WorkoutLiveMetrics = {
         timestamp: new Date().toISOString(),
         elapsedSec,
@@ -342,11 +436,11 @@ export class ErgWorkoutEngine {
         // Free-ride blocks (targetPowerWatts null + targetResistancePercent 0) fall
         // through applyTargets() to FTMS Set Target Resistance Level (slope mode).
         targetCadenceRpm: cursor.interval.targetCadenceRpm ?? null,
-        actualPowerWatts: this.latestTelemetry?.powerWatts ?? null,
-        actualCadenceRpm: this.latestTelemetry?.cadenceRpm ?? null,
-        actualHeartRateBpm: this.latestHeartRateBpm,
-        actualSpeedKmh: this.latestTelemetry?.speedKmh ?? null,
-        actualDistanceMeters: this.updateDistance(deltaSec)
+        actualPowerWatts: actuals.powerWatts,
+        actualCadenceRpm: actuals.cadenceRpm,
+        actualHeartRateBpm: actuals.heartRateBpm,
+        actualSpeedKmh: actuals.speedKmh,
+        actualDistanceMeters: this.updateDistance(deltaSec, actuals.telemetry)
       };
 
       let applyTargetsError: string | null = null;
@@ -381,8 +475,8 @@ export class ErgWorkoutEngine {
     }
   }
 
-  private updateDistance(deltaSec: number): number | null {
-    const trainerDistanceMeters = this.latestTelemetry?.distanceMeters ?? null;
+  private updateDistance(deltaSec: number, telemetry: ErgWorkoutEngine["latestTelemetry"]): number | null {
+    const trainerDistanceMeters = telemetry?.distanceMeters ?? null;
     if (trainerDistanceMeters !== null) {
       if (this.trainerDistanceBaselineMeters === null) {
         this.trainerDistanceBaselineMeters = trainerDistanceMeters;
@@ -390,7 +484,7 @@ export class ErgWorkoutEngine {
       this.sessionDistanceMeters = Math.max(0, trainerDistanceMeters - this.trainerDistanceBaselineMeters);
       this.hasDistanceReading = true;
     } else if (this.trainerDistanceBaselineMeters === null) {
-      const speedKmh = this.latestTelemetry?.speedKmh ?? null;
+      const speedKmh = telemetry?.speedKmh ?? null;
       if (speedKmh !== null) {
         this.fallbackDistanceMeters += (speedKmh * 1000 * deltaSec) / 3600;
         this.sessionDistanceMeters = this.fallbackDistanceMeters;
@@ -524,7 +618,9 @@ export class ErgWorkoutEngine {
     }
     this.pausedAtMs = Date.now();
     this.expectedNextTickAtMs = null;
-    this.stopTicking();
+    // The tick timer keeps running through a pause so live tiles (HR, cadence, power)
+    // stay current; the loop routes to tickPaused(), which holds the clock, cursor,
+    // and targets. It's torn down for real in completeSession()/stop().
     this.persistence.workoutSessions.updateStatus({
       id: sessionId,
       status: "paused"
@@ -614,6 +710,11 @@ export class ErgWorkoutEngine {
         avgPowerWatts,
         avgCadenceRpm,
         avgHeartRateBpm,
+        // Persisted so historical reads (ride history / recap) don't have to re-scan
+        // telemetry. Older completed rows predate these keys — readers fall back to a
+        // telemetry MAX/AVG for those.
+        avgSpeedKmh,
+        distanceMeters,
         savedAt: new Date().toISOString()
       })
     });

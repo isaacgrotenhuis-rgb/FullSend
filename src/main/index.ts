@@ -1,10 +1,12 @@
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, powerSaveBlocker } from "electron";
 import { join } from "node:path";
 import { registerIpcHandlers } from "@main/ipc/registerIpcHandlers";
+import { DisplaySleepGuard } from "@main/power/DisplaySleepGuard";
 import { BleService } from "@main/ble/BleService";
 import { DatabaseService } from "@main/database/DatabaseService";
 import { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
+import { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import { seedWorkoutBankIfEmpty } from "@main/workout/seedWorkoutBank";
 import { createPlanAdaptationService } from "@main/plans/PlanAdaptationService";
@@ -47,6 +49,7 @@ const bootstrap = async (): Promise<void> => {
     workoutSessionTelemetry: databaseService.repositories.workoutSessionTelemetry
   });
   const workoutLibraryService = new WorkoutLibraryService(databaseService.repositories);
+  const workoutRecapService = new WorkoutRecapService(databaseService.repositories);
   const workoutBankService = new WorkoutBankService(databaseService.repositories);
   seedWorkoutBankIfEmpty(workoutBankService);
   const adaptationService = createPlanAdaptationService();
@@ -57,6 +60,12 @@ const bootstrap = async (): Promise<void> => {
   );
   const progressDashboardService = new ProgressDashboardService(databaseService.repositories);
   const stravaService = new StravaService(databaseService.repositories);
+
+  // Keep the Mac display awake while a workout is running or paused.
+  const displaySleepGuard = new DisplaySleepGuard(powerSaveBlocker);
+  const unsubscribeDisplaySleepGuard = workoutEngine.subscribe((state) => {
+    displaySleepGuard.handleState(state);
+  });
   const cleanupIpcHandlers = registerIpcHandlers(
     bleService,
     workoutEngine,
@@ -64,7 +73,8 @@ const bootstrap = async (): Promise<void> => {
     workoutBankService,
     eventPlanService,
     progressDashboardService,
-    stravaService
+    stravaService,
+    workoutRecapService
   );
 
   await createWindow();
@@ -76,6 +86,8 @@ const bootstrap = async (): Promise<void> => {
   });
 
   app.on("before-quit", () => {
+    unsubscribeDisplaySleepGuard();
+    displaySleepGuard.dispose();
     cleanupIpcHandlers();
     databaseService.close();
   });

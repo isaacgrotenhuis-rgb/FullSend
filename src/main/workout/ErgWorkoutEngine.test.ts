@@ -67,10 +67,10 @@ class FakeBleService implements BleService {
   async discoverFtms() {
     return { deviceId: "dev1", serviceUuid: "1826", characteristics: [], ergControlAvailable: true, discoveredAt: new Date().toISOString() };
   }
-  async applyErgTarget(): Promise<void> {}
+  applyErgTarget = vi.fn(async (): Promise<void> => {});
   async safeErgStop(): Promise<void> {}
-  async startOrResume(): Promise<void> {}
-  async stopOrPause(): Promise<void> {}
+  startOrResume = vi.fn(async (): Promise<void> => {});
+  stopOrPause = vi.fn(async (): Promise<void> => {});
   subscribeState(listener: (state: BleState) => void): () => void {
     this.listener = listener;
     listener(this.state);
@@ -152,6 +152,9 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     expect(summaryJson.avgPowerWatts).toBe(150);
     expect(summaryJson.avgCadenceRpm).toBe(85);
     expect(summaryJson.avgHeartRateBpm).toBe(130);
+    // Speed/distance are persisted too now, so ride-history reads don't re-scan telemetry.
+    expect(summaryJson.avgSpeedKmh).toBe(null);
+    expect(summaryJson.distanceMeters).toBe(null);
 
     const secondCall = engine.finalizeSession(sessionId);
     expect(secondCall).toEqual(summary);
@@ -220,6 +223,9 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     // engine auto-completes without any user action.
     await vi.advanceTimersByTimeAsync(1000);
     expect(engine.getState().lifecycle).toBe("completed");
+    // Natural completion snaps elapsed to the full workout length (2s here), not
+    // the last in-bounds tick (1s) — a 66:00 workout records 66:00, not 65:59.
+    expect(engine.getState().elapsedSec).toBe(2);
 
     const preFinalizeRow = db.prepare("SELECT status FROM workout_sessions WHERE id = ?").get(sessionId) as {
       status: string;
@@ -227,7 +233,13 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     expect(preFinalizeRow.status).toBe("completed");
 
     const summary = engine.finalizeSession(sessionId);
+    expect(summary.durationSec).toBe(2);
     expect(summary.avgPowerWatts).toBe(110);
+
+    const finalizedRow = db.prepare("SELECT summary_json FROM workout_sessions WHERE id = ?").get(sessionId) as {
+      summary_json: string;
+    };
+    expect(JSON.parse(finalizedRow.summary_json).elapsedSec).toBe(2);
 
     const row = db.prepare("SELECT summary_json FROM workout_sessions WHERE id = ?").get(sessionId) as {
       summary_json: string;
@@ -325,5 +337,123 @@ describe("ErgWorkoutEngine finalize/discard", () => {
     expect(metrics?.targetResistancePercent).toBe(0);
 
     await engine.stop(sessionId);
+  });
+});
+
+describe("ErgWorkoutEngine pause freezes targets, not live metrics", () => {
+  let db: Database.Database;
+  let repos: Repositories;
+  let ble: FakeBleService;
+  let engine: ErgWorkoutEngine;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    applySchema(db);
+    db.prepare("INSERT INTO devices (id, name) VALUES ('dev1', 'Test Trainer')").run();
+    repos = new Repositories(db);
+    ble = new FakeBleService();
+    engine = new ErgWorkoutEngine(ble, {
+      workoutSessions: repos.workoutSessions,
+      workoutSessionEvents: repos.workoutSessionEvents,
+      workoutSessionTelemetry: repos.workoutSessionTelemetry
+    });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    db.close();
+  });
+
+  const startFlatSession = async (): Promise<string> => {
+    const sessionId = await engine.start({
+      workoutId: null,
+      deviceId: "dev1",
+      intervals: [{ kind: "work", durationSec: 600, targetPowerWatts: 150, targetResistancePercent: null }]
+    });
+    engine.setRampDuration(sessionId, 0); // no block-entry smoothing: target is a flat 150 W
+    return sessionId;
+  };
+
+  it("holds the clock and target tiles while paused, but keeps live HR/cadence flowing", async () => {
+    ble.setTelemetry(150, 88);
+    ble.setHeartRate(120);
+    const sessionId = await startFlatSession();
+
+    await vi.advanceTimersByTimeAsync(3000);
+    const elapsedAtPause = engine.getState().elapsedSec;
+    expect(elapsedAtPause).toBeGreaterThanOrEqual(2);
+    const targetAtPause = engine.getState().liveMetrics?.targetPowerWatts ?? null;
+    expect(targetAtPause).toBe(150);
+    const ergWritesBeforePause = ble.applyErgTarget.mock.calls.length;
+
+    await engine.pause(sessionId);
+
+    // Still on the bike: strap and cranks keep reporting after the pause.
+    ble.setHeartRate(134);
+    ble.setTelemetry(120, 72);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("paused");
+    expect(state.elapsedSec).toBe(elapsedAtPause); // clock held
+    expect(state.liveMetrics?.targetPowerWatts).toBe(targetAtPause); // target tile held
+    expect(state.liveMetrics?.actualHeartRateBpm).toBe(134); // live HR still updating
+    expect(state.liveMetrics?.actualCadenceRpm).toBe(72);
+    expect(state.liveMetrics?.actualPowerWatts).toBe(120);
+    expect(ble.applyErgTarget.mock.calls.length).toBe(ergWritesBeforePause); // no ERG writes while paused
+  });
+
+  it("drops live power/cadence to a no-reading state when the sensors go quiet while paused", async () => {
+    ble.setTelemetry(150, 88);
+    ble.setHeartRate(120);
+    const sessionId = await startFlatSession();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    await engine.pause(sessionId);
+
+    // Rider stops pedalling and takes the strap off: no new samples arrive.
+    await vi.advanceTimersByTimeAsync(4000);
+
+    const metrics = engine.getState().liveMetrics;
+    expect(metrics?.actualPowerWatts).toBeNull();
+    expect(metrics?.actualCadenceRpm).toBeNull();
+    expect(metrics?.actualSpeedKmh).toBeNull();
+    expect(metrics?.actualHeartRateBpm).toBeNull();
+    // Target tile still holds its programmed value.
+    expect(metrics?.targetPowerWatts).toBe(150);
+  });
+
+  it("resumes the elapsed clock from where it stopped, not inflated by pause time", async () => {
+    ble.setTelemetry(150, 88);
+    const sessionId = await startFlatSession();
+    await vi.advanceTimersByTimeAsync(3000);
+    const elapsedAtPause = engine.getState().elapsedSec;
+
+    await engine.pause(sessionId);
+    await vi.advanceTimersByTimeAsync(30_000); // long pause
+    expect(engine.getState().elapsedSec).toBe(elapsedAtPause);
+
+    await engine.resume(sessionId);
+    ble.setTelemetry(150, 88);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    const elapsedAfterResume = engine.getState().elapsedSec;
+    expect(engine.getState().lifecycle).toBe("running");
+    expect(elapsedAfterResume).toBeGreaterThanOrEqual(elapsedAtPause + 2);
+    expect(elapsedAfterResume).toBeLessThan(elapsedAtPause + 4); // pause seconds not counted
+  });
+
+  it("keeps live tiles honest while running too: coasting mid-interval reads as no power", async () => {
+    ble.setTelemetry(160, 90);
+    await startFlatSession();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(engine.getState().liveMetrics?.actualPowerWatts).toBe(160);
+
+    // No fresh telemetry for several seconds while still "running".
+    await vi.advanceTimersByTimeAsync(4000);
+    expect(engine.getState().liveMetrics?.actualPowerWatts).toBeNull();
+    expect(engine.getState().liveMetrics?.actualCadenceRpm).toBeNull();
   });
 });

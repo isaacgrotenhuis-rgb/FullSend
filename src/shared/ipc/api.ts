@@ -20,10 +20,6 @@ import type {
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
   DeleteEventPlanRequest,
-  PlanVersionsRequest,
-  EventPlanVersion,
-  PlanAuditEntriesRequest,
-  EventPlanAuditEntry,
   DashboardMetricsRequest,
   DashboardMetrics,
   StravaConnectRequest,
@@ -48,6 +44,10 @@ import type {
   WorkoutSessionState,
   WorkoutSessionSummary,
   WorkoutSessionTelemetrySamples,
+  ListCompletedSessionsRequest,
+  CompletedSessionSummary,
+  SessionRecapRequest,
+  SessionRecap,
   AssignWorkoutToPlanDayRequest,
   UnassignWorkoutFromPlanDayRequest,
   BankWorkoutSummary,
@@ -87,6 +87,10 @@ export interface KickrDesktopApi {
     setRampDuration: (request: WorkoutSessionSetRampDurationRequest) => Promise<OkResult>;
     getSessionState: () => Promise<WorkoutSessionState>;
     getSessionTelemetry: (request: WorkoutSessionControlRequest) => Promise<WorkoutSessionTelemetrySamples>;
+    listCompletedSessions: (
+      request?: Partial<ListCompletedSessionsRequest>
+    ) => Promise<CompletedSessionSummary[]>;
+    getSessionRecap: (request: SessionRecapRequest) => Promise<SessionRecap>;
     subscribeSession: (listener: (state: WorkoutSessionState) => void) => () => void;
   };
   workoutLibrary: {
@@ -116,8 +120,6 @@ export interface KickrDesktopApi {
     generate: (request: GenerateEventPlanRequest) => Promise<GenerateEventPlanResult>;
     adapt: (request: AdaptEventPlanRequest) => Promise<AdaptEventPlanResult>;
     delete: (request: DeleteEventPlanRequest) => Promise<OkResult>;
-    listVersions: (request: PlanVersionsRequest) => Promise<EventPlanVersion[]>;
-    listAuditEntries: (request: PlanAuditEntriesRequest) => Promise<EventPlanAuditEntry[]>;
     getCurrent: () => Promise<GetCurrentEventPlanResult>;
   };
   dashboard: {

@@ -36,6 +36,8 @@ export const ipcChannels = {
     setRampDuration: "workout:set-ramp-duration",
     getSessionState: "workout:get-session-state",
     getSessionTelemetry: "workout:get-session-telemetry",
+    listCompletedSessions: "workout:list-completed-sessions",
+    getSessionRecap: "workout:get-session-recap",
     subscribeSession: "workout:subscribe-session",
     unsubscribeSession: "workout:unsubscribe-session",
     sessionStateChangedEvent: "workout:session-state-changed"
@@ -67,8 +69,6 @@ export const ipcChannels = {
     generate: "event-plan:generate",
     adapt: "event-plan:adapt",
     delete: "event-plan:delete",
-    listVersions: "event-plan:list-versions",
-    listAuditEntries: "event-plan:list-audit-entries",
     getCurrent: "event-plan:get-current"
   },
   dashboard: {
@@ -401,6 +401,36 @@ export const workoutSessionTelemetrySamplesSchema = z.array(
   })
 );
 
+export const listCompletedSessionsRequestSchema = z.object({
+  limit: z.number().int().min(1).max(50).default(10)
+});
+
+// One row in the Home "recent activity" list. Scalar stats come from the persisted
+// workout_sessions.summary_json (see ErgWorkoutEngine.finalizeSession); plannedIntervals
+// are the compiled workout blocks used to draw the card's timeline thumbnail (empty for
+// ad-hoc / free rides that have no workout_id).
+export const completedSessionSummarySchema = z.object({
+  sessionId: z.string().min(1),
+  workoutId: z.string().min(1).nullable(),
+  workoutName: z.string().nullable(),
+  startedAt: z.string(),
+  durationSec: z.number().int().min(0),
+  avgPowerWatts: z.number().nullable(),
+  distanceMeters: z.number().nullable(),
+  plannedIntervals: z.array(workoutIntervalSchema)
+});
+export const completedSessionSummariesSchema = z.array(completedSessionSummarySchema);
+
+export const sessionRecapRequestSchema = z.object({
+  sessionId: z.string().min(1)
+});
+
+export const sessionRecapSchema = z.object({
+  summary: workoutSessionSummarySchema,
+  plannedIntervals: z.array(workoutIntervalSchema),
+  telemetry: workoutSessionTelemetrySamplesSchema
+});
+
 export const workoutSummarySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -578,14 +608,6 @@ export const deleteEventPlanRequestSchema = z.object({
   planId: z.string().min(1)
 });
 
-export const planVersionsRequestSchema = z.object({
-  planId: z.string().min(1)
-});
-
-export const planAuditEntriesRequestSchema = z.object({
-  planId: z.string().min(1)
-});
-
 export const eventPlanVersionSchema = z.object({
   id: z.string().min(1),
   planId: z.string().min(1),
@@ -724,8 +746,6 @@ export const okResultSchema = z.object({
 export const bleDeviceListResultSchema = z.array(bleDeviceSchema);
 export const workoutSummariesSchema = z.array(workoutSummarySchema);
 export const planWeekSummariesSchema = z.array(planWeekSummarySchema);
-export const eventPlanVersionsSchema = z.array(eventPlanVersionSchema);
-export const eventPlanAuditEntriesSchema = z.array(eventPlanAuditEntrySchema);
 export const dashboardMetricsResultSchema = dashboardMetricsSchema;
 export const stravaSyncEventsSchema = z.array(stravaSyncEventSummarySchema);
 
@@ -766,6 +786,10 @@ export type WorkoutSessionState = z.infer<typeof workoutSessionStateSchema>;
 export type WorkoutSessionStartResult = z.infer<typeof workoutSessionStartResultSchema>;
 export type WorkoutSessionSummary = z.infer<typeof workoutSessionSummarySchema>;
 export type WorkoutSessionTelemetrySamples = z.infer<typeof workoutSessionTelemetrySamplesSchema>;
+export type ListCompletedSessionsRequest = z.infer<typeof listCompletedSessionsRequestSchema>;
+export type CompletedSessionSummary = z.infer<typeof completedSessionSummarySchema>;
+export type SessionRecapRequest = z.infer<typeof sessionRecapRequestSchema>;
+export type SessionRecap = z.infer<typeof sessionRecapSchema>;
 export type WorkoutSummary = z.infer<typeof workoutSummarySchema>;
 export type CreateWorkoutRequest = z.infer<typeof createWorkoutRequestSchema>;
 export type UpdateWorkoutRequest = z.infer<typeof updateWorkoutRequestSchema>;
@@ -794,8 +818,6 @@ export type EventPlanInput = z.infer<typeof eventPlanInputSchema>;
 export type GenerateEventPlanRequest = z.infer<typeof generateEventPlanRequestSchema>;
 export type AdaptEventPlanRequest = z.infer<typeof adaptEventPlanRequestSchema>;
 export type DeleteEventPlanRequest = z.infer<typeof deleteEventPlanRequestSchema>;
-export type PlanVersionsRequest = z.infer<typeof planVersionsRequestSchema>;
-export type PlanAuditEntriesRequest = z.infer<typeof planAuditEntriesRequestSchema>;
 export type EventPlanVersion = z.infer<typeof eventPlanVersionSchema>;
 export type EventPlanAuditEntry = z.infer<typeof eventPlanAuditEntrySchema>;
 export type GenerateEventPlanResult = z.infer<typeof generateEventPlanResultSchema>;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { BleService } from "@main/ble/types";
 import type { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import type { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
+import type { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import type { EventPlanService } from "@main/plans/EventPlanService";
 import type { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
@@ -12,8 +13,6 @@ import {
   adaptEventPlanRequestSchema,
   assignWorkoutToPlanDayRequestSchema,
   bleDeviceListResultSchema,
-  eventPlanAuditEntriesSchema,
-  eventPlanVersionsSchema,
   generateEventPlanRequestSchema,
   generateEventPlanResultSchema,
   getCurrentEventPlanResultSchema,
@@ -52,9 +51,7 @@ import {
   ipcChannels,
   intervalIdResultSchema,
   okResultSchema,
-  planAuditEntriesRequestSchema,
   planWeekSummariesSchema,
-  planVersionsRequestSchema,
   pingResultSchema,
   reorderIntervalsRequestSchema,
   startWorkoutSessionRequestSchema,
@@ -71,6 +68,10 @@ import {
   workoutSessionStateSchema,
   workoutSessionSummarySchema,
   workoutSessionTelemetrySamplesSchema,
+  completedSessionSummariesSchema,
+  listCompletedSessionsRequestSchema,
+  sessionRecapRequestSchema,
+  sessionRecapSchema,
   workoutSummariesSchema
 } from "@shared/ipc/contracts";
 import { safeHandle } from "@main/ipc/safeHandle";
@@ -84,7 +85,8 @@ export const registerIpcHandlers = (
   workoutBankService: WorkoutBankService,
   eventPlanService: EventPlanService,
   progressDashboardService: ProgressDashboardService,
-  stravaService: StravaService
+  stravaService: StravaService,
+  workoutRecapService: WorkoutRecapService
 ): (() => void) => {
   const bleSubscribers = new Set<WebContents>();
   const workoutSubscribers = new Set<WebContents>();
@@ -239,6 +241,18 @@ export const registerIpcHandlers = (
   );
   safeHandle(ipcChannels.workout.getSessionState, emptySchema, workoutSessionStateSchema, () =>
     workoutEngine.getState()
+  );
+  safeHandle(
+    ipcChannels.workout.listCompletedSessions,
+    listCompletedSessionsRequestSchema.partial(),
+    completedSessionSummariesSchema,
+    (_event, input) => workoutRecapService.listCompletedSessions(input.limit ?? 10)
+  );
+  safeHandle(
+    ipcChannels.workout.getSessionRecap,
+    sessionRecapRequestSchema,
+    sessionRecapSchema,
+    (_event, input) => workoutRecapService.getSessionRecap(input.sessionId)
   );
 
   safeHandle(
@@ -440,18 +454,6 @@ export const registerIpcHandlers = (
     eventPlanService.deletePlan(input.planId);
     return { ok: true as const };
   });
-  safeHandle(
-    ipcChannels.eventPlan.listVersions,
-    planVersionsRequestSchema,
-    eventPlanVersionsSchema,
-    (_event, input) => eventPlanService.listPlanVersions(input.planId)
-  );
-  safeHandle(
-    ipcChannels.eventPlan.listAuditEntries,
-    planAuditEntriesRequestSchema,
-    eventPlanAuditEntriesSchema,
-    (_event, input) => eventPlanService.listPlanAuditEntries(input.planId)
-  );
   safeHandle(ipcChannels.eventPlan.getCurrent, emptySchema, getCurrentEventPlanResultSchema, () =>
     eventPlanService.getCurrentPlan()
   );
