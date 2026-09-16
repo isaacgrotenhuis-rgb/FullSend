@@ -1,31 +1,8 @@
 import type { ReactElement } from "react";
-import {
-  bleRoles,
-  type BleConnectionEntry,
-  type BleRole,
-  type BleState,
-  type DashboardMetrics,
-  type EventPlanWeek,
-  type SessionType
-} from "@shared/ipc/contracts";
+import type { DashboardMetrics, EventPlanWeek, SessionType } from "@shared/ipc/contracts";
 import { RecentWorkoutsSection } from "./RecentWorkoutsSection";
 
-export type BleSectionProps = {
-  bleState: BleState | null;
-  actionError: string | null;
-  actionPending: boolean;
-  scanForDevices: () => Promise<void>;
-  stopScanning: () => Promise<void>;
-  disconnectDevice: () => Promise<void>;
-  disconnectHrDevice: () => Promise<void>;
-  disconnectCadenceDevice: () => Promise<void>;
-  getRoleConnection: (state: BleState, role: BleRole) => BleConnectionEntry;
-  roleLabel: (role: BleRole) => string;
-  connectToDevice: (deviceId: string, role: BleRole) => Promise<void>;
-};
-
 type Props = {
-  ble: BleSectionProps;
   dashboard: DashboardMetrics | null;
   currentFtp: number;
   eventDate: string;
@@ -58,7 +35,6 @@ const greetingForNow = (): string => {
 };
 
 export const HomePage = ({
-  ble,
   dashboard,
   currentFtp,
   eventDate,
@@ -66,31 +42,6 @@ export const HomePage = ({
   previewWorkoutForDay,
   onNavigateToPlan
 }: Props): ReactElement => {
-  const {
-    bleState,
-    actionError,
-    actionPending,
-    scanForDevices,
-    stopScanning,
-    disconnectDevice,
-    disconnectHrDevice,
-    disconnectCadenceDevice,
-    getRoleConnection,
-    roleLabel,
-    connectToDevice
-  } = ble;
-
-  const disconnectForRole: Record<BleRole, () => Promise<void>> = {
-    power: disconnectDevice,
-    heart_rate: disconnectHrDevice,
-    cadence: disconnectCadenceDevice
-  };
-
-  const lastErrorForRole = (role: BleRole): string | null => {
-    if (!bleState) return null;
-    return role === "power" ? bleState.lastError : bleState.connections[role].lastError;
-  };
-
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
@@ -141,182 +92,42 @@ export const HomePage = ({
         ) : null}
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: 2,
-          background: "var(--color-divider)",
-          border: "2px solid var(--color-divider)",
-          marginBottom: "var(--space-8)"
-        }}
-      >
-        <div className="card" style={{ borderRadius: 0 }}>
-          <h6 style={{ marginBottom: "var(--space-2)" }}>Training status</h6>
-          <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
-          <div style={{ display: "flex", flexDirection: "column" }}>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                justifyContent: "space-between",
-                padding: "var(--space-2) 0",
-                borderBottom: "1px solid var(--color-divider)"
-              }}
-            >
-              <span className="card-meta">Current FTP</span>
-              <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>{currentFtp} W</span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "baseline",
-                justifyContent: "space-between",
-                padding: "var(--space-2) 0",
-                borderBottom: "1px solid var(--color-divider)"
-              }}
-            >
-              <span className="card-meta">Plan compliance</span>
-              <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
-                {dashboard?.planCompliancePercent != null ? `${dashboard.planCompliancePercent}%` : "—"}
-              </span>
-            </div>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "var(--space-2) 0" }}>
-              <span className="card-meta">Training block</span>
-              <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
-                {currentWeek ? `Week ${currentWeekIndex + 1} / ${weeks.length}` : "—"}
-              </span>
-            </div>
+      <div className="card" style={{ borderRadius: 0, marginBottom: "var(--space-8)" }}>
+        <h6 style={{ marginBottom: "var(--space-2)" }}>Training status</h6>
+        <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              padding: "var(--space-2) 0",
+              borderBottom: "1px solid var(--color-divider)"
+            }}
+          >
+            <span className="card-meta">Current FTP</span>
+            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>{currentFtp} W</span>
           </div>
-        </div>
-
-        <div className="card" style={{ borderRadius: 0 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "var(--space-2)" }}>
-            <h6 style={{ margin: 0 }}>Devices</h6>
-            <button
-              className="btn btn-secondary"
-              style={{ padding: "4px 10px", fontSize: 12 }}
-              disabled={actionPending}
-              onClick={() => void (bleState?.scanning ? stopScanning() : scanForDevices())}
-            >
-              {bleState?.scanning ? "Stop scan" : "Scan"}
-            </button>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "baseline",
+              justifyContent: "space-between",
+              padding: "var(--space-2) 0",
+              borderBottom: "1px solid var(--color-divider)"
+            }}
+          >
+            <span className="card-meta">Plan compliance</span>
+            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+              {dashboard?.planCompliancePercent != null ? `${dashboard.planCompliancePercent}%` : "—"}
+            </span>
           </div>
-          <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
-          {actionError ? (
-            <p style={{ color: "var(--color-accent-700)", fontSize: 12, marginBottom: "var(--space-2)" }}>{actionError}</p>
-          ) : null}
-          <div style={{ display: "flex", flexDirection: "column", gap: 2, background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
-            {bleRoles.map((role) => {
-              const conn = bleState ? getRoleConnection(bleState, role) : null;
-              const connectedDeviceId = conn?.connectedDeviceId ?? null;
-              const device = connectedDeviceId
-                ? (bleState?.discoveredDevices.find((candidate) => candidate.id === connectedDeviceId) ?? null)
-                : null;
-              const isConnected = connectedDeviceId !== null;
-              // The power connection already streams cadence for FTMS trainers (Indoor
-              // Bike Data), so a bare cadence role never needs its own connection there.
-              const cadenceProvidedByPower =
-                role === "cadence" && !isConnected && bleState?.liveTelemetry?.cadenceRpm != null;
-              const statusLabel = isConnected
-                ? `Connected — ${device?.name ?? device?.localName ?? connectedDeviceId}${
-                    role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
-                  }`
-                : cadenceProvidedByPower
-                  ? "Provided by trainer connection"
-                  : conn?.lifecycle === "connecting"
-                    ? "Connecting…"
-                    : bleState?.scanning
-                      ? "Scanning…"
-                      : "Not connected";
-              const rowError = lastErrorForRole(role);
-              return (
-                <div
-                  key={role}
-                  style={{
-                    background: "var(--color-bg)",
-                    padding: "var(--space-3)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "space-between",
-                    gap: "var(--space-3)"
-                  }}
-                >
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>{roleLabel(role)}</div>
-                    <div className="card-meta">{statusLabel}</div>
-                    {rowError ? (
-                      <div className="card-meta" style={{ color: "var(--color-accent-700)" }}>
-                        {rowError}
-                      </div>
-                    ) : null}
-                  </div>
-                  {isConnected ? (
-                    <button
-                      className="btn btn-secondary"
-                      style={{ padding: "4px 10px", fontSize: 12 }}
-                      disabled={actionPending}
-                      onClick={() => void disconnectForRole[role]()}
-                    >
-                      Disconnect
-                    </button>
-                  ) : null}
-                </div>
-              );
-            })}
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "var(--space-2) 0" }}>
+            <span className="card-meta">Training block</span>
+            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+              {currentWeek ? `Week ${currentWeekIndex + 1} / ${weeks.length}` : "—"}
+            </span>
           </div>
-          {bleState && bleState.discoveredDevices.length > 0 ? (
-            <div style={{ marginTop: "var(--space-3)" }}>
-              <div className="card-meta" style={{ marginBottom: 6 }}>
-                Available devices
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                {bleState.discoveredDevices.map((device) => {
-                  // A device that serves the power role over FTMS already streams cadence
-                  // on that same connection (Indoor Bike Data) -- offering a separate
-                  // "Cadence" connect button for it invites connecting the same device
-                  // twice, which tears down the working power connection when the
-                  // device's standalone CSC cadence service (if any) doesn't verify.
-                  const rolesToOffer = (device.roles.length > 0 ? device.roles : bleRoles).filter(
-                    (role) => !(role === "cadence" && device.roles.includes("power"))
-                  );
-                  return (
-                    <div
-                      key={device.id}
-                      style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", fontSize: 12 }}
-                    >
-                      <span>
-                        {device.name ?? device.localName ?? "Unknown device"}
-                        {typeof device.rssi === "number" ? ` · RSSI ${device.rssi}` : ""}
-                      </span>
-                      <div style={{ display: "flex", gap: 4 }}>
-                        {rolesToOffer.map((role) => {
-                          const conn = getRoleConnection(bleState, role);
-                          const isConnected = conn.connectedDeviceId === device.id;
-                          const connectDisabled =
-                            actionPending ||
-                            isConnected ||
-                            conn.lifecycle === "connecting" ||
-                            (conn.connectedDeviceId !== null && !isConnected);
-                          return (
-                            <button
-                              key={role}
-                              className="btn btn-secondary"
-                              style={{ padding: "2px 8px", fontSize: 11 }}
-                              onClick={() => void connectToDevice(device.id, role)}
-                              disabled={connectDisabled}
-                            >
-                              {isConnected ? `${roleLabel(role)} ✓` : `+ ${roleLabel(role)}`}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
 

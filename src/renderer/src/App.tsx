@@ -18,6 +18,7 @@ import {
   type WorkoutSessionTelemetrySamples
 } from "@shared/ipc/contracts";
 import { Nav } from "./pages/Nav";
+import { DeviceDrawer } from "./pages/DeviceDrawer";
 import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
@@ -65,6 +66,7 @@ export const App = (): ReactElement => {
   const [bleState, setBleState] = useState<BleState | null>(null);
   const [bleActionPending, setBleActionPending] = useState(false);
   const [bleActionError, setBleActionError] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const [workoutSessionState, setWorkoutSessionState] = useState<WorkoutSessionState | null>(null);
   const [activeIntervals, setActiveIntervals] = useState<WorkoutInterval[] | null>(null);
@@ -97,6 +99,12 @@ export const App = (): ReactElement => {
     });
     return unsubscribe;
   }, []);
+
+  // Nav/DeviceDrawer unmount for the ride's duration but drawerOpen doesn't —
+  // close it on ride start so it can't silently reopen once they remount.
+  useEffect(() => {
+    if (activeIntervals !== null) setDrawerOpen(false);
+  }, [activeIntervals]);
 
   useEffect(() => {
     void (async () => {
@@ -471,7 +479,32 @@ export const App = (): ReactElement => {
   return (
     <>
       {activeIntervals === null ? (
-        <Nav page={page} onNavigate={setPage} />
+        <>
+          <Nav
+            page={page}
+            onNavigate={setPage}
+            bleState={bleState}
+            drawerOpen={drawerOpen}
+            onToggleDrawer={() => setDrawerOpen((open) => !open)}
+          />
+          <DeviceDrawer
+            ble={{
+              bleState,
+              actionError: bleActionError,
+              actionPending: bleActionPending,
+              scanForDevices,
+              stopScanning,
+              disconnectDevice,
+              disconnectHrDevice,
+              disconnectCadenceDevice,
+              getRoleConnection,
+              roleLabel,
+              connectToDevice
+            }}
+            open={drawerOpen}
+            onClose={() => setDrawerOpen(false)}
+          />
+        </>
       ) : null}
 
       {status && activeIntervals === null ? (
@@ -566,19 +599,6 @@ export const App = (): ReactElement => {
         />
       ) : (
         <HomePage
-          ble={{
-            bleState,
-            actionError: bleActionError,
-            actionPending: bleActionPending,
-            scanForDevices,
-            stopScanning,
-            disconnectDevice,
-            disconnectHrDevice,
-            disconnectCadenceDevice,
-            getRoleConnection,
-            roleLabel,
-            connectToDevice
-          }}
           dashboard={dashboard}
           currentFtp={currentFtp}
           eventDate={eventDate}
