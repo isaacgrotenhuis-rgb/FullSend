@@ -1,4 +1,4 @@
-import type { ReactElement } from "react";
+import type { ReactElement, RefObject } from "react";
 import type { Page } from "../App";
 import { bleRoles, type BleState } from "@shared/ipc/contracts";
 import { connectedCount, isRoleConnected, requiredMissing, roleIcons } from "./DeviceDrawer";
@@ -9,9 +9,10 @@ type Props = {
   bleState: BleState | null;
   drawerOpen: boolean;
   onToggleDrawer: () => void;
+  clusterButtonRef: RefObject<HTMLButtonElement | null>;
 };
 
-export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: Props): ReactElement => {
+export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer, clusterButtonRef }: Props): ReactElement => {
   const attention = requiredMissing(bleState);
   const count = connectedCount(bleState);
   const ariaLabel = `Devices: ${count} of 3 connected${attention ? ", trainer not connected" : ""}`;
@@ -33,6 +34,7 @@ export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: 
 
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", justifySelf: "end" }}>
         <button
+          ref={clusterButtonRef}
           className={`device-cluster${attention ? " device-cluster--attention" : ""}`}
           onClick={onToggleDrawer}
           aria-expanded={drawerOpen}
