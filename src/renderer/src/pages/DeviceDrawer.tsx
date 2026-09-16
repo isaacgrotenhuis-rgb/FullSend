@@ -69,7 +69,10 @@ const deviceLabel = (device: BleDevice): string => device.name ?? device.localNa
 // picks, per cell, the strongest candidate that advertises that role.
 const candidateForRole = (state: BleState, role: BleRole): BleDevice | null => {
   const matches = state.discoveredDevices
-    .filter((device) => device.roles.includes(role))
+    // An empty roles array means the adapter couldn't classify the advertisement
+    // (BleService: advertised roles are "a UI hint, not authoritative") — offer
+    // such a device to every cell rather than making it unpairable everywhere.
+    .filter((device) => device.roles.length === 0 || device.roles.includes(role))
     // An FTMS trainer already streams cadence over its power connection (Indoor
     // Bike Data) — offering it again as a standalone cadence candidate invites
     // connecting the same device twice, which tears down the working power
@@ -78,6 +81,14 @@ const candidateForRole = (state: BleState, role: BleRole): BleDevice | null => {
     .sort((a, b) => (b.rssi ?? -Infinity) - (a.rssi ?? -Infinity));
   return matches[0] ?? null;
 };
+
+type CellPhase =
+  | { kind: "connected" }
+  | { kind: "provided-by-power" }
+  | { kind: "connecting" }
+  | { kind: "candidate"; device: BleDevice }
+  | { kind: "scanning" }
+  | { kind: "idle" };
 
 export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null => {
   const {
@@ -110,11 +121,13 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
 
   // The countdown/progress bar are purely cosmetic — a plain interval re-render
   // is enough to move them without hauling in a request-animation-frame loop.
+  // Gated on `open` too so a scan left running after the drawer is closed
+  // doesn't keep re-rendering a hidden component 5 times a second.
   useEffect(() => {
-    if (!scanning) return;
+    if (!open || !scanning) return;
     const id = setInterval(() => forceTick((tick) => tick + 1), 200);
     return () => clearInterval(id);
-  }, [scanning]);
+  }, [open, scanning]);
 
   if (!open) return null;
 
@@ -142,11 +155,14 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
         <span className="device-drawer-title">Devices</span>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
           <span className="card-meta">{summary}</span>
-          {scanning ? (
-            <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={() => void stopScanning()}>
-              Stop
-            </button>
-          ) : null}
+          <button
+            className="btn btn-ghost"
+            style={{ padding: "4px 10px", fontSize: 12 }}
+            disabled={!scanning && actionPending}
+            onClick={() => void (scanning ? stopScanning() : scanForDevices())}
+          >
+            {scanning ? "Stop" : "Scan"}
+          </button>
           <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={onClose}>
             Close
           </button>
@@ -167,11 +183,12 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
             : null;
           const isConnecting = conn?.lifecycle === "connecting";
           const required = isRequiredRole(role);
-          // The power connection already streams cadence for FTMS trainers (Indoor
-          // Bike Data), so a bare cadence role never needs its own connection there.
-          const cadenceProvidedByPower =
-            role === "cadence" && !isConnected && bleState?.liveTelemetry?.cadenceRpm != null;
-          const candidate = !isConnected && !cadenceProvidedByPower && bleState ? candidateForRole(bleState, role) : null;
+          // Only ever true for cadence today (a trainer's power connection already
+          // streams it over Indoor Bike Data), expressed generically off the same
+          // isRoleConnected() the nav cluster uses rather than a second hand-rolled
+          // liveTelemetry check that could drift from it.
+          const providedByPower = !isConnected && isRoleConnected(bleState, role);
+          const candidate = !isConnected && !providedByPower && bleState ? candidateForRole(bleState, role) : null;
           const rowError = lastErrorForRole(role);
           const Icon = roleIcons[role];
           const iconColor = isRoleConnected(bleState, role)
@@ -181,56 +198,66 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
               : "var(--color-neutral-500)";
           const actionVariant = required ? "btn-primary" : "btn-secondary";
 
+          const phase: CellPhase = isConnected
+            ? { kind: "connected" }
+            : providedByPower
+              ? { kind: "provided-by-power" }
+              : isConnecting
+                ? { kind: "connecting" }
+                : candidate
+                  ? { kind: "candidate", device: candidate }
+                  : scanning
+                    ? { kind: "scanning" }
+                    : { kind: "idle" };
+
+          // Single source for both the label/button below AND whether the scan
+          // progress bar shows, so the two can't independently disagree about
+          // which state a cell is actually in.
+          const actionButton = (label: string, onClick: (() => void) | null, disabled: boolean): ReactElement => (
+            <button
+              className={`btn btn-block ${actionVariant}`}
+              disabled={disabled}
+              onClick={onClick ? () => void onClick() : undefined}
+            >
+              {label}
+            </button>
+          );
+
           let statusLabel: string;
           let action: ReactElement | null;
 
-          if (isConnected) {
-            statusLabel = `${connectedDevice ? deviceLabel(connectedDevice) : connectedDeviceId}${
-              role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
-            }`;
-            action = (
-              <button className="btn btn-ghost btn-block" disabled={actionPending} onClick={() => void disconnectForRole[role]()}>
-                Forget
-              </button>
-            );
-          } else if (cadenceProvidedByPower) {
-            statusLabel = "Provided by trainer connection";
-            action = null;
-          } else if (isConnecting) {
-            statusLabel = "Connecting…";
-            action = (
-              <button className={`btn btn-block ${actionVariant}`} disabled>
-                Connecting
-              </button>
-            );
-          } else if (candidate) {
-            statusLabel = `${deviceLabel(candidate)} found`;
-            action = (
-              <button
-                className={`btn btn-block ${actionVariant}`}
-                disabled={actionPending}
-                onClick={() => void connectToDevice(candidate.id, role)}
-              >
-                Pair
-              </button>
-            );
-          } else if (scanning) {
-            statusLabel = "Scanning…";
-            action = (
-              <button className={`btn btn-block ${actionVariant}`} disabled>
-                Scanning
-              </button>
-            );
-          } else {
-            statusLabel = hasScannedOnce ? "No devices found · check it's awake" : `${required ? "Required" : "Optional"} · not connected`;
-            action = (
-              <button className={`btn btn-block ${actionVariant}`} disabled={actionPending} onClick={() => void scanForDevices()}>
-                Scan
-              </button>
-            );
+          switch (phase.kind) {
+            case "connected":
+              statusLabel = `${connectedDevice ? deviceLabel(connectedDevice) : connectedDeviceId}${
+                role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
+              }`;
+              action = (
+                <button className="btn btn-ghost btn-block" disabled={actionPending} onClick={() => void disconnectForRole[role]()}>
+                  Forget
+                </button>
+              );
+              break;
+            case "provided-by-power":
+              statusLabel = "Provided by trainer connection";
+              action = null;
+              break;
+            case "connecting":
+              statusLabel = "Connecting…";
+              action = actionButton("Connecting", null, true);
+              break;
+            case "candidate":
+              statusLabel = `${deviceLabel(phase.device)} found${typeof phase.device.rssi === "number" ? ` · RSSI ${phase.device.rssi}` : ""}`;
+              action = actionButton("Pair", () => connectToDevice(phase.device.id, role), actionPending);
+              break;
+            case "scanning":
+              statusLabel = "Scanning…";
+              action = actionButton("Scanning", null, true);
+              break;
+            case "idle":
+              statusLabel = hasScannedOnce ? "No devices found · check it's awake" : `${required ? "Required" : "Optional"} · not connected`;
+              action = actionButton("Scan", () => scanForDevices(), actionPending);
+              break;
           }
-
-          const showProgress = scanning && !isConnected && !cadenceProvidedByPower && !candidate;
 
           return (
             <div key={role} className="device-cell">
@@ -238,7 +265,7 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
               <div className="device-cell-name">{roleLabel(role)}</div>
               <div className="device-cell-status">{statusLabel}</div>
               {rowError ? <div className="device-cell-status" style={{ color: "var(--color-accent-700)" }}>{rowError}</div> : null}
-              {showProgress ? (
+              {phase.kind === "scanning" ? (
                 <div className="device-progress">
                   <div className="device-progress-fill" style={{ width: `${progressPercent}%` }} />
                 </div>
