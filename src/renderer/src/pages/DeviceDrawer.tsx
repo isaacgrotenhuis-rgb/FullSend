@@ -36,14 +36,20 @@ export const isRequiredRole = (role: BleRole): boolean => role === "power";
 export const requiredMissing = (state: BleState | null): boolean =>
   state ? state.connectedDeviceId === null : true;
 
+// "Connected" for a role means either its own BLE connection is live, or —
+// cadence only — an FTMS trainer is already streaming it over the power
+// connection's Indoor Bike Data (see the cadence-cell comment below). Shared
+// so the nav cluster and the drawer can't drift into disagreeing about it
+// the way they did before this was a single function.
+export const isRoleConnected = (state: BleState | null, role: BleRole): boolean => {
+  if (!state) return false;
+  const ownConnection = role === "power" ? state.connectedDeviceId !== null : state.connections[role].connectedDeviceId !== null;
+  if (ownConnection) return true;
+  return role === "cadence" && state.liveTelemetry?.cadenceRpm != null;
+};
+
 export const connectedCount = (state: BleState | null): number =>
-  state
-    ? [
-        state.connectedDeviceId !== null,
-        state.connections.heart_rate.connectedDeviceId !== null,
-        state.connections.cadence.connectedDeviceId !== null
-      ].filter(Boolean).length
-    : 0;
+  bleRoles.filter((role) => isRoleConnected(state, role)).length;
 
 export const roleIcons: Record<BleRole, LucideIcon> = {
   power: Zap,
@@ -168,7 +174,7 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
           const candidate = !isConnected && !cadenceProvidedByPower && bleState ? candidateForRole(bleState, role) : null;
           const rowError = lastErrorForRole(role);
           const Icon = roleIcons[role];
-          const iconColor = isConnected
+          const iconColor = isRoleConnected(bleState, role)
             ? "var(--color-text)"
             : required
               ? "var(--color-accent)"

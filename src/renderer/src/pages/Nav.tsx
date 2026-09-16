@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { Page } from "../App";
 import type { BleRole, BleState } from "@shared/ipc/contracts";
-import { connectedCount, requiredMissing, roleIcons } from "./DeviceDrawer";
+import { connectedCount, isRoleConnected, requiredMissing, roleIcons } from "./DeviceDrawer";
 
 type Props = {
   page: Page;
@@ -12,9 +12,6 @@ type Props = {
 };
 
 const clusterRoles: BleRole[] = ["power", "heart_rate", "cadence"];
-
-const isRoleConnected = (state: BleState | null, role: BleRole): boolean =>
-  role === "power" ? state?.connectedDeviceId != null : (state?.connections[role].connectedDeviceId ?? null) != null;
 
 export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: Props): ReactElement => {
   const attention = requiredMissing(bleState);
