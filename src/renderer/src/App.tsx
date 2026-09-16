@@ -100,6 +100,12 @@ export const App = (): ReactElement => {
     return unsubscribe;
   }, []);
 
+  // Nav/DeviceDrawer unmount for the ride's duration but drawerOpen doesn't —
+  // close it on ride start so it can't silently reopen once they remount.
+  useEffect(() => {
+    if (activeIntervals !== null) setDrawerOpen(false);
+  }, [activeIntervals]);
+
   useEffect(() => {
     void (async () => {
       const current = await window.kickr.eventPlan.getCurrent();

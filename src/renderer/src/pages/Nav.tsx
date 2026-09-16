@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
 import type { Page } from "../App";
-import type { BleRole, BleState } from "@shared/ipc/contracts";
+import { bleRoles, type BleState } from "@shared/ipc/contracts";
 import { connectedCount, isRoleConnected, requiredMissing, roleIcons } from "./DeviceDrawer";
 
 type Props = {
@@ -10,8 +10,6 @@ type Props = {
   drawerOpen: boolean;
   onToggleDrawer: () => void;
 };
-
-const clusterRoles: BleRole[] = ["power", "heart_rate", "cadence"];
 
 export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: Props): ReactElement => {
   const attention = requiredMissing(bleState);
@@ -41,7 +39,7 @@ export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: 
           aria-controls="device-drawer"
           aria-label={ariaLabel}
         >
-          {clusterRoles.map((role) => {
+          {bleRoles.map((role) => {
             const Icon = roleIcons[role];
             const connected = isRoleConnected(bleState, role);
             return (
