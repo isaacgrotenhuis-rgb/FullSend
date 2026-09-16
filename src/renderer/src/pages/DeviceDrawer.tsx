@@ -96,7 +96,6 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
     actionError,
     actionPending,
     scanForDevices,
-    stopScanning,
     disconnectDevice,
     disconnectHrDevice,
     disconnectCadenceDevice,
@@ -155,14 +154,6 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
         <span className="device-drawer-title">Devices</span>
         <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
           <span className="card-meta">{summary}</span>
-          <button
-            className="btn btn-ghost"
-            style={{ padding: "4px 10px", fontSize: 12 }}
-            disabled={!scanning && actionPending}
-            onClick={() => void (scanning ? stopScanning() : scanForDevices())}
-          >
-            {scanning ? "Stop" : "Scan"}
-          </button>
           <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={onClose}>
             Close
           </button>
