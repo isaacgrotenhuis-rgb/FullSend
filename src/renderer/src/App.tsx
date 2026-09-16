@@ -18,7 +18,7 @@ import {
   type WorkoutSessionTelemetrySamples
 } from "@shared/ipc/contracts";
 import { Nav } from "./pages/Nav";
-import { DeviceDrawer } from "./pages/DeviceDrawer";
+import { DeviceDrawer, SCAN_TIMEOUT_MS } from "./pages/DeviceDrawer";
 import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
@@ -137,7 +137,7 @@ export const App = (): ReactElement => {
   };
 
   const scanForDevices = (): Promise<void> =>
-    runBleAction(() => window.kickr.ble.startScan({ timeoutMs: 8000 }));
+    runBleAction(() => window.kickr.ble.startScan({ timeoutMs: SCAN_TIMEOUT_MS }));
 
   const stopScanning = (): Promise<void> => runBleAction(() => window.kickr.ble.stopScan());
 
