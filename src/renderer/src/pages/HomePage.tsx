@@ -121,9 +121,7 @@ export const HomePage = ({
       </Card>
 
       <div className="flex items-baseline justify-between gap-4">
-        {/* `margin: 0` stays inline: styles.css's bare `h2` rule is unlayered
-            (see index.css), so it always beats a Tailwind `m-0` utility. */}
-        <h2 style={{ margin: 0 }}>This week</h2>
+        <h2 className="m-0">This week</h2>
       </div>
       <Separator className={cn(dividerClass, "my-4")} />
       {currentWeek ? (
@@ -152,9 +150,7 @@ export const HomePage = ({
                   hasWorkout ? "cursor-pointer" : "cursor-default"
                 )}
               >
-                {/* `margin: 0` stays inline for the same unlayered-`h6`
-                    reason as the `h2` above. */}
-                <h6 style={{ margin: 0, color: isToday ? "var(--color-accent-700)" : undefined }}>
+                <h6 className="m-0" style={isToday ? { color: "var(--color-accent-700)" } : undefined}>
                   {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
                 </h6>
                 <div className="flex-1 text-[13px] font-semibold [overflow-wrap:break-word]">
@@ -170,9 +166,7 @@ export const HomePage = ({
           })}
         </div>
       ) : (
-        /* `marginBottom` stays inline: styles.css's bare `p` rule is
-           unlayered, so it always beats a Tailwind margin utility. */
-        <p className="text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]" style={{ marginBottom: "var(--space-8)" }}>
+        <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
           No workouts scheduled for the current week.
         </p>
       )}

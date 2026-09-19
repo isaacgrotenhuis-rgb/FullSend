@@ -304,18 +304,18 @@ export const WorkoutBankBrowser = ({
           <>
             <div className="grid grid-cols-5 gap-0.5 bg-[color:var(--color-divider)] border-2 border-[color:var(--color-divider)]">
               <div className={tileClassName}>
-                <h6 style={{ fontSize: 11 }}>Duration</h6>
+                <h6 className="text-[11px]">Duration</h6>
                 <div className={tileValueClassName}>{formatClock(totalDurationSec)}</div>
               </div>
               <div className={tileClassName}>
-                <h6 style={{ fontSize: 11 }}>Avg power</h6>
+                <h6 className="text-[11px]">Avg power</h6>
                 <div className={tileValueClassName}>
                   {avgWatts ?? "—"}
                   {avgWatts !== null ? <span className="text-[13px] font-semibold">W</span> : null}
                 </div>
               </div>
               <div className={tileClassName}>
-                <h6 style={{ fontSize: 11 }}>Intensity</h6>
+                <h6 className="text-[11px]">Intensity</h6>
                 <div className={tileValueClassName}>
                   {compiled?.estIF !== null && compiled?.estIF !== undefined
                     ? compiled.estIF.toFixed(2)
@@ -323,7 +323,7 @@ export const WorkoutBankBrowser = ({
                 </div>
               </div>
               <div className={tileClassName}>
-                <h6 style={{ fontSize: 11 }}>TSS</h6>
+                <h6 className="text-[11px]">TSS</h6>
                 <div className={tileValueClassName}>
                   {compiled?.estTSS !== null && compiled?.estTSS !== undefined
                     ? Math.round(compiled.estTSS)
@@ -331,7 +331,7 @@ export const WorkoutBankBrowser = ({
                 </div>
               </div>
               <div className={tileClassName}>
-                <h6 style={{ fontSize: 11 }}>Blocks</h6>
+                <h6 className="text-[11px]">Blocks</h6>
                 <div className={tileValueClassName}>{compiled?.intervals.length ?? 0}</div>
               </div>
             </div>

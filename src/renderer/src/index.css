@@ -1,25 +1,16 @@
 /* Tailwind v4 + shadcn/ui foundation.
-   Imported from main.tsx BEFORE ./styles.css, which still owns the legacy
-   "Modernist" component classes and the runtime design tokens the SVG charts
-   read (see the hard constraint note below). */
+   Imported from main.tsx BEFORE ./styles.css, which now holds only the :root
+   design-token block — the runtime tokens the hand-rolled SVG charts read
+   (see the hard constraint note below) plus the tokens this file's
+   `@theme inline` maps onto shadcn's semantic variables. */
 
-/* Layer order. `legacy-base` sits between Tailwind's `base` and `components`
-   so the legacy bare-element resets in styles.css lose to shadcn's utilities
-   on converted markup, but still beat the base shim below on untouched markup.
-   Everything else in styles.css stays UNLAYERED and therefore keeps winning,
-   which is what keeps unmigrated screens pixel-identical. */
-@layer theme, base, legacy-base, components, utilities;
+@layer theme, base, components, utilities;
 
-/* Tailwind is imported layer-by-layer rather than via `tailwindcss` so that
-   Preflight can be left out. */
+/* Tailwind is imported layer-by-layer, rather than via the single
+   `tailwindcss` import, so `@source` below can replace automatic class
+   detection (see the note on that directive) with Preflight still included. */
 @import "tailwindcss/theme.css" layer(theme);
-
-/* PREFLIGHT IS DELIBERATELY DISABLED FOR THE DURATION OF THE MIGRATION.
-   Preflight resets margins, font sizes, list styles and form-control
-   appearance globally, which would instantly restyle every screen that has
-   not been migrated yet. PR 8 — the final cleanup — removes the legacy
-   stylesheet and restores this import. Do not re-enable it before then.
-   @import "tailwindcss/preflight.css" layer(base); */
+@import "tailwindcss/preflight.css" layer(base);
 
 /* `source(none)` disables Tailwind's automatic class detection. electron-vite
    sets Vite's `root` to ./src/renderer while Tailwind roots detection at the
@@ -39,69 +30,68 @@
 
 /* Scan scope — paths are resolved relative to this file. Restricted to the
    file types that can actually contain class names: pointing @source at a bare
-   directory also scans .css, and Tailwind then extracts words out of the
-   legacy stylesheet as candidates. That produced real collisions — `.table`,
-   `.border` and especially `.text-muted`, which is a legacy class name AND a
-   valid Tailwind color utility. */
+   directory also scans .css, and Tailwind then extracts words out of
+   styles.css as candidates, which produced real collisions with legacy class
+   names that used to live there (`.table`, `.border`, `.text-muted`). */
 @source "./**/*.{ts,tsx}";
 @source "../index.html";
 @source "../../shared/**/*.ts";
 
-/* Preflight normally supplies this. Without it, a Tailwind `border` utility
-   sets border-width while border-style stays at its initial `none`, so every
-   shadcn border renders invisible. Layered into `base` so any explicit border
-   in styles.css (layered or not) still wins. */
+/* Preflight resets the border shorthand to `0 solid` (width and style only,
+   deliberately omitting a color), which per the CSS spec resets border-color
+   to its initial value of `currentcolor`. Without this override every
+   shadcn border utility — Card, DialogContent, Button variant="outline" —
+   paints in the surrounding text color instead of the subtle --border, i.e.
+   near-black instead of grey. Stock shadcn ships the equivalent as
+   `* { @apply border-border }` in its own globals.css. Layered into `base`,
+   after the Preflight import above, so it wins the tie on equal specificity. */
 @layer base {
   *,
   ::after,
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border: 0 solid var(--border);
+    border-color: var(--border);
   }
 }
 
-/* The border COLOUR above is the other half of what Preflight alone would not
-   give us: stock shadcn ships `* { @apply border-border }` in its own
-   globals.css. Without it a Tailwind `border` utility paints in currentColor,
-   so every shadcn border — Card, DialogContent, Button variant="outline" —
-   comes out near-black instead of the subtle --border. */
-
-/* styles.css keeps its bare-element resets in the `legacy-base` layer, which
-   beats `base` but loses to `components` and `utilities` (see the layer order
-   at the top of this file). Those resets give every <button> a grey surface,
-   a divider border, its own padding and a hover background, and the same for
-   <input>/<select>/<textarea>/<table>/<th>/<td>.
-   That is correct for unmigrated markup and wrong for a shadcn primitive: any
-   primitive that sets no background utility of its own — the Dialog close X,
-   Button variant="ghost", an inactive TabsTrigger, an unchecked Checkbox —
-   renders as a grey chip with a stray border, and size="icon" gets legacy
-   padding inside its fixed 36px box.
-
-   This block opts the primitives out. It sits in `components`, the one layer
-   that beats `legacy-base` while still losing to `utilities`, so each
-   component's own Tailwind classes keep winning over it. It is scoped to
-   [data-slot], which every shadcn primitive stamps and no legacy markup has,
-   so it cannot reach a screen that has not been migrated yet.
-
-   PR 8 deletes styles.css and this block together. */
-@layer components {
-  button[data-slot],
-  input[data-slot],
-  select[data-slot],
-  textarea[data-slot],
-  table[data-slot],
-  th[data-slot],
-  td[data-slot] {
-    padding: 0;
-    border: 0 solid var(--border);
-    border-radius: 0;
-    background: transparent;
+/* Base typography — formerly unlayered rules in styles.css. Moved into
+   Tailwind's `base` layer (after the Preflight import above, so these win the
+   tie against Preflight's own heading/link/margin resets) as part of PR 8:
+   once these live in `base`, an ordinary Tailwind utility in `utilities`
+   beats them, so the ~20 `style={{ margin: 0 }}`-style inline overrides
+   scattered across the pages — needed only because the old unlayered rules
+   always beat a Tailwind class regardless of specificity — could be deleted
+   in favor of real utility classes. h6 in particular is used throughout the
+   app as a small-caps stat-tile label, not as a real heading level; its exact
+   13px/uppercase/tracked appearance is preserved below. */
+@layer base {
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    font-weight: 400;
   }
-
-  button[data-slot]:hover {
-    background: transparent;
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+    line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
   }
+  h1 { font-size: 42px; }
+  h2 { font-size: 32px; }
+  h3 { font-size: 25px; }
+  h4 { font-size: 20px; }
+  h5 { font-size: 16px; }
+  h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+  p { margin: 0 0 var(--space-3); }
+  a { color: var(--color-accent-700); text-decoration: none; text-underline-offset: 3px; }
+  a:hover { color: var(--color-accent); text-decoration: underline; }
+  img { display: block; max-width: 100%; }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
 }
 
 /* shadcn semantic tokens, expressed in the brand.

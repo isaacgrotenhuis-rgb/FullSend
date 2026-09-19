@@ -85,20 +85,14 @@ export const RecentWorkoutsSection = (): ReactElement => {
 
   return (
     <>
-      {/* `margin: 0` stays inline: styles.css's bare `h2` rule is unlayered
-          (see index.css), so it always beats a Tailwind `m-0` utility. */}
-      <h2 style={{ margin: 0 }}>Recent activity</h2>
+      <h2 className="m-0">Recent activity</h2>
       <Separator className="my-4 h-[2px] bg-[var(--color-divider)]" />
       {error ? (
-        /* `marginBottom` stays inline: styles.css's bare `p` rule is
-           unlayered, so it always beats a Tailwind margin utility. */
-        <p style={{ color: "var(--color-accent-700)", marginBottom: "var(--space-8)" }}>{error}</p>
+        <p className="mb-8 text-[var(--color-accent-700)]">{error}</p>
       ) : sessions === null ? (
-        <p className="text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]" style={{ marginBottom: "var(--space-8)" }}>
-          Loading…
-        </p>
+        <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">Loading…</p>
       ) : sessions.length === 0 ? (
-        <p className="text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]" style={{ marginBottom: "var(--space-8)" }}>
+        <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
           No completed workouts recorded yet.
         </p>
       ) : (

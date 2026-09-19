@@ -515,15 +515,7 @@ export const App = (): ReactElement => {
       ) : null}
 
       {status && activeIntervals === null ? (
-        <div
-          style={{
-            padding: "var(--space-2) var(--space-4)",
-            fontSize: 13,
-            color: "var(--color-accent-700)",
-            background: "var(--color-accent-100)",
-            borderBottom: "2px solid var(--color-divider)"
-          }}
-        >
+        <div className="border-b-2 border-[color:var(--color-divider)] bg-[var(--color-accent-100)] px-4 py-2 text-[13px] text-[var(--color-accent-700)]">
           {status}
         </div>
       ) : null}

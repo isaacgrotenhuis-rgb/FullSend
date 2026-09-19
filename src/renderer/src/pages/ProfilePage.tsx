@@ -78,10 +78,7 @@ export const ProfilePage = ({ currentFtp, strava }: Props): ReactElement => {
   return (
     <main className="mx-auto max-w-[960px] p-6">
       <div className="mb-6 flex items-end justify-between gap-4">
-        {/* `margin: 0` stays inline: styles.css's bare `h1` rule is
-            unlayered (see index.css), so it always beats a Tailwind `m-0`
-            utility. */}
-        <h1 style={{ margin: 0 }}>Profile</h1>
+        <h1 className="m-0">Profile</h1>
         <Button disabled title="Account details aren't editable yet">
           Edit
         </Button>
@@ -156,9 +153,7 @@ export const ProfilePage = ({ currentFtp, strava }: Props): ReactElement => {
         {!stravaConnected && strava.stravaAuthUrl ? (
           <>
             <Separator className="my-3 h-[2px] bg-[var(--color-divider)]" />
-            {/* `marginBottom` stays inline: styles.css's bare `p` rule is
-                unlayered, so it always beats a Tailwind margin utility. */}
-            <p className={cardMetaClass} style={{ marginBottom: "var(--space-2)" }}>
+            <p className={cn(cardMetaClass, "mb-2")}>
               Authorize in the browser, then paste the returned code below.
             </p>
             <div className="flex flex-wrap items-center gap-3">

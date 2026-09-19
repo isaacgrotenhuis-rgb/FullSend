@@ -25,8 +25,16 @@ import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Muted body text at the legacy 50/55/60/65% opacity steps used throughout
+    this page's cards, meta rows and empty-state copy. */
+const mutedText50Class = "text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]";
+const mutedText55Class = "text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]";
+const mutedText60Class = "text-[color-mix(in_srgb,var(--color-text)_60%,transparent)]";
+const mutedText65Class = "text-[color-mix(in_srgb,var(--color-text)_65%,transparent)]";
 
 const eventTypeOptions: { value: EventType; label: string }[] = [
   { value: "road-race", label: "Road race" },
@@ -163,9 +171,7 @@ export const PlanPage = ({
   return (
     <main className="mx-auto max-w-[960px] p-6">
       <div className="flex items-end justify-between gap-4 mb-2">
-        {/* styles.css's bare `h1` rule is unlayered; a Tailwind `m-0` would
-            silently lose to it. Inline style keeps this override reliable. */}
-        <h1 style={{ margin: 0 }}>{hasPlan && currentPlanName ? currentPlanName : "Your plan"}</h1>
+        <h1 className="m-0">{hasPlan && currentPlanName ? currentPlanName : "Your plan"}</h1>
         <div className="flex gap-2">
           <Button variant="outline-primary" onClick={onOpenWorkoutBank}>
             Browse workout bank
@@ -177,8 +183,7 @@ export const PlanPage = ({
       {hasPlan ? (
         <>
           {countdownLabel ? (
-            // Same unlayered-heading override as above, on `h6`.
-            <h6 style={{ color: "var(--color-accent-700)", marginBottom: "var(--space-6)" }}>{countdownLabel}</h6>
+            <h6 className="mb-6 text-[var(--color-accent-700)]">{countdownLabel}</h6>
           ) : null}
 
           {weeks.map((week) => {
@@ -187,41 +192,34 @@ export const PlanPage = ({
             return (
               <div key={week.weekId} className="mb-6">
                 <div className="flex items-baseline justify-between mb-1">
-                  {/* Unlayered `h4` override — see the note on `h1` above. */}
-                  <h4 style={{ margin: 0 }}>
+                  <h4 className="m-0">
                     Week {week.weekIndex + 1} · {week.loadTag}
                   </h4>
-                  <span style={{ fontSize: 13, color: "color-mix(in srgb, var(--color-text) 60%, transparent)" }}>
+                  <span className={cn("text-[13px]", mutedText60Class)}>
                     {formatShortDate(weekStart)} – {formatShortDate(weekEnd)}
                   </span>
                 </div>
-                <div className="mb-2 h-0.5 w-full" style={{ background: "var(--color-divider)" }} />
-                <div className="flex flex-col gap-0.5" style={{ background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
+                <div className="mb-2 h-0.5 w-full bg-[var(--color-divider)]" />
+                <div className="flex flex-col gap-0.5 border-2 border-[color:var(--color-divider)] bg-[var(--color-divider)]">
                   {week.days.map((day) => {
                     const cellDate = addDaysToDate(weekStart, day.dayIndex);
                     const hasWorkout = day.workoutId !== null;
                     return (
                       <div
                         key={`${week.weekId}-${day.dayIndex}`}
-                        className="flex items-center gap-4 px-4 py-3"
-                        style={{
-                          background: "var(--color-bg)",
-                          borderLeft: `3px solid ${hasWorkout ? "var(--color-accent)" : "var(--color-divider)"}`
-                        }}
+                        className={cn(
+                          "flex items-center gap-4 px-4 py-3 border-l-[3px] bg-[var(--color-bg)]",
+                          hasWorkout ? "border-l-[var(--color-accent)]" : "border-l-[var(--color-divider)]"
+                        )}
                       >
                         <div className="w-24 flex-shrink-0">
-                          <div
-                            className="text-[11px] uppercase tracking-wide"
-                            style={{ color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}
-                          >
+                          <div className={cn("text-[11px] uppercase tracking-wide", mutedText55Class)}>
                             {dayLabels[day.dayIndex]}
                           </div>
-                          <div className="text-xs" style={{ color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>
-                            {formatShortDate(cellDate)}
-                          </div>
+                          <div className={cn("text-xs", mutedText55Class)}>{formatShortDate(cellDate)}</div>
                         </div>
                         <div className="flex-1 text-sm font-semibold">{day.workoutName ?? "Rest"}</div>
-                        <div className="flex items-center gap-1.5 text-[11px]" style={{ color: "color-mix(in srgb, var(--color-text) 50%, transparent)" }}>
+                        <div className={cn("flex items-center gap-1.5 text-[11px]", mutedText50Class)}>
                           {hasWorkout ? `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}` : "Rest day"}
                         </div>
                         {hasWorkout ? (
@@ -249,11 +247,9 @@ export const PlanPage = ({
           })}
         </>
       ) : (
-        <div className="mt-6 text-center" style={{ border: "2px solid var(--color-divider)", padding: "64px var(--space-6)" }}>
-          {/* Unlayered `h2` override — see the note on `h1` above. */}
-          <h2 style={{ marginBottom: "var(--space-2)" }}>No training plan yet</h2>
-          {/* Unlayered `p` override — see the note on `h1` above. */}
-          <p style={{ maxWidth: 420, margin: "0 auto var(--space-4)", color: "color-mix(in srgb, var(--color-text) 65%, transparent)" }}>
+        <div className="mt-6 border-2 border-[color:var(--color-divider)] px-6 py-16 text-center">
+          <h2 className="mb-2">No training plan yet</h2>
+          <p className={cn("mx-auto mb-4 max-w-[420px]", mutedText65Class)}>
             Tell us what event you're training for and we'll build a weekly schedule of workouts around it.
           </p>
           <Button onClick={openWizard}>Create a plan</Button>
@@ -270,13 +266,10 @@ export const PlanPage = ({
           <DialogHeader>
             <DialogTitle>New training plan</DialogTitle>
           </DialogHeader>
-          <div
-            className="uppercase tracking-wide text-[11px] -mt-2 mb-2"
-            style={{ color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}
-          >
+          <div className={cn("uppercase tracking-wide text-[11px] -mt-2 mb-2", mutedText55Class)}>
             Step {wizardStep + 1} of 4 · {wizardStepLabels[wizardStep]}
           </div>
-          <div className="mb-4 h-0.5 w-full" style={{ background: "var(--color-divider)" }} />
+          <div className="mb-4 h-0.5 w-full bg-[var(--color-divider)]" />
 
           {wizardStep === 0 ? (
             <>
@@ -359,10 +352,8 @@ export const PlanPage = ({
                     value={ratio.value}
                     className="h-auto w-full flex-col items-start gap-0.5 whitespace-normal px-3 py-3 text-left"
                   >
-                    <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 14 }}>{ratio.value}</span>
-                    <span className="text-[11px]" style={{ color: "color-mix(in srgb, var(--color-text) 50%, transparent)" }}>
-                      {ratio.description}
-                    </span>
+                    <span className="text-sm font-extrabold">{ratio.value}</span>
+                    <span className={cn("text-[11px]", mutedText50Class)}>{ratio.description}</span>
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
@@ -381,9 +372,7 @@ export const PlanPage = ({
                   value={[hoursPerWeek]}
                   onValueChange={([next]) => setHoursPerWeek(next)}
                 />
-                <div className="min-w-20 text-right" style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
-                  {hoursPerWeek} hrs
-                </div>
+                <div className="min-w-20 text-right text-xl font-extrabold">{hoursPerWeek} hrs</div>
               </div>
 
               <h6 className="mt-4 mb-3">Weekly availability</h6>
@@ -468,7 +457,7 @@ export const PlanPage = ({
           <DialogHeader>
             <DialogTitle>Edit plan</DialogTitle>
           </DialogHeader>
-          <div className="mb-3 h-0.5 w-full" style={{ background: "var(--color-divider)" }} />
+          <div className="mb-3 h-0.5 w-full bg-[var(--color-divider)]" />
           <div className="flex flex-col gap-1.5">
             <Label>Reason</Label>
             <Input value={adapt.adaptReason} onChange={(event) => adapt.setAdaptReason(event.target.value)} />
@@ -492,12 +481,7 @@ export const PlanPage = ({
             </div>
           </div>
           <DialogFooter className="sm:justify-between">
-            <Button
-              type="button"
-              variant="ghost"
-              style={{ color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}
-              onClick={() => setDeleteConfirmOpen(true)}
-            >
+            <Button type="button" variant="ghost" className={mutedText55Class} onClick={() => setDeleteConfirmOpen(true)}>
               Delete plan
             </Button>
             <div className="flex gap-2">

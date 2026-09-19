@@ -83,26 +83,26 @@ export const WorkoutPreviewDialog = ({
 
         <div className="grid grid-cols-5 gap-0.5 bg-[color:var(--color-divider)] border-2 border-[color:var(--color-divider)]">
           <div className={tileClassName}>
-            <h6 style={{ fontSize: 11 }}>Duration</h6>
+            <h6 className="text-[11px]">Duration</h6>
             <div className={tileValueClassName}>{formatClock(totalDurationSec)}</div>
           </div>
           <div className={tileClassName}>
-            <h6 style={{ fontSize: 11 }}>Avg power</h6>
+            <h6 className="text-[11px]">Avg power</h6>
             <div className={tileValueClassName}>
               {avgWatts ?? "—"}
               {avgWatts !== null ? <span className="text-[13px] font-semibold">W</span> : null}
             </div>
           </div>
           <div className={tileClassName}>
-            <h6 style={{ fontSize: 11 }}>Intensity</h6>
+            <h6 className="text-[11px]">Intensity</h6>
             <div className={tileValueClassName}>{intensityFactor !== null ? intensityFactor.toFixed(2) : "—"}</div>
           </div>
           <div className={tileClassName}>
-            <h6 style={{ fontSize: 11 }}>TSS</h6>
+            <h6 className="text-[11px]">TSS</h6>
             <div className={tileValueClassName}>{estTSS ?? "—"}</div>
           </div>
           <div className={tileClassName}>
-            <h6 style={{ fontSize: 11 }}>Intervals</h6>
+            <h6 className="text-[11px]">Intervals</h6>
             <div className={tileValueClassName}>{detail.intervals.length}</div>
           </div>
         </div>

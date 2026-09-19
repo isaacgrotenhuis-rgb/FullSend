@@ -154,18 +154,13 @@ export const RidePage = ({
   };
 
   return (
-    <main className="app">
+    <main className="mx-auto max-w-[960px] p-6">
       <div className="flex items-center justify-between pb-4">
         <div>
-          {/* margin stays inline: styles.css's unlayered h1-h6 rule sets a
-              default margin that beats a Tailwind margin utility regardless
-              of specificity (unlayered CSS always wins over the utilities
-              layer). Only the margin needs to stay inline; color is safe as
-              a class since nothing unlayered sets heading color. */}
-          <h6 className="text-[var(--color-accent-700)]" style={{ marginBottom: 2 }}>
+          <h6 className="mb-0.5 text-[var(--color-accent-700)]">
             {currentKind ? blockKindLabel(currentKind) : "Workout"}
           </h6>
-          <h2 className="flex items-center gap-3" style={{ margin: 0 }}>
+          <h2 className="m-0 flex items-center gap-3">
             {activeWorkoutName ?? "Workout"}
             {isPaused ? (
               <Badge className="border-transparent bg-[color-mix(in_srgb,var(--color-accent-700)_15%,transparent)] font-extrabold uppercase tracking-[0.08em] text-[var(--color-accent-700)]">
@@ -176,7 +171,7 @@ export const RidePage = ({
         </div>
         <div className="flex items-center gap-6">
           <div className="text-right">
-            <h6 style={{ marginBottom: 2 }}>Elapsed / Total</h6>
+            <h6 className="mb-0.5">Elapsed / Total</h6>
             <div className="text-xl font-extrabold">
               {formatClock(elapsedSec)} / {formatClock(totalDurationSec)}
             </div>
@@ -229,7 +224,7 @@ export const RidePage = ({
         </div>
         <div className="bg-[var(--color-bg)] p-4">
           <div className="mb-2 flex items-center justify-between gap-1">
-            <h6 style={{ margin: 0 }}>Speed</h6>
+            <h6 className="m-0">Speed</h6>
             {/* Required single-select: a unit is always chosen, so we ignore
                 the empty-string callback Radix sends when re-clicking the
                 active item instead of letting it clear the selection. */}
@@ -254,7 +249,7 @@ export const RidePage = ({
         </div>
       </div>
 
-      <h6 style={{ marginBottom: "var(--space-3)" }}>
+      <h6 className="mb-3">
         Workout timeline{intervalPositionLabel ? ` · ${intervalPositionLabel}` : ""}
       </h6>
       <div className="mb-8 flex gap-3">
@@ -291,7 +286,7 @@ export const RidePage = ({
           {isPaused ? "Resume" : "Pause"}
         </Button>
         <div className="flex items-center gap-3">
-          <h6 style={{ margin: 0 }}>Intensity</h6>
+          <h6 className="m-0">Intensity</h6>
           <Button
             variant="outline"
             size="icon"

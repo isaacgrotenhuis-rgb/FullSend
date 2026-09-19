@@ -56,7 +56,7 @@ export const WorkoutSummaryView = ({
         </div>
         <div className={tileClassName}>
           <div className="flex items-center justify-between gap-1">
-            <h6 style={{ margin: 0 }}>Distance</h6>
+            <h6 className="m-0">Distance</h6>
             {showToggle ? (
               // Required single-select: a unit is always chosen, so the empty-string
               // callback Radix sends when re-clicking the active item is ignored
