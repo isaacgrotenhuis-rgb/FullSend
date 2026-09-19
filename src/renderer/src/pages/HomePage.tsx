@@ -28,6 +28,17 @@ const cardMetaClass = "flex items-center gap-1.5 text-[11px] text-[color-mix(in_
     via `margin: var(--space-4) 0`). */
 const dividerClass = "h-[2px] bg-[var(--color-divider)]";
 
+/** The base-layer `h6` rules (index.css), spelled out as utilities.
+    A day cell with a workout is now a <button>, and a button may not contain
+    flow content such as a heading — so the day-label line is a <span> in both
+    cell variants, sharing this one class list so the two cannot drift apart.
+    Nothing is lost semantically: index.css documents `h6` as the app's
+    small-caps label style rather than a real heading level. */
+const dayLabelClass = cn(
+  "font-[family-name:var(--font-heading)] [font-weight:var(--font-heading-weight)]",
+  "text-[13px] leading-[1.12] tracking-[0.08em] uppercase"
+);
+
 const parseIsoDate = (iso: string): Date => new Date(`${iso}T00:00:00`);
 
 const addDaysToDate = (date: Date, days: number): Date => {
@@ -130,38 +141,63 @@ export const HomePage = ({
             const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
             const isToday = cellDate.getTime() === today.getTime();
             const hasWorkout = day.workoutId !== null;
-            return (
-              <div
-                key={day.dayIndex}
-                onClick={
-                  hasWorkout
-                    ? () =>
-                        void previewWorkoutForDay(
-                          day.workoutId as string,
-                          day.workoutName ?? "Workout",
-                          day.sessionType
-                        )
-                    : undefined
-                }
-                className={cn(
-                  "flex min-h-24 flex-col gap-1 p-3",
-                  index < 6 && "border-r border-[color:var(--color-divider)]",
-                  isToday ? "bg-[var(--color-accent-100)]" : "bg-background",
-                  hasWorkout ? "cursor-pointer" : "cursor-default"
-                )}
-              >
-                <h6 className="m-0" style={isToday ? { color: "var(--color-accent-700)" } : undefined}>
+            const durationLabel = `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}`;
+
+            /* One class list for both variants so the interactive and rest
+               cells stay pixel-identical. `text-left` is the only addition a
+               button needs over a div: the UA centers button text, everything
+               else (font, color, background) Preflight already inherits. */
+            const cellClass = cn(
+              "flex min-h-24 flex-col gap-1 p-3 text-left",
+              index < 6 && "border-r border-[color:var(--color-divider)]",
+              isToday ? "bg-[var(--color-accent-100)]" : "bg-background"
+            );
+
+            const cellContent = (
+              <>
+                <span className={cn(dayLabelClass, isToday && "text-[var(--color-accent-700)]")}>
                   {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
-                </h6>
-                <div className="flex-1 text-[13px] font-semibold [overflow-wrap:break-word]">
+                </span>
+                <span className="flex-1 text-[13px] font-semibold [overflow-wrap:break-word]">
                   {day.workoutName ?? "Rest"}
+                </span>
+                {hasWorkout ? <span className={cardMetaClass}>{durationLabel}</span> : null}
+              </>
+            );
+
+            /* Rest days carry no action, so they stay a plain <div> and out of
+               the tab order entirely. Only days with a workout become real
+               <button>s — previously every cell was a <div onClick>, which Tab
+               never reaches and Enter/Space never activates. */
+            if (!hasWorkout) {
+              return (
+                <div key={day.dayIndex} className={cn(cellClass, "cursor-default")}>
+                  {cellContent}
                 </div>
-                {hasWorkout ? (
-                  <div className={cardMetaClass}>
-                    {day.durationMin} min{day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}
-                  </div>
-                ) : null}
-              </div>
+              );
+            }
+
+            /* The cell's own text would read as one run-on string ("Mon · Mar 3
+               Threshold 2x20 60 min · IF 0.88"), so the button gets an explicit
+               label instead: the day first for orientation within the week,
+               then what activating it does. */
+            const workoutName = day.workoutName ?? "Workout";
+            const ariaLabel = `${dayLabels[day.dayIndex]} ${formatShortDate(cellDate)}${
+              isToday ? ", today" : ""
+            }: ${workoutName}, ${durationLabel.replace(" · ", ", ")}. Preview workout.`;
+
+            return (
+              <button
+                key={day.dayIndex}
+                type="button"
+                aria-label={ariaLabel}
+                onClick={() =>
+                  void previewWorkoutForDay(day.workoutId as string, workoutName, day.sessionType)
+                }
+                className={cn(cellClass, "cursor-pointer appearance-none")}
+              >
+                {cellContent}
+              </button>
             );
           })}
         </div>
