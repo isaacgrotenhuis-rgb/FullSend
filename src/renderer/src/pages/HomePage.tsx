@@ -172,7 +172,7 @@ export const HomePage = ({
       ) : (
         /* `marginBottom` stays inline: styles.css's bare `p` rule is
            unlayered, so it always beats a Tailwind margin utility. */
-        <p className="text-muted" style={{ marginBottom: "var(--space-8)" }}>
+        <p className="text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]" style={{ marginBottom: "var(--space-8)" }}>
           No workouts scheduled for the current week.
         </p>
       )}

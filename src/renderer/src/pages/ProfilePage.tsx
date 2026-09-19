@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
 export type StravaSectionProps = {
@@ -64,6 +65,12 @@ const cardClass = "gap-2 rounded-md border-0 bg-muted p-3 shadow-none";
     cells below, not repeated as three separate one-off overrides — keeps
     them square instead. */
 const seamCellClass = "gap-2 rounded-none border-0 bg-muted p-3 shadow-none";
+
+const zoneHeadClass =
+  "h-auto p-2 text-[11px] font-normal uppercase tracking-[0.08em] text-[color-mix(in_srgb,var(--color-text)_60%,transparent)]";
+const zoneCellClass = "p-2";
+const zoneMutedCellClass = "text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]";
+const zoneRowClass = "border-[color:var(--color-divider)]";
 
 export const ProfilePage = ({ currentFtp, strava }: Props): ReactElement => {
   const stravaConnected = strava.stravaStatus?.connected ?? false;
@@ -154,7 +161,7 @@ export const ProfilePage = ({ currentFtp, strava }: Props): ReactElement => {
             <p className={cardMetaClass} style={{ marginBottom: "var(--space-2)" }}>
               Authorize in the browser, then paste the returned code below.
             </p>
-            <div className="row" style={{ margin: 0 }}>
+            <div className="flex flex-wrap items-center gap-3">
               <div className="flex flex-1 flex-col gap-[5px]">
                 <Label htmlFor="strava-auth-code" className={fieldLabelClass}>
                   Authorization code
@@ -240,26 +247,27 @@ export const ProfilePage = ({ currentFtp, strava }: Props): ReactElement => {
 
       <h2>Training zones</h2>
       <Separator className="my-4 h-[2px] bg-[var(--color-divider)]" />
-      <table className="table mb-8">
-        <thead>
-          <tr>
-            <th>Zone</th>
-            <th>Name</th>
-            <th>Range</th>
-            <th>Power</th>
-          </tr>
-        </thead>
-        <tbody>
+      <Table className="mb-8">
+        <TableHeader>
+          <TableRow className={cn(zoneRowClass, "border-b-2 hover:bg-transparent")}>
+            {["Zone", "Name", "Range", "Power"].map((heading) => (
+              <TableHead key={heading} className={zoneHeadClass}>
+                {heading}
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
           {trainingZoneNames.map((name, index) => (
-            <tr key={name}>
-              <td>{index + 1}</td>
-              <td>{name}</td>
-              <td className="text-muted">—</td>
-              <td className="text-muted">—</td>
-            </tr>
+            <TableRow key={name} className={zoneRowClass}>
+              <TableCell className={zoneCellClass}>{index + 1}</TableCell>
+              <TableCell className={zoneCellClass}>{name}</TableCell>
+              <TableCell className={cn(zoneCellClass, zoneMutedCellClass)}>—</TableCell>
+              <TableCell className={cn(zoneCellClass, zoneMutedCellClass)}>—</TableCell>
+            </TableRow>
           ))}
-        </tbody>
-      </table>
+        </TableBody>
+      </Table>
     </main>
   );
 };
