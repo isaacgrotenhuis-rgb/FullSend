@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
 import {
   type BleConnectionEntry,
   type BleRole,
@@ -67,6 +67,11 @@ export const App = (): ReactElement => {
   const [bleActionPending, setBleActionPending] = useState(false);
   const [bleActionError, setBleActionError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const clusterButtonRef = useRef<HTMLButtonElement>(null);
+  const closeDrawer = (): void => {
+    setDrawerOpen(false);
+    clusterButtonRef.current?.focus();
+  };
 
   const [workoutSessionState, setWorkoutSessionState] = useState<WorkoutSessionState | null>(null);
   const [activeIntervals, setActiveIntervals] = useState<WorkoutInterval[] | null>(null);
@@ -486,6 +491,7 @@ export const App = (): ReactElement => {
             bleState={bleState}
             drawerOpen={drawerOpen}
             onToggleDrawer={() => setDrawerOpen((open) => !open)}
+            clusterButtonRef={clusterButtonRef}
           />
           <DeviceDrawer
             ble={{
@@ -502,7 +508,8 @@ export const App = (): ReactElement => {
               connectToDevice
             }}
             open={drawerOpen}
-            onClose={() => setDrawerOpen(false)}
+            onClose={closeDrawer}
+            clusterButtonRef={clusterButtonRef}
           />
         </>
       ) : null}

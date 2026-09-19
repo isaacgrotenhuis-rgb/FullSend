@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement, type RefObject } from "react";
 import { Heart, RefreshCw, Zap, type LucideIcon } from "lucide-react";
 import {
   bleRoles,
@@ -26,6 +26,7 @@ type Props = {
   ble: BleSectionProps;
   open: boolean;
   onClose: () => void;
+  clusterButtonRef: RefObject<HTMLButtonElement | null>;
 };
 
 // Power/trainer is the only device anything in this app gates on today
@@ -90,7 +91,7 @@ type CellPhase =
   | { kind: "scanning" }
   | { kind: "idle" };
 
-export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null => {
+export const DeviceDrawer = ({ ble, open, onClose, clusterButtonRef }: Props): ReactElement => {
   const {
     bleState,
     actionError,
@@ -108,6 +109,9 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
   const [scanStartedAt, setScanStartedAt] = useState<number | null>(null);
   const [hasScannedOnce, setHasScannedOnce] = useState(false);
   const [, forceTick] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(open);
 
   useEffect(() => {
     if (scanning) {
@@ -128,7 +132,35 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
     return () => clearInterval(id);
   }, [open, scanning]);
 
-  if (!open) return null;
+  // Not modal — Tab is never trapped inside, so a keyboard user can leave the
+  // drawer normally. Focus still needs to move somewhere sensible on open
+  // (into the drawer) and on close (back to the cluster that opened it),
+  // since the drawer's own contents become inert while closed.
+  useEffect(() => {
+    if (open && !wasOpenRef.current) {
+      closeButtonRef.current?.focus();
+    }
+    wasOpenRef.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") onClose();
+    };
+    const handlePointerDown = (event: PointerEvent): void => {
+      const target = event.target as Node;
+      if (containerRef.current?.contains(target)) return;
+      if (clusterButtonRef.current?.contains(target)) return;
+      onClose();
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [open, onClose, clusterButtonRef]);
 
   const disconnectForRole: Record<BleRole, () => Promise<void>> = {
     power: disconnectDevice,
@@ -149,122 +181,138 @@ export const DeviceDrawer = ({ ble, open, onClose }: Props): ReactElement | null
   const summary = scanning ? `Scanning… ${remainingSec}s remaining` : `${count} of 3 connected`;
 
   return (
-    <div id="device-drawer" className="device-drawer" role="region" aria-label="Devices">
-      <div className="device-drawer-header">
-        <span className="device-drawer-title">Devices</span>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-          <span className="card-meta">{summary}</span>
-          <button className="btn btn-ghost" style={{ padding: "4px 10px", fontSize: 12 }} onClick={onClose}>
-            Close
-          </button>
-        </div>
-      </div>
+    <div className={`device-drawer-wrapper${open ? " device-drawer-wrapper--open" : ""}`}>
+      <div className="device-drawer-inner">
+        <div
+          id="device-drawer"
+          className="device-drawer"
+          role="region"
+          aria-label="Devices"
+          ref={containerRef}
+          inert={!open}
+        >
+          <div className="device-drawer-header">
+            <span className="device-drawer-title">Devices</span>
+            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+              <span className="card-meta" aria-live="polite">{summary}</span>
+              <button
+                ref={closeButtonRef}
+                className="btn btn-ghost"
+                style={{ padding: "4px 10px", fontSize: 12 }}
+                onClick={onClose}
+              >
+                Close
+              </button>
+            </div>
+          </div>
 
-      {actionError ? (
-        <p style={{ color: "var(--color-accent-700)", fontSize: 12, margin: "var(--space-2) 0 0" }}>{actionError}</p>
-      ) : null}
+          {actionError ? (
+            <p style={{ color: "var(--color-accent-700)", fontSize: 12, margin: "var(--space-2) 0 0" }}>{actionError}</p>
+          ) : null}
 
-      <div className="device-grid">
-        {bleRoles.map((role) => {
-          const conn = bleState ? getRoleConnection(bleState, role) : null;
-          const connectedDeviceId = conn?.connectedDeviceId ?? null;
-          const isConnected = connectedDeviceId !== null;
-          const connectedDevice = connectedDeviceId
-            ? (bleState?.discoveredDevices.find((d) => d.id === connectedDeviceId) ?? null)
-            : null;
-          const isConnecting = conn?.lifecycle === "connecting";
-          const required = isRequiredRole(role);
-          // Only ever true for cadence today (a trainer's power connection already
-          // streams it over Indoor Bike Data), expressed generically off the same
-          // isRoleConnected() the nav cluster uses rather than a second hand-rolled
-          // liveTelemetry check that could drift from it.
-          const providedByPower = !isConnected && isRoleConnected(bleState, role);
-          const candidate = !isConnected && !providedByPower && bleState ? candidateForRole(bleState, role) : null;
-          const rowError = lastErrorForRole(role);
-          const Icon = roleIcons[role];
-          const iconColor = isRoleConnected(bleState, role)
-            ? "var(--color-text)"
-            : required
-              ? "var(--color-accent)"
-              : "var(--color-neutral-500)";
-          const actionVariant = required ? "btn-primary" : "btn-secondary";
+          <div className="device-grid">
+            {bleRoles.map((role) => {
+              const conn = bleState ? getRoleConnection(bleState, role) : null;
+              const connectedDeviceId = conn?.connectedDeviceId ?? null;
+              const isConnected = connectedDeviceId !== null;
+              const connectedDevice = connectedDeviceId
+                ? (bleState?.discoveredDevices.find((d) => d.id === connectedDeviceId) ?? null)
+                : null;
+              const isConnecting = conn?.lifecycle === "connecting";
+              const required = isRequiredRole(role);
+              // Only ever true for cadence today (a trainer's power connection already
+              // streams it over Indoor Bike Data), expressed generically off the same
+              // isRoleConnected() the nav cluster uses rather than a second hand-rolled
+              // liveTelemetry check that could drift from it.
+              const providedByPower = !isConnected && isRoleConnected(bleState, role);
+              const candidate = !isConnected && !providedByPower && bleState ? candidateForRole(bleState, role) : null;
+              const rowError = lastErrorForRole(role);
+              const Icon = roleIcons[role];
+              const iconColor = isRoleConnected(bleState, role)
+                ? "var(--color-text)"
+                : required
+                  ? "var(--color-accent)"
+                  : "var(--color-neutral-500)";
+              const actionVariant = required ? "btn-primary" : "btn-secondary";
 
-          const phase: CellPhase = isConnected
-            ? { kind: "connected" }
-            : providedByPower
-              ? { kind: "provided-by-power" }
-              : isConnecting
-                ? { kind: "connecting" }
-                : candidate
-                  ? { kind: "candidate", device: candidate }
-                  : scanning
-                    ? { kind: "scanning" }
-                    : { kind: "idle" };
+              const phase: CellPhase = isConnected
+                ? { kind: "connected" }
+                : providedByPower
+                  ? { kind: "provided-by-power" }
+                  : isConnecting
+                    ? { kind: "connecting" }
+                    : candidate
+                      ? { kind: "candidate", device: candidate }
+                      : scanning
+                        ? { kind: "scanning" }
+                        : { kind: "idle" };
 
-          // Single source for both the label/button below AND whether the scan
-          // progress bar shows, so the two can't independently disagree about
-          // which state a cell is actually in.
-          const actionButton = (label: string, onClick: (() => void) | null, disabled: boolean): ReactElement => (
-            <button
-              className={`btn btn-block ${actionVariant}`}
-              disabled={disabled}
-              onClick={onClick ? () => void onClick() : undefined}
-            >
-              {label}
-            </button>
-          );
-
-          let statusLabel: string;
-          let action: ReactElement | null;
-
-          switch (phase.kind) {
-            case "connected":
-              statusLabel = `${connectedDevice ? deviceLabel(connectedDevice) : connectedDeviceId}${
-                role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
-              }`;
-              action = (
-                <button className="btn btn-ghost btn-block" disabled={actionPending} onClick={() => void disconnectForRole[role]()}>
-                  Forget
+              // Single source for both the label/button below AND whether the scan
+              // progress bar shows, so the two can't independently disagree about
+              // which state a cell is actually in.
+              const actionButton = (label: string, onClick: (() => void) | null, disabled: boolean): ReactElement => (
+                <button
+                  className={`btn btn-block ${actionVariant}`}
+                  disabled={disabled}
+                  onClick={onClick ? () => void onClick() : undefined}
+                >
+                  {label}
                 </button>
               );
-              break;
-            case "provided-by-power":
-              statusLabel = "Provided by trainer connection";
-              action = null;
-              break;
-            case "connecting":
-              statusLabel = "Connecting…";
-              action = actionButton("Connecting", null, true);
-              break;
-            case "candidate":
-              statusLabel = `${deviceLabel(phase.device)} found${typeof phase.device.rssi === "number" ? ` · RSSI ${phase.device.rssi}` : ""}`;
-              action = actionButton("Pair", () => connectToDevice(phase.device.id, role), actionPending);
-              break;
-            case "scanning":
-              statusLabel = "Scanning…";
-              action = actionButton("Scanning", null, true);
-              break;
-            case "idle":
-              statusLabel = hasScannedOnce ? "No devices found · check it's awake" : `${required ? "Required" : "Optional"} · not connected`;
-              action = actionButton("Scan", () => scanForDevices(), actionPending);
-              break;
-          }
 
-          return (
-            <div key={role} className="device-cell">
-              <Icon size={30} strokeWidth={2} style={{ color: iconColor }} strokeLinecap="square" />
-              <div className="device-cell-name">{roleLabel(role)}</div>
-              <div className="device-cell-status">{statusLabel}</div>
-              {rowError ? <div className="device-cell-status" style={{ color: "var(--color-accent-700)" }}>{rowError}</div> : null}
-              {phase.kind === "scanning" ? (
-                <div className="device-progress">
-                  <div className="device-progress-fill" style={{ width: `${progressPercent}%` }} />
+              let statusLabel: string;
+              let action: ReactElement | null;
+
+              switch (phase.kind) {
+                case "connected":
+                  statusLabel = `${connectedDevice ? deviceLabel(connectedDevice) : connectedDeviceId}${
+                    role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
+                  }`;
+                  action = (
+                    <button className="btn btn-ghost btn-block" disabled={actionPending} onClick={() => void disconnectForRole[role]()}>
+                      Forget
+                    </button>
+                  );
+                  break;
+                case "provided-by-power":
+                  statusLabel = "Provided by trainer connection";
+                  action = null;
+                  break;
+                case "connecting":
+                  statusLabel = "Connecting…";
+                  action = actionButton("Connecting", null, true);
+                  break;
+                case "candidate":
+                  statusLabel = `${deviceLabel(phase.device)} found${typeof phase.device.rssi === "number" ? ` · RSSI ${phase.device.rssi}` : ""}`;
+                  action = actionButton("Pair", () => connectToDevice(phase.device.id, role), actionPending);
+                  break;
+                case "scanning":
+                  statusLabel = "Scanning…";
+                  action = actionButton("Scanning", null, true);
+                  break;
+                case "idle":
+                  statusLabel = hasScannedOnce ? "No devices found · check it's awake" : `${required ? "Required" : "Optional"} · not connected`;
+                  action = actionButton("Scan", () => scanForDevices(), actionPending);
+                  break;
+              }
+
+              return (
+                <div key={role} className="device-cell">
+                  <Icon size={30} strokeWidth={2} style={{ color: iconColor }} strokeLinecap="square" />
+                  <div className="device-cell-name">{roleLabel(role)}</div>
+                  <div className="device-cell-status">{statusLabel}</div>
+                  {rowError ? <div className="device-cell-status" style={{ color: "var(--color-accent-700)" }}>{rowError}</div> : null}
+                  {phase.kind === "scanning" ? (
+                    <div className="device-progress">
+                      <div className="device-progress-fill" style={{ width: `${progressPercent}%` }} />
+                    </div>
+                  ) : null}
+                  {action}
                 </div>
-              ) : null}
-              {action}
-            </div>
-          );
-        })}
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
