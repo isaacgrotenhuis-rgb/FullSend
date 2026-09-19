@@ -1,5 +1,7 @@
 import type { ReactElement } from "react";
 import type { WorkoutSessionSummary, WorkoutSessionTelemetrySamples } from "@shared/ipc/contracts";
+import { Separator } from "@/components/ui/separator";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatClock } from "./WorkoutTimelineChart";
 import { SessionMetricChart } from "./SessionMetricChart";
 import { KMH_TO_MPH, formatDistance, type SpeedUnit } from "./speedUnit";
@@ -13,16 +15,8 @@ type Props = {
   onSpeedUnitChange?: (unit: SpeedUnit) => void;
 };
 
-const tileStyle = { background: "var(--color-bg)", padding: "var(--space-3)" } as const;
-const tileValueStyle = { fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 } as const;
-
-const unitButtonStyle = (active: boolean) =>
-  ({
-    padding: "1px 6px",
-    fontSize: 10,
-    fontWeight: active ? 800 : 500,
-    opacity: active ? 1 : 0.5
-  }) as const;
+const tileClassName = "bg-[var(--color-bg)] p-3";
+const tileValueClassName = "text-xl font-extrabold";
 
 /**
  * Post-ride stat tiles + Speed/Power/HR time-series. Shared by the live end-of-ride
@@ -39,66 +33,55 @@ export const WorkoutSummaryView = ({
 
   return (
     <>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3,1fr)",
-          gap: 2,
-          background: "var(--color-divider)",
-          border: "2px solid var(--color-divider)"
-        }}
-      >
-        <div style={tileStyle}>
+      <div className="grid grid-cols-3 gap-[2px] border-2 border-[var(--color-divider)] bg-[var(--color-divider)]">
+        <div className={tileClassName}>
           <h6>Duration</h6>
-          <div style={tileValueStyle}>{formatClock(summary.durationSec)}</div>
+          <div className={tileValueClassName}>{formatClock(summary.durationSec)}</div>
         </div>
-        <div style={tileStyle}>
+        <div className={tileClassName}>
           <h6>Avg power</h6>
-          <div style={tileValueStyle}>{summary.avgPowerWatts != null ? `${summary.avgPowerWatts} W` : "—"}</div>
+          <div className={tileValueClassName}>{summary.avgPowerWatts != null ? `${summary.avgPowerWatts} W` : "—"}</div>
         </div>
-        <div style={tileStyle}>
+        <div className={tileClassName}>
           <h6>Avg cadence</h6>
-          <div style={tileValueStyle}>{summary.avgCadenceRpm != null ? `${summary.avgCadenceRpm} rpm` : "—"}</div>
+          <div className={tileValueClassName}>
+            {summary.avgCadenceRpm != null ? `${summary.avgCadenceRpm} rpm` : "—"}
+          </div>
         </div>
-        <div style={tileStyle}>
+        <div className={tileClassName}>
           <h6>Avg HR</h6>
-          <div style={tileValueStyle}>{summary.avgHeartRateBpm != null ? `${summary.avgHeartRateBpm} bpm` : "—"}</div>
+          <div className={tileValueClassName}>
+            {summary.avgHeartRateBpm != null ? `${summary.avgHeartRateBpm} bpm` : "—"}
+          </div>
         </div>
-        <div style={tileStyle}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4 }}>
+        <div className={tileClassName}>
+          <div className="flex items-center justify-between gap-1">
             <h6 style={{ margin: 0 }}>Distance</h6>
             {showToggle ? (
-              <div style={{ display: "flex", gap: 2 }}>
-                <button
-                  className="btn btn-secondary"
-                  style={unitButtonStyle(speedUnit === "mph")}
-                  onClick={() => onSpeedUnitChange?.("mph")}
-                >
-                  MPH
-                </button>
-                <button
-                  className="btn btn-secondary"
-                  style={unitButtonStyle(speedUnit === "kph")}
-                  onClick={() => onSpeedUnitChange?.("kph")}
-                >
-                  KPH
-                </button>
-              </div>
+              // Required single-select: a unit is always chosen, so the empty-string
+              // callback Radix sends when re-clicking the active item is ignored
+              // instead of being allowed to clear the selection.
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={speedUnit}
+                onValueChange={(value) => {
+                  if (value) onSpeedUnitChange?.(value as SpeedUnit);
+                }}
+                aria-label="Speed unit"
+              >
+                <ToggleGroupItem value="mph">MPH</ToggleGroupItem>
+                <ToggleGroupItem value="kph">KPH</ToggleGroupItem>
+              </ToggleGroup>
             ) : null}
           </div>
-          <div style={tileValueStyle}>{formatDistance(summary.distanceMeters, speedUnit)}</div>
+          <div className={tileValueClassName}>{formatDistance(summary.distanceMeters, speedUnit)}</div>
         </div>
       </div>
 
-      <div className="hr" style={{ margin: "var(--space-2) 0" }} />
+      <Separator className="my-2 h-0.5 bg-[var(--color-divider)]" />
       {telemetryLoading ? (
-        <div
-          style={{
-            fontSize: 12,
-            color: "color-mix(in srgb, var(--color-text) 55%, transparent)",
-            padding: "var(--space-2) 0"
-          }}
-        >
+        <div className="py-2 text-xs text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
           Loading charts…
         </div>
       ) : telemetry && telemetry.length > 0 ? (
@@ -129,7 +112,7 @@ export const WorkoutSummaryView = ({
             color="var(--color-accent-2)"
             samples={telemetry.map((sample) => ({ elapsedSec: sample.elapsedSec, value: sample.actualHeartRateBpm }))}
           />
-          <div className="hr" style={{ margin: "var(--space-2) 0" }} />
+          <Separator className="my-2 h-0.5 bg-[var(--color-divider)]" />
         </>
       ) : null}
     </>
