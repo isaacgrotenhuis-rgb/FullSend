@@ -9,6 +9,7 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "paths": {
+      "@/*": ["./src/renderer/src/*"],
       "@main/*": ["./src/main/*"],
       "@preload/*": ["./src/preload/*"],
       "@renderer/*": ["./src/renderer/src/*"],

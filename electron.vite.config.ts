@@ -1,5 +1,6 @@
 import { defineConfig } from "electron-vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
 
 export default defineConfig({
@@ -42,10 +43,13 @@ export default defineConfig({
     },
     resolve: {
       alias: {
+        // Vite matches aliases exact-or-`find + "/"`, so "@" does not swallow
+        // "@renderer/*", "@shared/*" or npm scopes like "@radix-ui/*".
+        "@": resolve("src/renderer/src"),
         "@renderer": resolve("src/renderer/src"),
         "@shared": resolve("src/shared")
       }
     },
-    plugins: [react()]
+    plugins: [react(), tailwindcss()]
   }
 });
