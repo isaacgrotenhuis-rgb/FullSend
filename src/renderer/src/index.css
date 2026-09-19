@@ -57,7 +57,50 @@
   ::before,
   ::backdrop,
   ::file-selector-button {
-    border: 0 solid;
+    border: 0 solid var(--border);
+  }
+}
+
+/* The border COLOUR above is the other half of what Preflight alone would not
+   give us: stock shadcn ships `* { @apply border-border }` in its own
+   globals.css. Without it a Tailwind `border` utility paints in currentColor,
+   so every shadcn border — Card, DialogContent, Button variant="outline" —
+   comes out near-black instead of the subtle --border. */
+
+/* styles.css keeps its bare-element resets in the `legacy-base` layer, which
+   beats `base` but loses to `components` and `utilities` (see the layer order
+   at the top of this file). Those resets give every <button> a grey surface,
+   a divider border, its own padding and a hover background, and the same for
+   <input>/<select>/<textarea>/<table>/<th>/<td>.
+   That is correct for unmigrated markup and wrong for a shadcn primitive: any
+   primitive that sets no background utility of its own — the Dialog close X,
+   Button variant="ghost", an inactive TabsTrigger, an unchecked Checkbox —
+   renders as a grey chip with a stray border, and size="icon" gets legacy
+   padding inside its fixed 36px box.
+
+   This block opts the primitives out. It sits in `components`, the one layer
+   that beats `legacy-base` while still losing to `utilities`, so each
+   component's own Tailwind classes keep winning over it. It is scoped to
+   [data-slot], which every shadcn primitive stamps and no legacy markup has,
+   so it cannot reach a screen that has not been migrated yet.
+
+   PR 8 deletes styles.css and this block together. */
+@layer components {
+  button[data-slot],
+  input[data-slot],
+  select[data-slot],
+  textarea[data-slot],
+  table[data-slot],
+  th[data-slot],
+  td[data-slot] {
+    padding: 0;
+    border: 0 solid var(--border);
+    border-radius: 0;
+    background: transparent;
+  }
+
+  button[data-slot]:hover {
+    background: transparent;
   }
 }
 
