@@ -1,5 +1,7 @@
 import type { ReactElement } from "react";
 import type { SessionType, WorkoutDetail } from "@shared/ipc/contracts";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { averageTargetWatts, formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
 
 type Props = {
@@ -24,13 +26,17 @@ const sessionTypeLabel: Record<SessionType, string> = {
   neuromuscular: "Neuromuscular"
 };
 
-const tileStyle = { background: "var(--color-bg)", padding: "var(--space-3)" } as const;
-const tileValueStyle = {
-  fontFamily: "var(--font-heading)",
-  fontWeight: 800,
-  fontSize: 22,
-  lineHeight: 1
-} as const;
+/* Matches the legacy `.tag.tag-accent` pill exactly (styles.css ~L204-209):
+   font-size 11px, letter-spacing 0.02em, 3px/10px padding, 6px radius
+   (0.75 * --radius-md), --color-accent-100/800 background/text. */
+const zoneTagClassName =
+  "inline-flex items-center rounded-[6px] bg-[color:var(--color-accent-100)] px-2.5 py-[3px] text-[11px] tracking-[0.02em] text-[color:var(--color-accent-800)] capitalize";
+
+/* Matches the legacy stat-tile pair (former tileStyle/tileValueStyle
+   constants): --color-bg background, --space-3 padding for the tile;
+   800-weight 22px/1 for the value. */
+const tileClassName = "bg-[color:var(--color-bg)] p-3";
+const tileValueClassName = "text-[22px] font-extrabold leading-none";
 
 export const WorkoutPreviewDialog = ({
   name,
@@ -63,78 +69,50 @@ export const WorkoutPreviewDialog = ({
   const canStart = !busy && connectedTrainerDeviceId !== null;
 
   return (
-    <div className="dialog-backdrop" onClick={onBack} style={{ zIndex: 150 }}>
-      <div
-        className="dialog"
-        onClick={(event) => event.stopPropagation()}
-        style={{ width: "min(720px, 100%)" }}
-      >
-        <div
-          className="dialog-title"
-          style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}
-        >
-          <span className="tag tag-accent" style={{ textTransform: "capitalize" }}>
-            {typeLabel}
-          </span>
-          <span>{name}</span>
-        </div>
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onBack();
+      }}
+    >
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-3 overflow-y-auto sm:max-w-[720px]">
+        <DialogHeader className="flex-row items-center gap-2 flex-wrap space-y-0">
+          <span className={zoneTagClassName}>{typeLabel}</span>
+          <DialogTitle>{name}</DialogTitle>
+        </DialogHeader>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(5, 1fr)",
-            gap: 2,
-            background: "var(--color-divider)",
-            border: "2px solid var(--color-divider)"
-          }}
-        >
-          <div style={tileStyle}>
+        <div className="grid grid-cols-5 gap-0.5 bg-[color:var(--color-divider)] border-2 border-[color:var(--color-divider)]">
+          <div className={tileClassName}>
             <h6 style={{ fontSize: 11 }}>Duration</h6>
-            <div style={tileValueStyle}>{formatClock(totalDurationSec)}</div>
+            <div className={tileValueClassName}>{formatClock(totalDurationSec)}</div>
           </div>
-          <div style={tileStyle}>
+          <div className={tileClassName}>
             <h6 style={{ fontSize: 11 }}>Avg power</h6>
-            <div style={tileValueStyle}>
+            <div className={tileValueClassName}>
               {avgWatts ?? "—"}
-              {avgWatts !== null ? <span style={{ fontSize: 13, fontWeight: 600 }}>W</span> : null}
+              {avgWatts !== null ? <span className="text-[13px] font-semibold">W</span> : null}
             </div>
           </div>
-          <div style={tileStyle}>
+          <div className={tileClassName}>
             <h6 style={{ fontSize: 11 }}>Intensity</h6>
-            <div style={tileValueStyle}>{intensityFactor !== null ? intensityFactor.toFixed(2) : "—"}</div>
+            <div className={tileValueClassName}>{intensityFactor !== null ? intensityFactor.toFixed(2) : "—"}</div>
           </div>
-          <div style={tileStyle}>
+          <div className={tileClassName}>
             <h6 style={{ fontSize: 11 }}>TSS</h6>
-            <div style={tileValueStyle}>{estTSS ?? "—"}</div>
+            <div className={tileValueClassName}>{estTSS ?? "—"}</div>
           </div>
-          <div style={tileStyle}>
+          <div className={tileClassName}>
             <h6 style={{ fontSize: 11 }}>Intervals</h6>
-            <div style={tileValueStyle}>{detail.intervals.length}</div>
+            <div className={tileValueClassName}>{detail.intervals.length}</div>
           </div>
         </div>
 
-        {description ? (
-          <p className="dialog-body" style={{ margin: 0 }}>
-            {description}
-          </p>
-        ) : null}
+        {description ? <p className="m-0 text-sm opacity-85">{description}</p> : null}
 
         <div>
-          <h6 style={{ marginBottom: "var(--space-2)" }}>Workout timeline</h6>
-          <div style={{ position: "relative" }}>
-            <div
-              style={{
-                position: "absolute",
-                top: "var(--space-2)",
-                left: "var(--space-2)",
-                fontFamily: "var(--font-heading)",
-                fontWeight: 800,
-                fontSize: 12,
-                zIndex: 1
-              }}
-            >
-              {Math.round(maxWatts)} W peak
-            </div>
+          <h6>Workout timeline</h6>
+          <div className="relative">
+            <div className="absolute top-2 left-2 z-[1] text-xs font-extrabold">{Math.round(maxWatts)} W peak</div>
             <WorkoutTimelineChart
               intervals={detail.intervals}
               elapsedSec={0}
@@ -144,24 +122,22 @@ export const WorkoutPreviewDialog = ({
           </div>
         </div>
 
-        {error ? (
-          <p style={{ color: "var(--color-accent-700)", fontSize: 13, margin: 0 }}>{error}</p>
-        ) : null}
+        {error ? <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{error}</p> : null}
 
-        <div className="dialog-actions">
+        <DialogFooter>
           {connectedTrainerDeviceId === null ? (
-            <span className="card-meta" style={{ marginRight: "auto" }}>
+            <span className="mr-auto flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
               Connect a trainer to start
             </span>
           ) : null}
-          <button className="btn btn-secondary" disabled={busy} onClick={onBack}>
+          <Button type="button" variant="outline" disabled={busy} onClick={onBack}>
             Cancel
-          </button>
-          <button className="btn btn-primary" style={{ minWidth: 150 }} disabled={!canStart} onClick={onStart}>
+          </Button>
+          <Button type="button" className="min-w-[150px]" disabled={!canStart} onClick={onStart}>
             Start workout
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 };
