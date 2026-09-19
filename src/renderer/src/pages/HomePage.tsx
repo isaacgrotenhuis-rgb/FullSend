@@ -1,5 +1,8 @@
 import type { ReactElement } from "react";
 import type { DashboardMetrics, EventPlanWeek, SessionType } from "@shared/ipc/contracts";
+import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { RecentWorkoutsSection } from "./RecentWorkoutsSection";
 
 type Props = {
@@ -16,6 +19,14 @@ type Props = {
 };
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Legacy `.card-meta`: small flex row of muted 11px text. */
+const cardMetaClass = "flex items-center gap-1.5 text-[11px] text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]";
+
+/** Legacy `.hr`: a 2px divider-colored rule. Margin is supplied per call site
+    since shadcn's Separator carries none of its own (the bare `.hr` class did,
+    via `margin: var(--space-4) 0`). */
+const dividerClass = "h-[2px] bg-[var(--color-divider)]";
 
 const parseIsoDate = (iso: string): Date => new Date(`${iso}T00:00:00`);
 
@@ -67,24 +78,15 @@ export const HomePage = ({
 
   return (
     <main className="app">
-      <div style={{ marginBottom: "var(--space-6)" }}>
-        <h1 style={{ margin: "0 0 var(--space-2)" }}>{greetingForNow()}</h1>
+      <div className="mb-6">
+        <h1>{greetingForNow()}</h1>
         {countdownLabel ? (
           <button
+            type="button"
             onClick={onNavigateToPlan}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              background: "none",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              color: "var(--color-accent-700)",
-              font: "inherit"
-            }}
+            className="flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-[var(--color-accent-700)]"
           >
-            <span style={{ fontSize: 14, fontWeight: 700 }}>{countdownLabel}</span>
+            <span className="text-sm font-bold">{countdownLabel}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="8,3 18,12 8,21" />
             </svg>
@@ -92,51 +94,40 @@ export const HomePage = ({
         ) : null}
       </div>
 
-      <div className="card" style={{ borderRadius: 0, marginBottom: "var(--space-8)" }}>
-        <h6 style={{ marginBottom: "var(--space-2)" }}>Training status</h6>
-        <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              padding: "var(--space-2) 0",
-              borderBottom: "1px solid var(--color-divider)"
-            }}
-          >
-            <span className="card-meta">Current FTP</span>
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>{currentFtp} W</span>
+      {/* Deliberate visual change: this card used to override its radius to
+          0 (a square corner surviving PR 1's token flip). Removed so it picks
+          up the hybrid theme's rounded-md, matching every other surface. */}
+      <Card className="mb-8 gap-2 rounded-md border-0 bg-muted p-3 shadow-none">
+        <h6>Training status</h6>
+        <Separator className={cn(dividerClass, "mb-3")} />
+        <div className="flex flex-col">
+          <div className="flex items-baseline justify-between border-b border-[color:var(--color-divider)] py-2">
+            <span className={cardMetaClass}>Current FTP</span>
+            <span className="text-[22px] font-extrabold">{currentFtp} W</span>
           </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              padding: "var(--space-2) 0",
-              borderBottom: "1px solid var(--color-divider)"
-            }}
-          >
-            <span className="card-meta">Plan compliance</span>
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+          <div className="flex items-baseline justify-between border-b border-[color:var(--color-divider)] py-2">
+            <span className={cardMetaClass}>Plan compliance</span>
+            <span className="text-[22px] font-extrabold">
               {dashboard?.planCompliancePercent != null ? `${dashboard.planCompliancePercent}%` : "—"}
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "var(--space-2) 0" }}>
-            <span className="card-meta">Training block</span>
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+          <div className="flex items-baseline justify-between py-2">
+            <span className={cardMetaClass}>Training block</span>
+            <span className="text-[22px] font-extrabold">
               {currentWeek ? `Week ${currentWeekIndex + 1} / ${weeks.length}` : "—"}
             </span>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--space-4)" }}>
+      <div className="flex items-baseline justify-between gap-4">
+        {/* `margin: 0` stays inline: styles.css's bare `h2` rule is unlayered
+            (see index.css), so it always beats a Tailwind `m-0` utility. */}
         <h2 style={{ margin: 0 }}>This week</h2>
       </div>
-      <div className="hr" />
+      <Separator className={cn(dividerClass, "my-4")} />
       {currentWeek ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 0, border: "2px solid var(--color-divider)", marginBottom: "var(--space-8)" }}>
+        <div className="mb-8 grid grid-cols-7 gap-0 border-2 border-[color:var(--color-divider)]">
           {currentWeek.days.map((day, index) => {
             const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
             const isToday = cellDate.getTime() === today.getTime();
@@ -154,25 +145,23 @@ export const HomePage = ({
                         )
                     : undefined
                 }
-                style={{
-                  padding: "var(--space-3)",
-                  borderRight: index < 6 ? "1px solid var(--color-divider)" : undefined,
-                  background: isToday ? "var(--color-accent-100)" : "var(--color-bg)",
-                  cursor: hasWorkout ? "pointer" : "default",
-                  minHeight: 96,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4
-                }}
+                className={cn(
+                  "flex min-h-24 flex-col gap-1 p-3",
+                  index < 6 && "border-r border-[color:var(--color-divider)]",
+                  isToday ? "bg-[var(--color-accent-100)]" : "bg-background",
+                  hasWorkout ? "cursor-pointer" : "cursor-default"
+                )}
               >
+                {/* `margin: 0` stays inline for the same unlayered-`h6`
+                    reason as the `h2` above. */}
                 <h6 style={{ margin: 0, color: isToday ? "var(--color-accent-700)" : undefined }}>
                   {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
                 </h6>
-                <div style={{ flex: 1, fontSize: 13, fontWeight: 600, overflowWrap: "break-word" }}>
+                <div className="flex-1 text-[13px] font-semibold [overflow-wrap:break-word]">
                   {day.workoutName ?? "Rest"}
                 </div>
                 {hasWorkout ? (
-                  <div className="card-meta">
+                  <div className={cardMetaClass}>
                     {day.durationMin} min{day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}
                   </div>
                 ) : null}
@@ -181,6 +170,8 @@ export const HomePage = ({
           })}
         </div>
       ) : (
+        /* `marginBottom` stays inline: styles.css's bare `p` rule is
+           unlayered, so it always beats a Tailwind margin utility. */
         <p className="text-muted" style={{ marginBottom: "var(--space-8)" }}>
           No workouts scheduled for the current week.
         </p>
