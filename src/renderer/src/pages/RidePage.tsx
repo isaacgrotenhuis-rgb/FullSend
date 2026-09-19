@@ -5,8 +5,24 @@ import type {
   WorkoutSessionSummary,
   WorkoutSessionTelemetrySamples
 } from "@shared/ipc/contracts";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Separator } from "@/components/ui/separator";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { cn } from "@/lib/utils";
 import { formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
-import { KMH_TO_MPH, useSpeedUnit } from "../speedUnit";
+import { KMH_TO_MPH, useSpeedUnit, type SpeedUnit } from "../speedUnit";
 import { WorkoutSummaryView } from "../WorkoutSummaryView";
 
 type Props = {
@@ -31,6 +47,10 @@ type Props = {
 
 const blockKindLabel = (kind: string): string => kind.charAt(0).toUpperCase() + kind.slice(1);
 
+/* --font-heading and --font-body (index.css) currently resolve to the same
+   family string, so these callouts rely on the inherited body font instead of
+   repeating fontFamily: var(--font-heading) — no visual change, one less
+   inline style. */
 const MetricTileValue = ({
   value,
   unit,
@@ -40,9 +60,12 @@ const MetricTileValue = ({
   unit: string;
   color?: string;
 }): ReactElement => (
-  <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 48, lineHeight: 1, color }}>
-    {value !== null ? value : <span style={{ fontSize: 28, fontWeight: 400, opacity: 0.35 }}>–</span>}
-    <span style={{ fontSize: 18, fontWeight: 600, marginLeft: 4 }}>{unit}</span>
+  // `color` is a runtime CSS-variable string (e.g. "var(--color-accent)") chosen per-tile —
+  // it can't be a static Tailwind class, so it stays inline. See the PR7 hard constraint:
+  // never rename the --color-* tokens these strings point at.
+  <div className="text-[48px] font-extrabold leading-none" style={{ color }}>
+    {value !== null ? value : <span className="text-[28px] font-normal opacity-[0.35]">–</span>}
+    <span className="ml-1 text-lg font-semibold">{unit}</span>
   </div>
 );
 
@@ -132,70 +155,56 @@ export const RidePage = ({
 
   return (
     <main className="app">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: "var(--space-4)" }}>
+      <div className="flex items-center justify-between pb-4">
         <div>
-          <h6 style={{ color: "var(--color-accent-700)", marginBottom: 2 }}>{currentKind ? blockKindLabel(currentKind) : "Workout"}</h6>
-          <h2 style={{ margin: 0, display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+          {/* margin stays inline: styles.css's unlayered h1-h6 rule sets a
+              default margin that beats a Tailwind margin utility regardless
+              of specificity (unlayered CSS always wins over the utilities
+              layer). Only the margin needs to stay inline; color is safe as
+              a class since nothing unlayered sets heading color. */}
+          <h6 className="text-[var(--color-accent-700)]" style={{ marginBottom: 2 }}>
+            {currentKind ? blockKindLabel(currentKind) : "Workout"}
+          </h6>
+          <h2 className="flex items-center gap-3" style={{ margin: 0 }}>
             {activeWorkoutName ?? "Workout"}
             {isPaused ? (
-              <span
-                style={{
-                  fontFamily: "var(--font-heading)",
-                  fontSize: 12,
-                  fontWeight: 800,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  padding: "2px 8px",
-                  borderRadius: 999,
-                  background: "color-mix(in srgb, var(--color-accent-700) 15%, transparent)",
-                  color: "var(--color-accent-700)"
-                }}
-              >
+              <Badge className="border-transparent bg-[color-mix(in_srgb,var(--color-accent-700)_15%,transparent)] font-extrabold uppercase tracking-[0.08em] text-[var(--color-accent-700)]">
                 Paused
-              </span>
+              </Badge>
             ) : null}
           </h2>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-6)" }}>
-          <div style={{ textAlign: "right" }}>
+        <div className="flex items-center gap-6">
+          <div className="text-right">
             <h6 style={{ marginBottom: 2 }}>Elapsed / Total</h6>
-            <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>
+            <div className="text-xl font-extrabold">
               {formatClock(elapsedSec)} / {formatClock(totalDurationSec)}
             </div>
           </div>
           {isWorkoutSessionActive ? (
-            <button className="btn btn-secondary" disabled={liveWorkoutBusy} onClick={() => void stopWorkout()}>
+            <Button variant="outline" disabled={liveWorkoutBusy} onClick={() => void stopWorkout()}>
               End
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
-      <div className="hr" style={{ margin: "0 0 var(--space-6)" }} />
+      <Separator className="mb-6 h-0.5 bg-[var(--color-divider)]" />
 
-      {liveWorkoutError ? (
-        <p style={{ color: "var(--color-accent-700)" }}>{liveWorkoutError}</p>
+      {liveWorkoutError ? <p className="text-[var(--color-accent-700)]">{liveWorkoutError}</p> : null}
+      {workoutSessionState?.lastError ? (
+        <p className="text-[var(--color-accent-700)]">{workoutSessionState.lastError}</p>
       ) : null}
-      {workoutSessionState?.lastError ? <p style={{ color: "var(--color-accent-700)" }}>{workoutSessionState.lastError}</p> : null}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr 1fr",
-          gap: 2,
-          background: "var(--color-divider)",
-          border: "2px solid var(--color-divider)",
-          marginBottom: "var(--space-6)"
-        }}
-      >
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)", opacity: isPaused ? 0.45 : 1 }}>
+      <div className="mb-6 grid grid-cols-3 gap-[2px] border-2 border-[var(--color-divider)] bg-[var(--color-divider)]">
+        <div className={cn("bg-[var(--color-bg)] p-4", isPaused && "opacity-[0.45]")}>
           <h6>Target power{isPaused ? " · holding" : ""}</h6>
           <MetricTileValue value={liveMetrics?.targetPowerWatts ?? null} unit="W" />
         </div>
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
+        <div className="bg-[var(--color-bg)] p-4">
           <h6>Actual power</h6>
           <MetricTileValue value={liveMetrics?.actualPowerWatts ?? null} unit="W" color="var(--color-accent)" />
         </div>
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
+        <div className="bg-[var(--color-bg)] p-4">
           <h6>Cadence</h6>
           <MetricTileValue
             value={
@@ -206,7 +215,7 @@ export const RidePage = ({
             unit="rpm"
           />
         </div>
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
+        <div className="bg-[var(--color-bg)] p-4">
           <h6>Heart rate</h6>
           <MetricTileValue
             value={
@@ -218,76 +227,43 @@ export const RidePage = ({
             color="var(--color-accent-2)"
           />
         </div>
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 4, marginBottom: "var(--space-2)" }}>
+        <div className="bg-[var(--color-bg)] p-4">
+          <div className="mb-2 flex items-center justify-between gap-1">
             <h6 style={{ margin: 0 }}>Speed</h6>
-            <div style={{ display: "flex", gap: 2 }}>
-              <button
-                className="btn btn-secondary"
-                style={{
-                  padding: "1px 6px",
-                  fontSize: 10,
-                  fontWeight: speedUnit === "mph" ? 800 : 500,
-                  opacity: speedUnit === "mph" ? 1 : 0.5
-                }}
-                onClick={() => setSpeedUnit("mph")}
-              >
-                MPH
-              </button>
-              <button
-                className="btn btn-secondary"
-                style={{
-                  padding: "1px 6px",
-                  fontSize: 10,
-                  fontWeight: speedUnit === "kph" ? 800 : 500,
-                  opacity: speedUnit === "kph" ? 1 : 0.5
-                }}
-                onClick={() => setSpeedUnit("kph")}
-              >
-                KPH
-              </button>
-            </div>
+            {/* Required single-select: a unit is always chosen, so we ignore
+                the empty-string callback Radix sends when re-clicking the
+                active item instead of letting it clear the selection. */}
+            <ToggleGroup
+              type="single"
+              size="sm"
+              value={speedUnit}
+              onValueChange={(value) => {
+                if (value) setSpeedUnit(value as SpeedUnit);
+              }}
+              aria-label="Speed unit"
+            >
+              <ToggleGroupItem value="mph">MPH</ToggleGroupItem>
+              <ToggleGroupItem value="kph">KPH</ToggleGroupItem>
+            </ToggleGroup>
           </div>
           <MetricTileValue value={displaySpeed} unit={speedUnit} />
         </div>
-        <div style={{ background: "var(--color-bg)", padding: "var(--space-4)" }}>
+        <div className="bg-[var(--color-bg)] p-4">
           <h6>Distance</h6>
           <MetricTileValue value={displayLiveDistance} unit={speedUnit === "mph" ? "mi" : "km"} />
         </div>
       </div>
 
-      <h6 style={{ marginBottom: "var(--space-3)" }}>Workout timeline{intervalPositionLabel ? ` · ${intervalPositionLabel}` : ""}</h6>
-      <div style={{ display: "flex", gap: "var(--space-3)", marginBottom: "var(--space-8)" }}>
-        <div
-          style={{
-            writingMode: "vertical-rl",
-            transform: "rotate(180deg)",
-            fontSize: 10,
-            letterSpacing: "0.08em",
-            textTransform: "uppercase",
-            color: "color-mix(in srgb, var(--color-text) 55%, transparent)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center"
-          }}
-        >
+      <h6 style={{ marginBottom: "var(--space-3)" }}>
+        Workout timeline{intervalPositionLabel ? ` · ${intervalPositionLabel}` : ""}
+      </h6>
+      <div className="mb-8 flex gap-3">
+        <div className="flex items-center justify-center rotate-180 text-[10px] uppercase tracking-[0.08em] text-[color-mix(in_srgb,var(--color-text)_55%,transparent)] [writing-mode:vertical-rl]">
           Watts
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ position: "relative" }}>
-            <div
-              style={{
-                position: "absolute",
-                top: "var(--space-3)",
-                left: "var(--space-3)",
-                fontFamily: "var(--font-heading)",
-                fontWeight: 800,
-                fontSize: 13,
-                zIndex: 1
-              }}
-            >
-              {Math.round(maxWatts)} W peak
-            </div>
+        <div className="flex-1">
+          <div className="relative">
+            <div className="absolute top-3 left-3 z-[1] text-[13px] font-extrabold">{Math.round(maxWatts)} W peak</div>
             <WorkoutTimelineChart
               intervals={activeIntervals}
               elapsedSec={elapsedSec}
@@ -295,54 +271,54 @@ export const RidePage = ({
               actualPowerWatts={liveMetrics?.actualPowerWatts ?? null}
             />
           </div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4 }}>
-            <span style={{ fontSize: 10, letterSpacing: "0.08em", textTransform: "uppercase", color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>
+          <div className="mt-1 flex justify-between">
+            <span className="text-[10px] uppercase tracking-[0.08em] text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
               Time
             </span>
-            <span style={{ fontSize: 10, color: "color-mix(in srgb, var(--color-text) 55%, transparent)" }}>
+            <span className="text-[10px] text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
               {formatClock(totalDurationSec)} total
             </span>
           </div>
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-4)", marginBottom: "var(--space-4)" }}>
-        <button
-          className="btn btn-primary"
-          style={{ minWidth: 140 }}
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <Button
+          className="min-w-[140px]"
           disabled={liveWorkoutBusy || !isWorkoutSessionActive}
           onClick={() => void (isPaused ? resumeWorkout() : pauseWorkout())}
         >
           {isPaused ? "Resume" : "Pause"}
-        </button>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+        </Button>
+        <div className="flex items-center gap-3">
           <h6 style={{ margin: 0 }}>Intensity</h6>
-          <button
-            className="btn btn-secondary btn-icon"
+          <Button
+            variant="outline"
+            size="icon"
             disabled={liveWorkoutBusy || !isWorkoutSessionActive}
             onClick={() => void adjustIntensity(-0.05)}
           >
             −
-          </button>
-          <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 18, minWidth: 52, textAlign: "center" }}>
+          </Button>
+          <div className="min-w-[52px] text-center text-lg font-extrabold">
             {Math.round((workoutSessionState?.intensityMultiplier ?? 1) * 100)}%
           </div>
-          <button
-            className="btn btn-secondary btn-icon"
+          <Button
+            variant="outline"
+            size="icon"
             disabled={liveWorkoutBusy || !isWorkoutSessionActive}
             onClick={() => void adjustIntensity(0.05)}
           >
             +
-          </button>
+          </Button>
         </div>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)", marginBottom: "var(--space-8)" }}>
-        <label className="card-meta" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div className="mb-8 flex items-center gap-3">
+        <label className="flex items-center gap-1.5 text-[11px] text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]">
           Ramp-in (sec)
-          <input
-            className="input"
-            style={{ minHeight: 28, padding: "2px 6px", width: 64 }}
+          <Input
+            className="h-7 w-16 px-1.5 py-0.5"
             type="number"
             min={0}
             max={60}
@@ -351,71 +327,85 @@ export const RidePage = ({
             disabled={liveWorkoutBusy || !isWorkoutSessionActive}
           />
         </label>
-        <button
-          className="btn btn-secondary"
-          style={{ padding: "4px 10px", fontSize: 12 }}
+        <Button
+          variant="outline"
+          size="sm"
           disabled={liveWorkoutBusy || !isWorkoutSessionActive}
           onClick={() => void applyRampDuration()}
         >
           Apply
-        </button>
+        </Button>
       </div>
 
-      {showEndSummary ? (
-        <div className="dialog-backdrop" style={{ zIndex: 100 }}>
-          <div className="dialog" style={{ width: "min(480px, 100%)" }}>
-            <div className="dialog-title">{activeWorkoutName ?? "Workout"}</div>
-            <div className="card-meta">{summaryStage === "saved" ? "Saved" : "Ended"} · {formatClock(elapsedSec)}</div>
+      {/* Deliberately non-dismissible: this is the end-of-ride summary, and unlike
+          every other dialog in the app there is no way out except Discard/Save or
+          Done. Radix closes on Escape and outside click by default, so both are
+          explicitly cancelled below, and the corner close button is hidden. Do not
+          "fix" this to make it dismissible — a stray Escape or click shouldn't be
+          able to drop a finished ride. */}
+      <Dialog open={showEndSummary} onOpenChange={() => {}}>
+        <DialogContent
+          showCloseButton={false}
+          className="max-h-[calc(100vh-2rem)] gap-3 overflow-y-auto sm:max-w-[480px]"
+          onEscapeKeyDown={(event) => event.preventDefault()}
+          onInteractOutside={(event) => event.preventDefault()}
+        >
+          <DialogHeader>
+            <DialogTitle>{activeWorkoutName ?? "Workout"}</DialogTitle>
+            <DialogDescription>
+              {summaryStage === "saved" ? "Saved" : "Ended"} · {formatClock(elapsedSec)}
+            </DialogDescription>
+          </DialogHeader>
 
-            {summaryStage === "pending" ? (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 2, background: "var(--color-divider)", border: "2px solid var(--color-divider)" }}>
-                  <div style={{ background: "var(--color-bg)", padding: "var(--space-3)" }}>
-                    <h6>Duration</h6>
-                    <div style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 20 }}>{formatClock(elapsedSec)}</div>
-                  </div>
+          {summaryStage === "pending" ? (
+            <>
+              <div className="grid grid-cols-1 gap-[2px] border-2 border-[var(--color-divider)] bg-[var(--color-divider)]">
+                <div className="bg-[var(--color-bg)] p-3">
+                  <h6>Duration</h6>
+                  <div className="text-xl font-extrabold">{formatClock(elapsedSec)}</div>
                 </div>
+              </div>
 
-                <div className="hr" style={{ margin: "var(--space-2) 0" }} />
-                <div className="dialog-actions">
-                  <button className="btn btn-secondary" disabled={liveWorkoutBusy} onClick={() => void handleDiscard()}>
-                    Discard
-                  </button>
-                  <button className="btn btn-primary" disabled={liveWorkoutBusy} onClick={() => void handleSave()}>
-                    Save Workout
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                {savedSummary ? (
-                  <WorkoutSummaryView
-                    summary={savedSummary}
-                    telemetry={telemetrySeries}
-                    telemetryLoading={telemetryLoading}
-                    speedUnit={speedUnit}
-                  />
-                ) : null}
-                <label className="radio" style={{ gap: 10 }}>
-                  <input
-                    type="checkbox"
-                    checked={postToStrava}
-                    onChange={(event) => setPostToStrava(event.target.checked)}
-                    style={{ position: "static", opacity: 1, width: 16, height: 16, pointerEvents: "auto" }}
-                  />
-                  <span style={{ fontSize: 13 }}>Post this workout to Strava</span>
-                </label>
+              <Separator className="my-2 h-0.5 bg-[var(--color-divider)]" />
+              <DialogFooter>
+                <Button variant="outline" disabled={liveWorkoutBusy} onClick={() => void handleDiscard()}>
+                  Discard
+                </Button>
+                <Button disabled={liveWorkoutBusy} onClick={() => void handleSave()}>
+                  Save Workout
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              {savedSummary ? (
+                <WorkoutSummaryView
+                  summary={savedSummary}
+                  telemetry={telemetrySeries}
+                  telemetryLoading={telemetryLoading}
+                  speedUnit={speedUnit}
+                />
+              ) : null}
+              <div className="flex items-center gap-2.5">
+                <Checkbox
+                  id="post-to-strava"
+                  checked={postToStrava}
+                  onCheckedChange={(checked) => setPostToStrava(checked === true)}
+                />
+                <Label htmlFor="post-to-strava" className="text-[13px] font-normal">
+                  Post this workout to Strava
+                </Label>
+              </div>
 
-                <div className="dialog-actions">
-                  <button className="btn btn-primary" disabled={liveWorkoutBusy} onClick={() => void finishRide(postToStrava)}>
-                    Done
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      ) : null}
+              <DialogFooter>
+                <Button disabled={liveWorkoutBusy} onClick={() => void finishRide(postToStrava)}>
+                  Done
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </main>
   );
 };
