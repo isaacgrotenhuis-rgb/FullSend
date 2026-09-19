@@ -1,5 +1,8 @@
 import type { ReactElement } from "react";
 import type { DashboardMetrics, EventPlanWeek, SessionType } from "@shared/ipc/contracts";
+import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import { RecentWorkoutsSection } from "./RecentWorkoutsSection";
 
 type Props = {
@@ -16,6 +19,25 @@ type Props = {
 };
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+/** Legacy `.card-meta`: small flex row of muted 11px text. */
+const cardMetaClass = "flex items-center gap-1.5 text-[11px] text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]";
+
+/** Legacy `.hr`: a 2px divider-colored rule. Margin is supplied per call site
+    since shadcn's Separator carries none of its own (the bare `.hr` class did,
+    via `margin: var(--space-4) 0`). */
+const dividerClass = "h-[2px] bg-[var(--color-divider)]";
+
+/** The base-layer `h6` rules (index.css), spelled out as utilities.
+    A day cell with a workout is now a <button>, and a button may not contain
+    flow content such as a heading — so the day-label line is a <span> in both
+    cell variants, sharing this one class list so the two cannot drift apart.
+    Nothing is lost semantically: index.css documents `h6` as the app's
+    small-caps label style rather than a real heading level. */
+const dayLabelClass = cn(
+  "font-[family-name:var(--font-heading)] [font-weight:var(--font-heading-weight)]",
+  "text-[13px] leading-[1.12] tracking-[0.08em] uppercase"
+);
 
 const parseIsoDate = (iso: string): Date => new Date(`${iso}T00:00:00`);
 
@@ -66,25 +88,16 @@ export const HomePage = ({
           : "Event completed";
 
   return (
-    <main className="app">
-      <div style={{ marginBottom: "var(--space-6)" }}>
-        <h1 style={{ margin: "0 0 var(--space-2)" }}>{greetingForNow()}</h1>
+    <main className="mx-auto max-w-[960px] p-6">
+      <div className="mb-6">
+        <h1>{greetingForNow()}</h1>
         {countdownLabel ? (
           <button
+            type="button"
             onClick={onNavigateToPlan}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: "var(--space-2)",
-              background: "none",
-              border: "none",
-              padding: 0,
-              cursor: "pointer",
-              color: "var(--color-accent-700)",
-              font: "inherit"
-            }}
+            className="flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-[var(--color-accent-700)]"
           >
-            <span style={{ fontSize: 14, fontWeight: 700 }}>{countdownLabel}</span>
+            <span className="text-sm font-bold">{countdownLabel}</span>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="8,3 18,12 8,21" />
             </svg>
@@ -92,96 +105,104 @@ export const HomePage = ({
         ) : null}
       </div>
 
-      <div className="card" style={{ borderRadius: 0, marginBottom: "var(--space-8)" }}>
-        <h6 style={{ marginBottom: "var(--space-2)" }}>Training status</h6>
-        <div className="hr" style={{ margin: "0 0 var(--space-3)" }} />
-        <div style={{ display: "flex", flexDirection: "column" }}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              padding: "var(--space-2) 0",
-              borderBottom: "1px solid var(--color-divider)"
-            }}
-          >
-            <span className="card-meta">Current FTP</span>
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>{currentFtp} W</span>
+      {/* Deliberate visual change: this card used to override its radius to
+          0 (a square corner surviving PR 1's token flip). Removed so it picks
+          up the hybrid theme's rounded-md, matching every other surface. */}
+      <Card className="mb-8 gap-2 rounded-md border-0 bg-muted p-3 shadow-none">
+        <h6>Training status</h6>
+        <Separator className={cn(dividerClass, "mb-3")} />
+        <div className="flex flex-col">
+          <div className="flex items-baseline justify-between border-b border-[color:var(--color-divider)] py-2">
+            <span className={cardMetaClass}>Current FTP</span>
+            <span className="text-[22px] font-extrabold">{currentFtp} W</span>
           </div>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "baseline",
-              justifyContent: "space-between",
-              padding: "var(--space-2) 0",
-              borderBottom: "1px solid var(--color-divider)"
-            }}
-          >
-            <span className="card-meta">Plan compliance</span>
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+          <div className="flex items-baseline justify-between border-b border-[color:var(--color-divider)] py-2">
+            <span className={cardMetaClass}>Plan compliance</span>
+            <span className="text-[22px] font-extrabold">
               {dashboard?.planCompliancePercent != null ? `${dashboard.planCompliancePercent}%` : "—"}
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "var(--space-2) 0" }}>
-            <span className="card-meta">Training block</span>
-            <span style={{ fontFamily: "var(--font-heading)", fontWeight: 800, fontSize: 22 }}>
+          <div className="flex items-baseline justify-between py-2">
+            <span className={cardMetaClass}>Training block</span>
+            <span className="text-[22px] font-extrabold">
               {currentWeek ? `Week ${currentWeekIndex + 1} / ${weeks.length}` : "—"}
             </span>
           </div>
         </div>
-      </div>
+      </Card>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "var(--space-4)" }}>
-        <h2 style={{ margin: 0 }}>This week</h2>
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="m-0">This week</h2>
       </div>
-      <div className="hr" />
+      <Separator className={cn(dividerClass, "my-4")} />
       {currentWeek ? (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7,1fr)", gap: 0, border: "2px solid var(--color-divider)", marginBottom: "var(--space-8)" }}>
+        <div className="mb-8 grid grid-cols-7 gap-0 border-2 border-[color:var(--color-divider)]">
           {currentWeek.days.map((day, index) => {
             const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
             const isToday = cellDate.getTime() === today.getTime();
             const hasWorkout = day.workoutId !== null;
-            return (
-              <div
-                key={day.dayIndex}
-                onClick={
-                  hasWorkout
-                    ? () =>
-                        void previewWorkoutForDay(
-                          day.workoutId as string,
-                          day.workoutName ?? "Workout",
-                          day.sessionType
-                        )
-                    : undefined
-                }
-                style={{
-                  padding: "var(--space-3)",
-                  borderRight: index < 6 ? "1px solid var(--color-divider)" : undefined,
-                  background: isToday ? "var(--color-accent-100)" : "var(--color-bg)",
-                  cursor: hasWorkout ? "pointer" : "default",
-                  minHeight: 96,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4
-                }}
-              >
-                <h6 style={{ margin: 0, color: isToday ? "var(--color-accent-700)" : undefined }}>
+            const durationLabel = `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}`;
+
+            /* One class list for both variants so the interactive and rest
+               cells stay pixel-identical. `text-left` is the only addition a
+               button needs over a div: the UA centers button text, everything
+               else (font, color, background) Preflight already inherits. */
+            const cellClass = cn(
+              "flex min-h-24 flex-col gap-1 p-3 text-left",
+              index < 6 && "border-r border-[color:var(--color-divider)]",
+              isToday ? "bg-[var(--color-accent-100)]" : "bg-background"
+            );
+
+            const cellContent = (
+              <>
+                <span className={cn(dayLabelClass, isToday && "text-[var(--color-accent-700)]")}>
                   {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
-                </h6>
-                <div style={{ flex: 1, fontSize: 13, fontWeight: 600, overflowWrap: "break-word" }}>
+                </span>
+                <span className="flex-1 text-[13px] font-semibold [overflow-wrap:break-word]">
                   {day.workoutName ?? "Rest"}
+                </span>
+                {hasWorkout ? <span className={cardMetaClass}>{durationLabel}</span> : null}
+              </>
+            );
+
+            /* Rest days carry no action, so they stay a plain <div> and out of
+               the tab order entirely. Only days with a workout become real
+               <button>s — previously every cell was a <div onClick>, which Tab
+               never reaches and Enter/Space never activates. */
+            if (!hasWorkout) {
+              return (
+                <div key={day.dayIndex} className={cn(cellClass, "cursor-default")}>
+                  {cellContent}
                 </div>
-                {hasWorkout ? (
-                  <div className="card-meta">
-                    {day.durationMin} min{day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}
-                  </div>
-                ) : null}
-              </div>
+              );
+            }
+
+            /* The cell's own text would read as one run-on string ("Mon · Mar 3
+               Threshold 2x20 60 min · IF 0.88"), so the button gets an explicit
+               label instead: the day first for orientation within the week,
+               then what activating it does. */
+            const workoutName = day.workoutName ?? "Workout";
+            const ariaLabel = `${dayLabels[day.dayIndex]} ${formatShortDate(cellDate)}${
+              isToday ? ", today" : ""
+            }: ${workoutName}, ${durationLabel.replace(" · ", ", ")}. Preview workout.`;
+
+            return (
+              <button
+                key={day.dayIndex}
+                type="button"
+                aria-label={ariaLabel}
+                onClick={() =>
+                  void previewWorkoutForDay(day.workoutId as string, workoutName, day.sessionType)
+                }
+                className={cn(cellClass, "cursor-pointer appearance-none")}
+              >
+                {cellContent}
+              </button>
             );
           })}
         </div>
       ) : (
-        <p className="text-muted" style={{ marginBottom: "var(--space-8)" }}>
+        <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
           No workouts scheduled for the current week.
         </p>
       )}

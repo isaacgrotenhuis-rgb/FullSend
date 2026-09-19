@@ -1,0 +1,201 @@
+/* Tailwind v4 + shadcn/ui foundation.
+   Imported from main.tsx BEFORE ./styles.css, which now holds only the :root
+   design-token block — the runtime tokens the hand-rolled SVG charts read
+   (see the hard constraint note below) plus the tokens this file's
+   `@theme inline` maps onto shadcn's semantic variables. */
+
+@layer theme, base, components, utilities;
+
+/* Tailwind is imported layer-by-layer, rather than via the single
+   `tailwindcss` import, so `@source` below can replace automatic class
+   detection (see the note on that directive) with Preflight still included. */
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/preflight.css" layer(base);
+
+/* `source(none)` disables Tailwind's automatic class detection. electron-vite
+   sets Vite's `root` to ./src/renderer while Tailwind roots detection at the
+   process cwd, so the two disagree and auto-detection is unreliable here.
+   The explicit @source directives below are the whole scan scope, which also
+   keeps the build output in out/ from ever being scanned. */
+@import "tailwindcss/utilities.css" layer(utilities) source(none);
+
+@import "shadcn/tailwind.css";
+@import "tw-animate-css";
+
+/* Self-hosted Archivo. Replaces the Google Fonts @import that used to live in
+   styles.css: the app runs with sandbox: true and loads over file:// in the
+   packaged build, so that network fetch failed closed and silently dropped to
+   system-ui. Fontsource registers the family as "Archivo Variable". */
+@import "@fontsource-variable/archivo";
+
+/* Scan scope — paths are resolved relative to this file. Restricted to the
+   file types that can actually contain class names: pointing @source at a bare
+   directory also scans .css, and Tailwind then extracts words out of
+   styles.css as candidates, which produced real collisions with legacy class
+   names that used to live there (`.table`, `.border`, `.text-muted`). */
+@source "./**/*.{ts,tsx}";
+@source "../index.html";
+@source "../../shared/**/*.ts";
+
+/* Preflight resets the border shorthand to `0 solid` (width and style only,
+   deliberately omitting a color), which per the CSS spec resets border-color
+   to its initial value of `currentcolor`. Without this override every
+   shadcn border utility — Card, DialogContent, Button variant="outline" —
+   paints in the surrounding text color instead of the subtle --border, i.e.
+   near-black instead of grey. Stock shadcn ships the equivalent as
+   `* { @apply border-border }` in its own globals.css. Layered into `base`,
+   after the Preflight import above, so it wins the tie on equal specificity. */
+@layer base {
+  *,
+  ::after,
+  ::before,
+  ::backdrop,
+  ::file-selector-button {
+    border-color: var(--border);
+  }
+}
+
+/* Base typography — formerly unlayered rules in styles.css. Moved into
+   Tailwind's `base` layer (after the Preflight import above, so these win the
+   tie against Preflight's own heading/link/margin resets) as part of PR 8:
+   once these live in `base`, an ordinary Tailwind utility in `utilities`
+   beats them, so the ~20 `style={{ margin: 0 }}`-style inline overrides
+   scattered across the pages — needed only because the old unlayered rules
+   always beat a Tailwind class regardless of specificity — could be deleted
+   in favor of real utility classes. h6 in particular is used throughout the
+   app as a small-caps stat-tile label, not as a real heading level; its exact
+   13px/uppercase/tracked appearance is preserved below. */
+@layer base {
+  body {
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: 15px;
+    line-height: 1.55;
+    font-weight: 400;
+  }
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading); font-weight: var(--font-heading-weight);
+    line-height: 1.12; letter-spacing: -0.015em; margin: 0 0 var(--space-2);
+  }
+  h1 { font-size: 42px; }
+  h2 { font-size: 32px; }
+  h3 { font-size: 25px; }
+  h4 { font-size: 20px; }
+  h5 { font-size: 16px; }
+  h6 { font-size: 13px; letter-spacing: 0.08em; text-transform: uppercase; }
+  p { margin: 0 0 var(--space-3); }
+  a { color: var(--color-accent-700); text-decoration: none; text-underline-offset: 3px; }
+  a:hover { color: var(--color-accent); text-decoration: underline; }
+  img { display: block; max-width: 100%; }
+  :focus { outline: none; }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+  ::selection { background: color-mix(in srgb, var(--color-accent) 30%, transparent); }
+}
+
+/* shadcn semantic tokens, expressed in the brand.
+   Every oklch() value below was converted from its hex source and verified to
+   round-trip back to the same hex. */
+:root {
+  --radius: 0.625rem;
+
+  --background: oklch(0.962 0.001 17.2); /* #f3f2f2 */
+  --foreground: oklch(0.237 0.004 48.6); /* #201e1d */
+
+  --card: oklch(0.962 0.001 17.2); /* #f3f2f2 */
+  --card-foreground: oklch(0.237 0.004 48.6);
+  --popover: oklch(0.962 0.001 17.2);
+  --popover-foreground: oklch(0.237 0.004 48.6);
+
+  /* The brand red, carried over verbatim from --color-accent. */
+  --primary: oklch(0.611 0.225 31.5); /* #ec3013 */
+  --primary-foreground: oklch(0.985 0 0);
+
+  --secondary: oklch(0.935 0.001 17.2); /* #eae9e9 */
+  --secondary-foreground: oklch(0.237 0.004 48.6);
+  --muted: oklch(0.935 0.001 17.2); /* #eae9e9 */
+  --muted-foreground: oklch(0.481 0.004 17.3); /* #605d5d */
+
+  /* NB: shadcn's `accent` is its hover/active surface, not the brand accent.
+     The brand red is --primary. */
+  --accent: oklch(0.935 0.001 17.2); /* #eae9e9 */
+  --accent-foreground: oklch(0.237 0.004 48.6);
+
+  --destructive: oklch(0.577 0.215 27.3); /* #dc2626 */
+  --destructive-foreground: oklch(0.985 0 0);
+
+  --border: oklch(0.87 0.004 17.2); /* #d7d3d3 */
+  --input: oklch(0.87 0.004 17.2);
+  --ring: oklch(0.611 0.225 31.5); /* primary */
+
+  /* Charts reuse the legacy ramps so shadcn charts and the hand-rolled SVG
+     charts stay in the same palette. These resolve at use time against the
+     :root block in styles.css. */
+  --chart-1: var(--color-accent);
+  --chart-2: var(--color-accent-2);
+  --chart-3: var(--color-accent-700);
+  --chart-4: var(--color-neutral-500);
+  --chart-5: var(--color-neutral-700);
+
+  --sidebar: oklch(0.935 0.001 17.2); /* #eae9e9 */
+  --sidebar-foreground: oklch(0.237 0.004 48.6);
+  --sidebar-primary: oklch(0.611 0.225 31.5);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.962 0.001 17.2); /* #f3f2f2 */
+  --sidebar-accent-foreground: oklch(0.237 0.004 48.6);
+  --sidebar-border: oklch(0.87 0.004 17.2);
+  --sidebar-ring: oklch(0.611 0.225 31.5);
+}
+
+/* `inline` is LOAD-BEARING, not stylistic. Inline theme variables are never
+   emitted to :root — they are substituted directly into the utilities that
+   reference them. A plain @theme would emit --color-accent, --color-primary,
+   --color-border etc. into :root and clobber the legacy --color-accent /
+   --color-neutral-* tokens that styles.css defines and that
+   WorkoutTimelineChart.tsx, SessionMetricChart.tsx and WorkoutSummaryView.tsx
+   read as runtime strings in JSX. That failure is silent: no type error, no
+   test failure, just charts that render with the wrong colours or none. */
+@theme inline {
+  --font-sans: var(--font-body);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) - 4px); /* 6px */
+  --radius-md: calc(var(--radius) - 2px); /* 8px */
+  --radius-lg: var(--radius); /* 10px */
+  --radius-xl: calc(var(--radius) + 4px); /* 14px */
+}

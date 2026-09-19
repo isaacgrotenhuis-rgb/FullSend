@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { X } from "lucide-react";
 import type {
   BankWorkoutDetail,
   BankWorkoutSummary,
@@ -8,6 +9,16 @@ import type {
   WorkoutInterval
 } from "@shared/ipc/contracts";
 import { ZONES } from "@shared/zones";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { averageTargetWatts, formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
 
 type Props = {
@@ -60,24 +71,32 @@ const describeSegment = (segment: FswSegment): string => {
   }
 };
 
-const tileStyle = { background: "var(--color-bg)", padding: "var(--space-3)" } as const;
-const tileValueStyle = {
-  fontFamily: "var(--font-heading)",
-  fontWeight: 800,
-  fontSize: 22,
-  lineHeight: 1
-} as const;
+/* Matches the legacy `.tag.tag-accent` pill exactly (styles.css ~L204-209):
+   font-size 11px, letter-spacing 0.02em, 3px/10px padding, 6px radius
+   (0.75 * --radius-md), --color-accent-100/800 background/text. */
+const zoneTagClassName =
+  "inline-flex items-center rounded-[6px] bg-[color:var(--color-accent-100)] px-2.5 py-[3px] text-[11px] tracking-[0.02em] text-[color:var(--color-accent-800)] capitalize";
 
-const chipStyle = (active: boolean) =>
-  ({
-    cursor: "pointer",
-    fontSize: 12,
-    padding: "2px 10px",
-    borderRadius: 999,
-    border: "1px solid var(--color-divider)",
-    background: active ? "var(--color-accent-100)" : "transparent",
-    color: active ? "var(--color-accent-800)" : "inherit"
-  }) as const;
+/* Matches the legacy stat-tile pair (styles.css tileStyle/tileValueStyle
+   constants this replaces): --color-bg background, --space-3 padding for the
+   tile; 800-weight 22px/1 for the value. */
+const tileClassName = "bg-[color:var(--color-bg)] p-3";
+const tileValueClassName = "text-[22px] font-extrabold leading-none";
+
+/* Filter chip group — was a hand-rolled chipStyle(active) cva reinvention on
+   a <span onClick>, which meant no keyboard access at all (no tabIndex, no
+   role, no key handler). Each row (zone / duration band / tag) is an
+   independent optional single-select: clicking the active chip clears it,
+   clicking another swaps it — exactly Radix ToggleGroup type="single"
+   semantics, which also hands the row roving-tabindex/Enter/Space for free.
+   spacing={1.5} (6px, via Tailwind's --spacing(1.5)) keeps the "wrapped pill
+   cluster" look instead of ToggleGroup's default joined-segment styling,
+   which only applies at spacing={0}. */
+const chipItemClassName =
+  "h-auto min-h-0 shrink-0 rounded-full border border-[color:var(--color-divider)] bg-transparent px-2.5 py-0.5 text-xs font-normal text-foreground shadow-none " +
+  "hover:bg-transparent hover:text-foreground " +
+  "data-[state=on]:bg-[color:var(--color-accent-100)] data-[state=on]:text-[color:var(--color-accent-800)] " +
+  "data-[state=on]:hover:bg-[color:var(--color-accent-100)] data-[state=on]:hover:text-[color:var(--color-accent-800)]";
 
 export const WorkoutBankBrowser = ({
   ftp,
@@ -163,89 +182,86 @@ export const WorkoutBankBrowser = ({
 
   const renderList = (): ReactElement => (
     <>
-      <div className="dialog-title" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)" }}>
-        <span>Workout Bank</span>
-        <button
-          type="button"
-          className="btn btn-ghost"
-          aria-label="Close"
-          onClick={onClose}
-          style={{ padding: "2px 8px", fontSize: 18, lineHeight: 1 }}
-        >
-          ✕
-        </button>
-      </div>
+      <DialogHeader className="flex-row items-center justify-between gap-2 space-y-0">
+        <DialogTitle>Workout Bank</DialogTitle>
+        <DialogClose asChild>
+          <Button type="button" variant="ghost" size="icon" aria-label="Close">
+            <X />
+          </Button>
+        </DialogClose>
+      </DialogHeader>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      <div className="flex flex-col gap-2">
+        <ToggleGroup
+          type="single"
+          spacing={1.5}
+          value={zone ?? ""}
+          onValueChange={(next) => setZone(next ? (next as TrainingZone) : null)}
+          className="w-full flex-wrap"
+          aria-label="Filter by zone"
+        >
           {zonesPresent.map((entry) => (
-            <span
-              key={entry}
-              style={chipStyle(zone === entry)}
-              onClick={() => setZone(zone === entry ? null : entry)}
-            >
+            <ToggleGroupItem key={entry} value={entry} className={chipItemClassName}>
               {zoneLabel(entry)}
-            </span>
+            </ToggleGroupItem>
           ))}
-        </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        </ToggleGroup>
+        <ToggleGroup
+          type="single"
+          spacing={1.5}
+          value={bandKey ?? ""}
+          onValueChange={(next) => setBandKey(next || null)}
+          className="w-full flex-wrap"
+          aria-label="Filter by duration"
+        >
           {DURATION_BANDS.map((band) => (
-            <span
-              key={band.key}
-              style={chipStyle(bandKey === band.key)}
-              onClick={() => setBandKey(bandKey === band.key ? null : band.key)}
-            >
+            <ToggleGroupItem key={band.key} value={band.key} className={chipItemClassName}>
               {band.label}
-            </span>
+            </ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
         {allTags.length > 0 ? (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          <ToggleGroup
+            type="single"
+            spacing={1.5}
+            value={tag ?? ""}
+            onValueChange={(next) => setTag(next || null)}
+            className="w-full flex-wrap"
+            aria-label="Filter by tag"
+          >
             {allTags.map((entry) => (
-              <span
-                key={entry}
-                style={chipStyle(tag === entry)}
-                onClick={() => setTag(tag === entry ? null : entry)}
-              >
+              <ToggleGroupItem key={entry} value={entry} className={chipItemClassName}>
                 #{entry}
-              </span>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         ) : null}
       </div>
 
-      {listError ? (
-        <p style={{ color: "var(--color-accent-700)", fontSize: 13, margin: 0 }}>{listError}</p>
-      ) : null}
+      {listError ? <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{listError}</p> : null}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      <div className="flex flex-col gap-0.5">
         {visible.length === 0 && !listError ? (
-          <p className="card-meta" style={{ margin: 0 }}>
+          <p className="m-0 flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
             No workouts match these filters.
           </p>
         ) : null}
         {visible.map((summary) => (
-          <button
+          <Button
             key={summary.id}
-            className="btn btn-secondary"
-            style={{
-              justifyContent: "space-between",
-              textAlign: "left",
-              width: "100%",
-              padding: "var(--space-2) var(--space-3)"
-            }}
+            type="button"
+            variant="outline"
+            className="h-auto w-full justify-between px-3 py-2 text-left"
             onClick={() => setSelectedId(summary.id)}
           >
-            <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-              <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis" }}>
-                {summary.name}
-              </span>
-              <span className="card-meta" style={{ margin: 0 }}>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="overflow-hidden font-bold text-ellipsis">{summary.name}</span>
+              <span className="flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
                 {zoneLabel(summary.primaryZone)} · {formatClock(summary.durationSec)}
                 {summary.estTSS !== null ? ` · ${Math.round(summary.estTSS)} TSS` : ""}
               </span>
             </span>
-          </button>
+          </Button>
         ))}
       </div>
     </>
@@ -268,97 +284,66 @@ export const WorkoutBankBrowser = ({
 
     return (
       <>
-        <div
-          className="dialog-title"
-          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--space-2)", flexWrap: "wrap" }}
-        >
-          <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)", flexWrap: "wrap" }}>
-            {detail ? (
-              <span className="tag tag-accent" style={{ textTransform: "capitalize" }}>
-                {zoneLabel(detail.primaryZone)}
-              </span>
-            ) : null}
-            <span>{detail?.name ?? "Loading…"}</span>
+        <DialogHeader className="flex-row items-center justify-between gap-2 flex-wrap space-y-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            {detail ? <span className={zoneTagClassName}>{zoneLabel(detail.primaryZone)}</span> : null}
+            <DialogTitle>{detail?.name ?? "Loading…"}</DialogTitle>
           </div>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            aria-label="Close"
-            onClick={onClose}
-            style={{ padding: "2px 8px", fontSize: 18, lineHeight: 1 }}
-          >
-            ✕
-          </button>
-        </div>
+          <DialogClose asChild>
+            <Button type="button" variant="ghost" size="icon" aria-label="Close">
+              <X />
+            </Button>
+          </DialogClose>
+        </DialogHeader>
 
         {detailError ? (
-          <p style={{ color: "var(--color-accent-700)", fontSize: 13, margin: 0 }}>{detailError}</p>
+          <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{detailError}</p>
         ) : null}
 
         {ready ? (
           <>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(5, 1fr)",
-                gap: 2,
-                background: "var(--color-divider)",
-                border: "2px solid var(--color-divider)"
-              }}
-            >
-              <div style={tileStyle}>
-                <h6 style={{ fontSize: 11 }}>Duration</h6>
-                <div style={tileValueStyle}>{formatClock(totalDurationSec)}</div>
+            <div className="grid grid-cols-5 gap-0.5 bg-[color:var(--color-divider)] border-2 border-[color:var(--color-divider)]">
+              <div className={tileClassName}>
+                <h6 className="text-[11px]">Duration</h6>
+                <div className={tileValueClassName}>{formatClock(totalDurationSec)}</div>
               </div>
-              <div style={tileStyle}>
-                <h6 style={{ fontSize: 11 }}>Avg power</h6>
-                <div style={tileValueStyle}>
+              <div className={tileClassName}>
+                <h6 className="text-[11px]">Avg power</h6>
+                <div className={tileValueClassName}>
                   {avgWatts ?? "—"}
-                  {avgWatts !== null ? <span style={{ fontSize: 13, fontWeight: 600 }}>W</span> : null}
+                  {avgWatts !== null ? <span className="text-[13px] font-semibold">W</span> : null}
                 </div>
               </div>
-              <div style={tileStyle}>
-                <h6 style={{ fontSize: 11 }}>Intensity</h6>
-                <div style={tileValueStyle}>
+              <div className={tileClassName}>
+                <h6 className="text-[11px]">Intensity</h6>
+                <div className={tileValueClassName}>
                   {compiled?.estIF !== null && compiled?.estIF !== undefined
                     ? compiled.estIF.toFixed(2)
                     : "—"}
                 </div>
               </div>
-              <div style={tileStyle}>
-                <h6 style={{ fontSize: 11 }}>TSS</h6>
-                <div style={tileValueStyle}>
+              <div className={tileClassName}>
+                <h6 className="text-[11px]">TSS</h6>
+                <div className={tileValueClassName}>
                   {compiled?.estTSS !== null && compiled?.estTSS !== undefined
                     ? Math.round(compiled.estTSS)
                     : "—"}
                 </div>
               </div>
-              <div style={tileStyle}>
-                <h6 style={{ fontSize: 11 }}>Blocks</h6>
-                <div style={tileValueStyle}>{compiled?.intervals.length ?? 0}</div>
+              <div className={tileClassName}>
+                <h6 className="text-[11px]">Blocks</h6>
+                <div className={tileValueClassName}>{compiled?.intervals.length ?? 0}</div>
               </div>
             </div>
 
             {detail?.document.description ? (
-              <p className="dialog-body" style={{ margin: 0 }}>
-                {detail.document.description}
-              </p>
+              <p className="m-0 text-sm opacity-85">{detail.document.description}</p>
             ) : null}
 
             <div>
-              <h6 style={{ marginBottom: "var(--space-2)" }}>Workout timeline</h6>
-              <div style={{ position: "relative" }}>
-                <div
-                  style={{
-                    position: "absolute",
-                    top: "var(--space-2)",
-                    left: "var(--space-2)",
-                    fontFamily: "var(--font-heading)",
-                    fontWeight: 800,
-                    fontSize: 12,
-                    zIndex: 1
-                  }}
-                >
+              <h6>Workout timeline</h6>
+              <div className="relative">
+                <div className="absolute top-2 left-2 z-[1] text-xs font-extrabold">
                   {Math.round(maxWatts)} W peak · FTP {ftp} W
                 </div>
                 {compiled ? (
@@ -373,17 +358,8 @@ export const WorkoutBankBrowser = ({
             </div>
 
             <div>
-              <h6 style={{ marginBottom: "var(--space-2)" }}>Segments</h6>
-              <ol
-                style={{
-                  margin: 0,
-                  paddingLeft: "var(--space-4)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 4,
-                  fontSize: 13
-                }}
-              >
+              <h6>Segments</h6>
+              <ol className="m-0 flex flex-col gap-1 pl-4 text-[13px]">
                 {detail?.document.segments.map((segment, index) => (
                   <li key={index}>{describeSegment(segment)}</li>
                 ))}
@@ -391,48 +367,50 @@ export const WorkoutBankBrowser = ({
             </div>
           </>
         ) : detailError === null ? (
-          <p className="card-meta" style={{ margin: 0 }}>
+          <p className="m-0 flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
             Compiling at {ftp} W…
           </p>
         ) : null}
 
-        {error ? (
-          <p style={{ color: "var(--color-accent-700)", fontSize: 13, margin: 0 }}>{error}</p>
-        ) : null}
+        {error ? <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{error}</p> : null}
 
-        <div className="dialog-actions">
+        <DialogFooter>
           {connectedTrainerDeviceId === null ? (
-            <span className="card-meta" style={{ marginRight: "auto" }}>
+            <span className="mr-auto flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
               Connect a trainer to start
             </span>
           ) : null}
-          <button className="btn btn-secondary" disabled={busy} onClick={() => setSelectedId(null)}>
+          <Button type="button" variant="outline" disabled={busy} onClick={() => setSelectedId(null)}>
             Back
-          </button>
-          <button
-            className="btn btn-primary"
-            style={{ minWidth: 150 }}
+          </Button>
+          <Button
+            type="button"
+            className="min-w-[150px]"
             disabled={!canStart}
             onClick={() =>
               detail && compiled ? onStartAdhoc(detail.id, detail.name, compiled.intervals) : undefined
             }
           >
             Start now
-          </button>
-        </div>
+          </Button>
+        </DialogFooter>
       </>
     );
   };
 
   return (
-    <div className="dialog-backdrop" onClick={onClose} style={{ zIndex: 150 }}>
-      <div
-        className="dialog"
-        onClick={(event) => event.stopPropagation()}
-        style={{ width: "min(720px, 100%)" }}
+    <Dialog
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose();
+      }}
+    >
+      <DialogContent
+        showCloseButton={false}
+        className="max-h-[calc(100vh-2rem)] gap-3 overflow-y-auto sm:max-w-[720px]"
       >
         {selectedId === null ? renderList() : renderDetail()}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 };

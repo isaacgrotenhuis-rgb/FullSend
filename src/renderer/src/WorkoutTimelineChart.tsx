@@ -1,5 +1,8 @@
 import type { ReactElement } from "react";
 import type { WorkoutInterval, WorkoutIntervalKind } from "@shared/ipc/contracts";
+import { cn } from "@/lib/utils";
+
+export const timelineChartClass = "w-full border-2 border-[color:var(--color-divider)] bg-[var(--color-surface)]";
 
 const blockColors: Record<WorkoutIntervalKind, string> = {
   warmup: "var(--color-neutral-400)",
@@ -44,7 +47,7 @@ type Props = {
   elapsedSec: number;
   currentIndex: number | null;
   actualPowerWatts: number | null;
-  /** Shrink the SVG for use as a small thumbnail (overrides the .workout-timeline height). */
+  /** Shrink the SVG for use as a small thumbnail. */
   compact?: boolean;
 };
 
@@ -102,8 +105,7 @@ export const WorkoutTimelineChart = ({
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className="workout-timeline"
-      style={compact ? { height: 72 } : undefined}
+      className={cn(timelineChartClass, compact ? "h-[72px]" : "h-[220px]")}
       role="img"
       aria-label="Workout power timeline"
     >

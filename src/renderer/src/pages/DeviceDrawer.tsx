@@ -7,6 +7,10 @@ import {
   type BleRole,
   type BleState
 } from "@shared/ipc/contracts";
+import { Collapsible, CollapsibleContent } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { cn } from "@/lib/utils";
 
 export type BleSectionProps = {
   bleState: BleState | null;
@@ -181,36 +185,51 @@ export const DeviceDrawer = ({ ble, open, onClose, clusterButtonRef }: Props): R
   const summary = scanning ? `Scanning… ${remainingSec}s remaining` : `${count} of 3 connected`;
 
   return (
-    <div className={`device-drawer-wrapper${open ? " device-drawer-wrapper--open" : ""}`}>
-      <div className="device-drawer-inner">
-        <div
-          id="device-drawer"
-          className="device-drawer"
-          role="region"
-          aria-label="Devices"
-          ref={containerRef}
-          inert={!open}
-        >
-          <div className="device-drawer-header">
-            <span className="device-drawer-title">Devices</span>
-            <div style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
-              <span className="card-meta" aria-live="polite">{summary}</span>
-              <button
-                ref={closeButtonRef}
-                className="btn btn-ghost"
-                style={{ padding: "4px 10px", fontSize: 12 }}
-                onClick={onClose}
+    // Not a self-contained Radix Collapsible: the trigger (the device cluster
+    // button) renders in Nav.tsx, a sibling of this component under App, not
+    // a child of this Root — there is no shared tree to hang a
+    // CollapsibleTrigger on without editing App.tsx. So this Root is used
+    // trigger-less, driven purely by the controlled `open` prop, and Nav's
+    // button keeps its own manual aria-expanded/aria-controls pairing (see
+    // Nav.tsx) instead of Radix's auto-wired version.
+    <Collapsible open={open}>
+      <CollapsibleContent
+        id="device-drawer"
+        role="region"
+        aria-label="Devices"
+        ref={containerRef}
+        // Belt-and-suspenders with Radix's own `hidden` (set once the exit
+        // animation finishes): this flips the instant `open` flips, matching
+        // the original's immediate inert-on-close rather than waiting out
+        // the 180ms close animation.
+        inert={!open}
+        className={cn(
+          "overflow-hidden border-b-2 border-[var(--color-text)] bg-[var(--color-surface)] duration-[180ms] ease-out",
+          "data-[state=open]:animate-collapsible-down data-[state=closed]:animate-collapsible-up",
+          // prefers-reduced-motion: reduce → snap instead of animate, same as
+          // the legacy `.device-drawer-wrapper` media query used to.
+          "motion-reduce:animate-none"
+        )}
+      >
+        <div className="px-6 pt-6 pb-[26px]">
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs font-bold tracking-[0.12em] uppercase">Devices</span>
+            <div className="flex items-center gap-3">
+              <span
+                className="flex items-center gap-[6px] text-[11px] text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]"
+                aria-live="polite"
               >
+                {summary}
+              </span>
+              <Button ref={closeButtonRef} variant="ghost" onClick={onClose} className="h-auto px-[10px] py-1 text-xs">
                 Close
-              </button>
+              </Button>
             </div>
           </div>
 
-          {actionError ? (
-            <p style={{ color: "var(--color-accent-700)", fontSize: 12, margin: "var(--space-2) 0 0" }}>{actionError}</p>
-          ) : null}
+          {actionError ? <div className="mt-2 text-xs text-[var(--color-accent-700)]">{actionError}</div> : null}
 
-          <div className="device-grid">
+          <div className="mt-4 grid grid-cols-3 gap-[2px] border-2 border-[var(--color-text)] bg-[var(--color-neutral-400)] max-[899px]:grid-cols-1">
             {bleRoles.map((role) => {
               const conn = bleState ? getRoleConnection(bleState, role) : null;
               const connectedDeviceId = conn?.connectedDeviceId ?? null;
@@ -228,12 +247,13 @@ export const DeviceDrawer = ({ ble, open, onClose, clusterButtonRef }: Props): R
               const candidate = !isConnected && !providedByPower && bleState ? candidateForRole(bleState, role) : null;
               const rowError = lastErrorForRole(role);
               const Icon = roleIcons[role];
-              const iconColor = isRoleConnected(bleState, role)
-                ? "var(--color-text)"
+              const iconColorClass = isRoleConnected(bleState, role)
+                ? "text-[var(--color-text)]"
                 : required
-                  ? "var(--color-accent)"
-                  : "var(--color-neutral-500)";
-              const actionVariant = required ? "btn-primary" : "btn-secondary";
+                  ? "text-[var(--color-accent)]"
+                  : "text-[var(--color-neutral-500)]";
+              // .btn-primary -> default variant, .btn-secondary -> outline (PR 2 mapping).
+              const actionVariant = required ? "default" : "outline";
 
               const phase: CellPhase = isConnected
                 ? { kind: "connected" }
@@ -251,13 +271,9 @@ export const DeviceDrawer = ({ ble, open, onClose, clusterButtonRef }: Props): R
               // progress bar shows, so the two can't independently disagree about
               // which state a cell is actually in.
               const actionButton = (label: string, onClick: (() => void) | null, disabled: boolean): ReactElement => (
-                <button
-                  className={`btn btn-block ${actionVariant}`}
-                  disabled={disabled}
-                  onClick={onClick ? () => void onClick() : undefined}
-                >
+                <Button variant={actionVariant} block disabled={disabled} onClick={onClick ? () => void onClick() : undefined}>
                   {label}
-                </button>
+                </Button>
               );
 
               let statusLabel: string;
@@ -269,9 +285,9 @@ export const DeviceDrawer = ({ ble, open, onClose, clusterButtonRef }: Props): R
                     role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
                   }`;
                   action = (
-                    <button className="btn btn-ghost btn-block" disabled={actionPending} onClick={() => void disconnectForRole[role]()}>
+                    <Button variant="ghost" block disabled={actionPending} onClick={() => void disconnectForRole[role]()}>
                       Forget
-                    </button>
+                    </Button>
                   );
                   break;
                 case "provided-by-power":
@@ -297,15 +313,15 @@ export const DeviceDrawer = ({ ble, open, onClose, clusterButtonRef }: Props): R
               }
 
               return (
-                <div key={role} className="device-cell">
-                  <Icon size={30} strokeWidth={2} style={{ color: iconColor }} strokeLinecap="square" />
-                  <div className="device-cell-name">{roleLabel(role)}</div>
-                  <div className="device-cell-status">{statusLabel}</div>
-                  {rowError ? <div className="device-cell-status" style={{ color: "var(--color-accent-700)" }}>{rowError}</div> : null}
+                <div key={role} className="bg-[var(--color-bg)] p-4">
+                  <Icon size={30} strokeWidth={2} className={iconColorClass} strokeLinecap="square" />
+                  <div className="mt-3 text-[15px] font-semibold">{roleLabel(role)}</div>
+                  <div className="mt-[5px] mb-3 text-xs text-[var(--color-neutral-700)]">{statusLabel}</div>
+                  {rowError ? (
+                    <div className="mt-[5px] mb-3 text-xs text-[var(--color-accent-700)]">{rowError}</div>
+                  ) : null}
                   {phase.kind === "scanning" ? (
-                    <div className="device-progress">
-                      <div className="device-progress-fill" style={{ width: `${progressPercent}%` }} />
-                    </div>
+                    <Progress value={progressPercent} className="mb-3 h-1 w-full rounded-none bg-[var(--color-neutral-300)]" />
                   ) : null}
                   {action}
                 </div>
@@ -313,7 +329,7 @@ export const DeviceDrawer = ({ ble, open, onClose, clusterButtonRef }: Props): R
             })}
           </div>
         </div>
-      </div>
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 };

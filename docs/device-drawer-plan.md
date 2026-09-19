@@ -165,6 +165,13 @@ boolean, just a shared helper.
 
 ## 4. Styling additions — `styles.css`
 
+> **Update (PR 8 of the shadcn migration):** the classes below never shipped
+> as `styles.css` additions. The device drawer was instead built with Radix
+> `Collapsible` + Tailwind utilities directly in `DeviceDrawer.tsx`, and
+> `styles.css` was reduced to its `:root` design-token block. The table below
+> is kept as-written for historical context on the original plan; treat
+> `DeviceDrawer.tsx` as the source of truth for what actually shipped.
+
 Everything reuses existing tokens; only new **structural** classes are needed, no new
 colors:
 

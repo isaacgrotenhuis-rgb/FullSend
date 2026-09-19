@@ -205,7 +205,15 @@ strap. See [`trainer-simulator-ios/README.md`](trainer-simulator-ios/README.md).
   Iceman Cometh block structure and the seed workout library.
 - [`docs/bank-ui-plan.md`](docs/bank-ui-plan.md) — the bank browse/preview UI
   plan.
-- [`docs/design/fullsend`](docs/design/fullsend) — visual design references.
+- [`docs/design/fullsend`](docs/design/fullsend) — historical "Modernist"
+  visual design reference (0px-radius, hand-rolled component classes). It
+  no longer describes the running app: the renderer finished migrating to a
+  Tailwind v4 + shadcn/ui hybrid theme in PR 8 of the shadcn migration —
+  shadcn's default shell, retinted with `#ec3013` as `--primary` and Archivo
+  as the typeface. The theme now actually lives in
+  [`src/renderer/src/index.css`](src/renderer/src/index.css) (the `:root` /
+  `@theme inline` token mapping) and the vendored primitives under
+  [`src/renderer/src/components/ui/`](src/renderer/src/components/ui).
 
 ## Known limitations
 

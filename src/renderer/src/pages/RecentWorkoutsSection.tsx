@@ -1,23 +1,16 @@
 import type { ReactElement } from "react";
 import type { CompletedSessionSummary } from "@shared/ipc/contracts";
+import { Card } from "@/components/ui/card";
+import { Separator } from "@/components/ui/separator";
 import { formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
 import { formatDistance, useSpeedUnit, type SpeedUnit } from "../speedUnit";
 import { useRideHistory } from "../useRideHistory";
 import { WorkoutRecapDialog } from "./WorkoutRecapDialog";
 
-const cardStyle = {
-  display: "grid",
-  gridTemplateColumns: "1fr 200px",
-  gap: "var(--space-3)",
-  alignItems: "center",
-  textAlign: "left",
-  border: 0,
-  borderRadius: 0,
-  cursor: "pointer",
-  width: "100%"
-} as const;
+/** Legacy `.card-meta`: small flex row of muted 11px text. */
+const cardMetaClass = "flex items-center gap-1.5 text-[11px] text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]";
 
-const RecentWorkoutCard = ({
+export const RecentWorkoutCard = ({
   session,
   speedUnit,
   onOpen
@@ -40,52 +33,45 @@ const RecentWorkoutCard = ({
     .join("  ·  ");
 
   return (
-    <button className="card" style={cardStyle} onClick={() => onOpen(session.sessionId)}>
-      <span style={{ display: "flex", flexDirection: "column", gap: 2, minWidth: 0 }}>
-        <span className="card-meta" style={{ margin: 0 }}>
-          {dateLabel}
-        </span>
-        <span
-          style={{
-            fontFamily: "var(--font-heading)",
-            fontWeight: 800,
-            fontSize: 16,
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-            whiteSpace: "nowrap"
-          }}
-        >
-          {session.workoutName ?? "Ad-hoc ride"}
-        </span>
-        <span className="card-meta" style={{ margin: 0 }}>
-          {stats}
-        </span>
-      </span>
-      <span style={{ display: "block", height: 72, overflow: "hidden" }}>
-        {session.plannedIntervals.length > 0 ? (
-          <WorkoutTimelineChart
-            intervals={session.plannedIntervals}
-            elapsedSec={0}
-            currentIndex={null}
-            actualPowerWatts={null}
-            compact
-          />
-        ) : (
-          <span
-            style={{
-              display: "flex",
-              height: "100%",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 11,
-              color: "color-mix(in srgb, var(--color-text) 45%, transparent)",
-              border: "1px solid var(--color-divider)"
-            }}
-          >
-            No planned profile
+    // A `Card` nested inside a plain `<button>` rather than a card that is
+    // itself a button: this keeps exactly one interactive, focusable
+    // control with one accessible name (its text content), instead of
+    // layering interactive semantics on top of each other. The outer
+    // button carries no surface styling of its own (transparent, no
+    // border/padding) so the inner Card is the only visible surface.
+    <button
+      type="button"
+      onClick={() => onOpen(session.sessionId)}
+      className="block w-full cursor-pointer border-0 bg-transparent p-0 text-left"
+    >
+      {/* Deliberate visual change: this card used to override its radius to
+          0 (a square corner surviving PR 1's token flip). Removed so it
+          picks up the hybrid theme's rounded-md, matching every other
+          surface. */}
+      <Card className="grid grid-cols-[1fr_200px] items-center gap-3 rounded-md border-0 bg-muted p-3 shadow-none">
+        <span className="flex min-w-0 flex-col gap-0.5">
+          <span className={cardMetaClass}>{dateLabel}</span>
+          <span className="overflow-hidden text-[16px] font-extrabold text-ellipsis whitespace-nowrap">
+            {session.workoutName ?? "Ad-hoc ride"}
           </span>
-        )}
-      </span>
+          <span className={cardMetaClass}>{stats}</span>
+        </span>
+        <span className="block h-[72px] overflow-hidden">
+          {session.plannedIntervals.length > 0 ? (
+            <WorkoutTimelineChart
+              intervals={session.plannedIntervals}
+              elapsedSec={0}
+              currentIndex={null}
+              actualPowerWatts={null}
+              compact
+            />
+          ) : (
+            <span className="flex h-full items-center justify-center border border-[color:var(--color-divider)] text-[11px] text-[color-mix(in_srgb,var(--color-text)_45%,transparent)]">
+              No planned profile
+            </span>
+          )}
+        </span>
+      </Card>
     </button>
   );
 };
@@ -99,29 +85,18 @@ export const RecentWorkoutsSection = (): ReactElement => {
 
   return (
     <>
-      <h2 style={{ margin: 0 }}>Recent activity</h2>
-      <div className="hr" />
+      <h2 className="m-0">Recent activity</h2>
+      <Separator className="my-4 h-[2px] bg-[var(--color-divider)]" />
       {error ? (
-        <p style={{ color: "var(--color-accent-700)", marginBottom: "var(--space-8)" }}>{error}</p>
+        <p className="mb-8 text-[var(--color-accent-700)]">{error}</p>
       ) : sessions === null ? (
-        <p className="text-muted" style={{ marginBottom: "var(--space-8)" }}>
-          Loading…
-        </p>
+        <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">Loading…</p>
       ) : sessions.length === 0 ? (
-        <p className="text-muted" style={{ marginBottom: "var(--space-8)" }}>
+        <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
           No completed workouts recorded yet.
         </p>
       ) : (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 2,
-            background: "var(--color-divider)",
-            border: "2px solid var(--color-divider)",
-            marginBottom: "var(--space-8)"
-          }}
-        >
+        <div className="mb-8 flex flex-col gap-0.5 border-2 border-[color:var(--color-divider)] bg-[var(--color-divider)]">
           {sessions.map((session) => (
             <RecentWorkoutCard
               key={session.sessionId}
