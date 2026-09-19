@@ -76,7 +76,7 @@ export const ProfilePage = ({ currentFtp, strava }: Props): ReactElement => {
   const stravaConnected = strava.stravaStatus?.connected ?? false;
 
   return (
-    <main className="app">
+    <main className="mx-auto max-w-[960px] p-6">
       <div className="mb-6 flex items-end justify-between gap-4">
         {/* `margin: 0` stays inline: styles.css's bare `h1` rule is
             unlayered (see index.css), so it always beats a Tailwind `m-0`

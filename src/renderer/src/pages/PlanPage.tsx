@@ -161,7 +161,7 @@ export const PlanPage = ({
   };
 
   return (
-    <main className="app">
+    <main className="mx-auto max-w-[960px] p-6">
       <div className="flex items-end justify-between gap-4 mb-2">
         {/* styles.css's bare `h1` rule is unlayered; a Tailwind `m-0` would
             silently lose to it. Inline style keeps this override reliable. */}

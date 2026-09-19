@@ -77,7 +77,7 @@ export const HomePage = ({
           : "Event completed";
 
   return (
-    <main className="app">
+    <main className="mx-auto max-w-[960px] p-6">
       <div className="mb-6">
         <h1>{greetingForNow()}</h1>
         {countdownLabel ? (

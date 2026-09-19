@@ -1,4 +1,6 @@
 import type { ReactElement } from "react";
+import { timelineChartClass } from "./WorkoutTimelineChart";
+import { cn } from "@/lib/utils";
 
 export type MetricSample = {
   elapsedSec: number;
@@ -50,7 +52,12 @@ export const SessionMetricChart = ({ label, unit, color, samples }: Props): Reac
           {Math.round(rawMax)} {unit} max
         </span>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="workout-timeline" role="img" aria-label={`${label} over time`}>
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className={cn(timelineChartClass, "h-[220px]")}
+        role="img"
+        aria-label={`${label} over time`}
+      >
         <line x1={0} y1={topMargin + plotHeight} x2={width} y2={topMargin + plotHeight} stroke="var(--color-divider)" strokeWidth={1} />
         <polyline points={polylinePoints} fill="none" stroke={color} strokeWidth={2} />
       </svg>
