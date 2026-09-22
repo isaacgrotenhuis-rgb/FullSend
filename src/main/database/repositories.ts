@@ -654,6 +654,72 @@ export class StravaTokensRepository extends BaseRepository {
   }
 }
 
+// Singleton row, same pattern as StravaTokensRepository: one profile per
+// installed app, no multi-user concept anywhere else in the codebase either.
+export class ProfileRepository extends BaseRepository {
+  get(): Row | undefined {
+    return this.db.prepare("SELECT * FROM user_profile WHERE id = 'default'").get() as Row | undefined;
+  }
+
+  // Partial by *omission*, not by value: onboarding writes these fields from
+  // separate steps (FTP, then About-you), and ProfilePage later writes all
+  // of them from one form where clearing an input is a real, intended edit.
+  // Those need different behavior for the same call — a key left out of
+  // `input` must keep its existing value, while a key present with `null`
+  // must actually clear the column — so this only touches columns whose
+  // field key is present on `input` (checked with `in`, not `??`, since
+  // `undefined` and "omitted" must not be conflated with "explicitly null").
+  upsert(input: {
+    name?: string | null;
+    email?: string | null;
+    ftpWatts?: number | null;
+    weightKg?: number | null;
+  }): void {
+    const columnByField: Array<[keyof typeof input, string]> = [
+      ["name", "name"],
+      ["email", "email"],
+      ["ftpWatts", "ftp_watts"],
+      ["weightKg", "weight_kg"]
+    ];
+    const provided = columnByField.filter(([field]) => field in input);
+
+    if (!this.get()) {
+      const values = new Map(provided.map(([field, column]) => [column, input[field] ?? null]));
+      this.db
+        .prepare(
+          `INSERT INTO user_profile (id, name, email, ftp_watts, weight_kg, created_at, updated_at)
+           VALUES ('default', ?, ?, ?, ?, datetime('now'), datetime('now'))`
+        )
+        .run(
+          values.get("name") ?? null,
+          values.get("email") ?? null,
+          values.get("ftp_watts") ?? null,
+          values.get("weight_kg") ?? null
+        );
+      return;
+    }
+
+    if (provided.length === 0) return;
+    const setClause = provided.map(([, column]) => `${column} = ?`).join(", ");
+    const values = provided.map(([field]) => input[field] ?? null);
+    this.db
+      .prepare(`UPDATE user_profile SET ${setClause}, updated_at = datetime('now') WHERE id = 'default'`)
+      .run(...values);
+  }
+
+  completeOnboarding(): void {
+    this.db
+      .prepare(
+        `INSERT INTO user_profile (id, onboarding_completed_at, created_at, updated_at)
+         VALUES ('default', datetime('now'), datetime('now'), datetime('now'))
+         ON CONFLICT(id) DO UPDATE SET
+           onboarding_completed_at = datetime('now'),
+           updated_at = datetime('now')`
+      )
+      .run();
+  }
+}
+
 export class BleStateTransitionsRepository extends BaseRepository {
   recordTransition(input: {
     fromState: string;
@@ -919,6 +985,7 @@ export class Repositories {
   public readonly metricsSnapshots: MetricsSnapshotsRepository;
   public readonly stravaSyncEvents: StravaSyncEventsRepository;
   public readonly stravaTokens: StravaTokensRepository;
+  public readonly profile: ProfileRepository;
   public readonly bleStateTransitions: BleStateTransitionsRepository;
   public readonly planVersions: PlanVersionsRepository;
   public readonly planAuditEntries: PlanAuditEntriesRepository;
@@ -939,6 +1006,7 @@ export class Repositories {
     this.metricsSnapshots = new MetricsSnapshotsRepository(db);
     this.stravaSyncEvents = new StravaSyncEventsRepository(db);
     this.stravaTokens = new StravaTokensRepository(db);
+    this.profile = new ProfileRepository(db);
     this.bleStateTransitions = new BleStateTransitionsRepository(db);
     this.planVersions = new PlanVersionsRepository(db);
     this.planAuditEntries = new PlanAuditEntriesRepository(db);

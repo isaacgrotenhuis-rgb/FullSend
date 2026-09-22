@@ -8,6 +8,7 @@ import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import type { EventPlanService } from "@main/plans/EventPlanService";
 import type { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
 import type { StravaService } from "@main/strava/StravaService";
+import type { ProfileService } from "@main/profile/ProfileService";
 import {
   adaptEventPlanResultSchema,
   adaptEventPlanRequestSchema,
@@ -33,6 +34,9 @@ import {
   stravaStatusSchema,
   stravaSyncRequestSchema,
   stravaSyncResultSchema,
+  updateProfileRequestSchema,
+  userProfileSchema,
+  completeOnboardingRequestSchema,
   createWorkoutRequestSchema,
   archiveBankWorkoutRequestSchema,
   bankWorkoutDetailSchema,
@@ -86,7 +90,8 @@ export const registerIpcHandlers = (
   eventPlanService: EventPlanService,
   progressDashboardService: ProgressDashboardService,
   stravaService: StravaService,
-  workoutRecapService: WorkoutRecapService
+  workoutRecapService: WorkoutRecapService,
+  profileService: ProfileService
 ): (() => void) => {
   const bleSubscribers = new Set<WebContents>();
   const workoutSubscribers = new Set<WebContents>();
@@ -492,6 +497,20 @@ export const registerIpcHandlers = (
     (_event, input) => stravaService.retry(input.eventId)
   );
   safeHandle(ipcChannels.strava.getStatus, emptySchema, stravaStatusSchema, () => stravaService.getStatus());
+
+  safeHandle(ipcChannels.profile.get, emptySchema, userProfileSchema, () => profileService.getProfile());
+  safeHandle(
+    ipcChannels.profile.update,
+    updateProfileRequestSchema,
+    userProfileSchema,
+    (_event, input) => profileService.updateProfile(input)
+  );
+  safeHandle(
+    ipcChannels.profile.completeOnboarding,
+    completeOnboardingRequestSchema,
+    userProfileSchema,
+    () => profileService.completeOnboarding()
+  );
 
   ipcMain.on(ipcChannels.ble.subscribeState, (event) => {
     bleSubscribers.add(event.sender);

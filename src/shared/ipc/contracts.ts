@@ -80,6 +80,11 @@ export const ipcChannels = {
     sync: "strava:sync",
     retry: "strava:retry",
     getStatus: "strava:get-status"
+  },
+  profile: {
+    get: "profile:get",
+    update: "profile:update",
+    completeOnboarding: "profile:complete-onboarding"
   }
 } as const;
 
@@ -743,6 +748,29 @@ export const okResultSchema = z.object({
   ok: z.literal(true)
 });
 
+// Singleton profile row — mirrors the FTP/weight bounds already used
+// elsewhere (compileBankWorkoutRequestSchema, eventPlanInputSchema) so a
+// value valid here is valid everywhere else it gets read.
+export const userProfileSchema = z.object({
+  name: z.string().nullable(),
+  email: z.string().nullable(),
+  ftpWatts: z.number().int().min(100).max(600).nullable(),
+  weightKg: z.number().min(20).max(300).nullable(),
+  onboardingCompletedAt: z.string().nullable()
+});
+
+// Every field optional/nullable: onboarding and ProfilePage both submit
+// whatever subset of fields that step collected, and an omitted field must
+// leave the stored value alone (see ProfileRepository.upsert).
+export const updateProfileRequestSchema = z.object({
+  name: z.string().trim().min(1).max(120).nullable().optional(),
+  email: z.string().trim().min(1).max(160).nullable().optional(),
+  ftpWatts: z.number().int().min(100).max(600).nullable().optional(),
+  weightKg: z.number().min(20).max(300).nullable().optional()
+});
+
+export const completeOnboardingRequestSchema = z.object({});
+
 export const bleDeviceListResultSchema = z.array(bleDeviceSchema);
 export const workoutSummariesSchema = z.array(workoutSummarySchema);
 export const planWeekSummariesSchema = z.array(planWeekSummarySchema);
@@ -838,3 +866,6 @@ export type StravaSyncResult = z.infer<typeof stravaSyncResultSchema>;
 export type StravaStatus = z.infer<typeof stravaStatusSchema>;
 export type OkResult = z.infer<typeof okResultSchema>;
 export type PingResult = z.infer<typeof pingResultSchema>;
+export type UserProfile = z.infer<typeof userProfileSchema>;
+export type UpdateProfileRequest = z.infer<typeof updateProfileRequestSchema>;
+export type CompleteOnboardingRequest = z.infer<typeof completeOnboardingRequestSchema>;

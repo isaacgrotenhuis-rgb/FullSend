@@ -13,6 +13,7 @@ import { createPlanAdaptationService } from "@main/plans/PlanAdaptationService";
 import { EventPlanService } from "@main/plans/EventPlanService";
 import { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
 import { StravaService } from "@main/strava/StravaService";
+import { ProfileService } from "@main/profile/ProfileService";
 
 const createWindow = async (): Promise<void> => {
   const mainWindow = new BrowserWindow({
@@ -60,6 +61,7 @@ const bootstrap = async (): Promise<void> => {
   );
   const progressDashboardService = new ProgressDashboardService(databaseService.repositories);
   const stravaService = new StravaService(databaseService.repositories);
+  const profileService = new ProfileService(databaseService.repositories);
 
   // Keep the Mac display awake while a workout is running or paused.
   const displaySleepGuard = new DisplaySleepGuard(powerSaveBlocker);
@@ -74,7 +76,8 @@ const bootstrap = async (): Promise<void> => {
     eventPlanService,
     progressDashboardService,
     stravaService,
-    workoutRecapService
+    workoutRecapService,
+    profileService
   );
 
   await createWindow();

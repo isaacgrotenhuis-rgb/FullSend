@@ -11,6 +11,8 @@ import {
   type SessionType,
   type StravaStatus,
   type StravaSyncEventSummary,
+  type UpdateProfileRequest,
+  type UserProfile,
   type WorkoutDetail,
   type WorkoutInterval,
   type WorkoutSessionState,
@@ -18,15 +20,16 @@ import {
   type WorkoutSessionTelemetrySamples
 } from "@shared/ipc/contracts";
 import { Nav } from "./pages/Nav";
-import { DeviceDrawer, SCAN_TIMEOUT_MS } from "./pages/DeviceDrawer";
+import { DeviceDrawer, SCAN_TIMEOUT_MS, type BleSectionProps } from "./pages/DeviceDrawer";
 import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
-import { ProfilePage } from "./pages/ProfilePage";
+import { ProfilePage, type StravaSectionProps } from "./pages/ProfilePage";
 import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
+import { OnboardingFlow } from "./pages/OnboardingFlow";
 
-export type Page = "home" | "plan" | "profile";
+export type Page = "home" | "plan" | "profile" | "onboarding";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -62,6 +65,20 @@ export const App = (): ReactElement => {
   const [stravaAuthCode, setStravaAuthCode] = useState("");
   const [stravaAuthState, setStravaAuthState] = useState("");
   const [stravaAuthUrl, setStravaAuthUrl] = useState("");
+
+  // The persisted profile row (null until the initial load resolves).
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  // Gates the very first render on the profile load resolving, so a
+  // first-run launch never paints Home (Nav, dashboard, the works) for one
+  // frame before flipping to onboarding — see the render gate below.
+  const [profileLoaded, setProfileLoaded] = useState(false);
+  const [profileEditing, setProfileEditing] = useState(false);
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [profileNameDraft, setProfileNameDraft] = useState("");
+  const [profileEmailDraft, setProfileEmailDraft] = useState("");
+  const [profileWeightDraft, setProfileWeightDraft] = useState("");
+  const [profileFtpDraft, setProfileFtpDraft] = useState("");
 
   const [bleState, setBleState] = useState<BleState | null>(null);
   const [bleActionPending, setBleActionPending] = useState(false);
@@ -420,6 +437,97 @@ export const App = (): ReactElement => {
     void refreshDashboard();
   }, []);
 
+  // Shared by ProfilePage's Save and every OnboardingFlow step: calls the IPC
+  // update, then mirrors the result into App state (profile + currentFtp) so
+  // neither caller has to remember to do that itself.
+  const applyProfileUpdate = async (input: UpdateProfileRequest): Promise<UserProfile> => {
+    const updated = await window.kickr.profile.update(input);
+    setProfile(updated);
+    if (updated.ftpWatts != null) {
+      setCurrentFtp(updated.ftpWatts);
+    }
+    return updated;
+  };
+
+  // Seeds currentFtp from the persisted profile once it's loaded, replacing
+  // the in-memory 250 default above, and — first launch only — routes into
+  // onboarding instead of leaving the initial "home" page up. This can only
+  // route *into* onboarding, never out of it: once page is "onboarding" this
+  // effect doesn't run again (mount-only), so a manual nav away and back
+  // can't re-trigger it mid-session.
+  //
+  // setPage() and setProfileLoaded(true) are batched into the same render
+  // (both called synchronously before any awaited work resumes), so the
+  // first paint that shows page: "onboarding" is also the first paint where
+  // profileLoaded is true — the render gate below never has a chance to
+  // show Home first and swap to onboarding a frame later.
+  const loadProfile = async (): Promise<void> => {
+    const loaded = await window.kickr.profile.get();
+    setProfile(loaded);
+    if (loaded.ftpWatts != null) {
+      setCurrentFtp(loaded.ftpWatts);
+    }
+    if (loaded.onboardingCompletedAt == null) {
+      setPage("onboarding");
+    }
+    setProfileLoaded(true);
+  };
+
+  useEffect(() => {
+    void loadProfile();
+  }, []);
+
+  const completeOnboarding = async (): Promise<void> => {
+    const updated = await window.kickr.profile.completeOnboarding();
+    setProfile(updated);
+    setPage("home");
+  };
+
+  const startProfileEdit = (): void => {
+    setProfileNameDraft(profile?.name ?? "");
+    setProfileEmailDraft(profile?.email ?? "");
+    setProfileWeightDraft(profile?.weightKg != null ? String(profile.weightKg) : "");
+    setProfileFtpDraft(profile?.ftpWatts != null ? String(profile.ftpWatts) : String(currentFtp));
+    setProfileError(null);
+    setProfileEditing(true);
+  };
+
+  const cancelProfileEdit = (): void => {
+    setProfileEditing(false);
+    setProfileError(null);
+  };
+
+  const saveProfile = async (): Promise<void> => {
+    setProfileSaving(true);
+    setProfileError(null);
+    try {
+      const trimmedName = profileNameDraft.trim();
+      const trimmedEmail = profileEmailDraft.trim();
+      const trimmedWeight = profileWeightDraft.trim();
+      const trimmedFtp = profileFtpDraft.trim();
+      const weightValue = trimmedWeight === "" ? null : Number(trimmedWeight);
+      const ftpValue = trimmedFtp === "" ? null : Number(trimmedFtp);
+      if (weightValue !== null && !Number.isFinite(weightValue)) {
+        throw new Error("Weight must be a number.");
+      }
+      if (ftpValue !== null && !Number.isFinite(ftpValue)) {
+        throw new Error("FTP must be a number.");
+      }
+      await applyProfileUpdate({
+        name: trimmedName === "" ? null : trimmedName,
+        email: trimmedEmail === "" ? null : trimmedEmail,
+        weightKg: weightValue,
+        ftpWatts: ftpValue !== null ? Math.round(ftpValue) : null
+      });
+      setProfileEditing(false);
+    } catch (error) {
+      console.error("[profile save]", error);
+      setProfileError(error instanceof Error ? error.message : "Failed to save profile");
+    } finally {
+      setProfileSaving(false);
+    }
+  };
+
   const refreshStravaStatus = async (): Promise<void> => {
     const nextStatus = await window.kickr.strava.getStatus();
     setStravaStatus(nextStatus);
@@ -467,6 +575,10 @@ export const App = (): ReactElement => {
     await refreshStravaStatus();
   };
 
+  // postToStrava is always false right now — RidePage's "post to Strava"
+  // checkbox is disabled (Strava integration isn't functional yet, see
+  // StravaService.ts / docs/onboarding-plan.md), so the sync call below never
+  // fires. Parameter and branch left in place for when it's restored.
   const finishRide = async (postToStrava: boolean): Promise<void> => {
     if (postToStrava) {
       await syncStrava();
@@ -481,9 +593,60 @@ export const App = (): ReactElement => {
     await refreshStravaStatus();
   };
 
+  // Built once and reused by every consumer that needs it (DeviceDrawer and
+  // OnboardingFlow's pairing step share bleSectionProps; ProfilePage uses
+  // stravaSectionProps — OnboardingFlow's own Strava step is disabled for
+  // now, see OnboardingFlow.tsx's StepId comment), so those consumers can't
+  // independently drift on what "the BLE/Strava section" looks like.
+  const bleSectionProps: BleSectionProps = {
+    bleState,
+    actionError: bleActionError,
+    actionPending: bleActionPending,
+    scanForDevices,
+    stopScanning,
+    disconnectDevice,
+    disconnectHrDevice,
+    disconnectCadenceDevice,
+    getRoleConnection,
+    roleLabel,
+    connectToDevice
+  };
+
+  const stravaSectionProps: StravaSectionProps = {
+    stravaStatus,
+    stravaAuthCode,
+    setStravaAuthCode,
+    stravaAuthState,
+    setStravaAuthState,
+    stravaAuthUrl,
+    refreshStravaStatus,
+    startStravaConnect,
+    completeStravaConnect,
+    disconnectStrava,
+    syncStrava,
+    retryStrava
+  };
+
+  // Render nothing until the profile load (and therefore the
+  // home-vs-onboarding routing decision) resolves. Without this gate, a
+  // first-run launch paints full Home — Nav, dashboard, the works — for a
+  // frame, then swaps to onboarding once the async profile.get() round-trip
+  // resolves: a visible flash on every first run. body's background is set
+  // in plain CSS (index.css), not by anything rendered here, so this doesn't
+  // introduce a white-flash of its own — it's just blank for a frame.
+  if (!profileLoaded) {
+    return <></>;
+  }
+
+  // Onboarding is a full-screen flow, not a fourth Nav destination — no nav
+  // item routes here, and hiding the chrome means there's nowhere to
+  // navigate away to mid-flow by accident (Escape/click-outside on the
+  // drawer can't fire either, since the drawer isn't mounted).
+  const showChrome = activeIntervals === null && page !== "onboarding";
+
   return (
     <>
-      {activeIntervals === null ? (
+      {showChrome ? (
         <>
           <Nav
             page={page}
@@ -494,19 +657,7 @@ export const App = (): ReactElement => {
             clusterButtonRef={clusterButtonRef}
           />
           <DeviceDrawer
-            ble={{
-              bleState,
-              actionError: bleActionError,
-              actionPending: bleActionPending,
-              scanForDevices,
-              stopScanning,
-              disconnectDevice,
-              disconnectHrDevice,
-              disconnectCadenceDevice,
-              getRoleConnection,
-              roleLabel,
-              connectToDevice
-            }}
+            ble={bleSectionProps}
             open={drawerOpen}
             onClose={closeDrawer}
             clusterButtonRef={clusterButtonRef}
@@ -539,6 +690,13 @@ export const App = (): ReactElement => {
           rampDurationInput={rampDurationInput}
           setRampDurationInput={setRampDurationInput}
           applyRampDuration={applyRampDuration}
+        />
+      ) : page === "onboarding" ? (
+        <OnboardingFlow
+          ble={bleSectionProps}
+          currentFtp={currentFtp}
+          onSaveProfile={applyProfileUpdate}
+          onComplete={completeOnboarding}
         />
       ) : page === "plan" ? (
         <PlanPage
@@ -581,20 +739,24 @@ export const App = (): ReactElement => {
       ) : page === "profile" ? (
         <ProfilePage
           currentFtp={currentFtp}
-          strava={{
-            stravaStatus,
-            stravaAuthCode,
-            setStravaAuthCode,
-            stravaAuthState,
-            setStravaAuthState,
-            stravaAuthUrl,
-            refreshStravaStatus,
-            startStravaConnect,
-            completeStravaConnect,
-            disconnectStrava,
-            syncStrava,
-            retryStrava
+          profile={{
+            profile,
+            editing: profileEditing,
+            saving: profileSaving,
+            error: profileError,
+            nameDraft: profileNameDraft,
+            setNameDraft: setProfileNameDraft,
+            emailDraft: profileEmailDraft,
+            setEmailDraft: setProfileEmailDraft,
+            weightDraft: profileWeightDraft,
+            setWeightDraft: setProfileWeightDraft,
+            ftpDraft: profileFtpDraft,
+            setFtpDraft: setProfileFtpDraft,
+            startEdit: startProfileEdit,
+            cancelEdit: cancelProfileEdit,
+            save: saveProfile
           }}
+          strava={stravaSectionProps}
         />
       ) : (
         <HomePage
