@@ -67,12 +67,16 @@ export const roleIcons: Record<BleRole, LucideIcon> = {
 // bar/countdown against this shared constant rather than the real BLE stack state.
 export const SCAN_TIMEOUT_MS = 8000;
 
-const deviceLabel = (device: BleDevice): string => device.name ?? device.localName ?? "Unknown device";
+// Exported so OnboardingFlow's single-role trainer-pairing step (built on the
+// same `ble: BleSectionProps` bag) can show identical candidate labels
+// instead of re-deriving its own.
+export const deviceLabel = (device: BleDevice): string => device.name ?? device.localName ?? "Unknown device";
 
 // Only one physical BLE scan can run at a time regardless of which cell's "Scan"
 // was clicked, so every cell reads from the same discoveredDevices list — this
-// picks, per cell, the strongest candidate that advertises that role.
-const candidateForRole = (state: BleState, role: BleRole): BleDevice | null => {
+// picks, per cell, the strongest candidate that advertises that role. Exported
+// for the same reason as deviceLabel above.
+export const candidateForRole = (state: BleState, role: BleRole): BleDevice | null => {
   const matches = state.discoveredDevices
     // An empty roles array means the adapter couldn't classify the advertisement
     // (BleService: advertised roles are "a UI hint, not authoritative") — offer

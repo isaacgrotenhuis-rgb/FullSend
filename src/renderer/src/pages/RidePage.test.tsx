@@ -7,9 +7,12 @@ import { RidePage } from "./RidePage";
 /* RidePage is the live-ride screen; its end-of-ride dialog is the one dialog in
    the app that must NOT be dismissible via Escape or an outside click (see the
    non-dismissibility comment above the <Dialog> in RidePage.tsx). These tests
-   guard that behaviour plus the two other converted controls: the MPH/KPH
-   ToggleGroup (required single-select, cannot be cleared) and the Strava
-   Checkbox (labelled, keyboard-operable). */
+   guard that behaviour plus the MPH/KPH ToggleGroup (required single-select,
+   cannot be cleared). The post-to-Strava Checkbox this file used to also
+   cover is commented out in RidePage.tsx along with the rest of the Strava
+   integration for now (see StravaService.ts / docs/onboarding-plan.md) —
+   finishRide is always called with `false`, and its own describe block below
+   is commented out to match rather than deleted. */
 
 const intervals: WorkoutInterval[] = [
   { kind: "work", durationSec: 600, targetPowerWatts: 200, targetResistancePercent: null }
@@ -123,25 +126,32 @@ describe("RidePage end-of-ride dialog", () => {
 
     await user.click(screen.getByRole("button", { name: "Done" }));
 
-    expect(finishRide).toHaveBeenCalledWith(true);
+    // Was `true` when the post-to-Strava checkbox defaulted checked; RidePage
+    // now always passes false while that checkbox is disabled (see the file
+    // comment above).
+    expect(finishRide).toHaveBeenCalledWith(false);
   });
 });
 
-describe("RidePage Strava checkbox", () => {
-  it("is labelled and keyboard-operable", async () => {
-    const user = userEvent.setup();
-    render(<RidePage {...baseProps} workoutSessionState={endedSessionState} />);
-    await screen.findByRole("dialog");
-    await user.click(screen.getByRole("button", { name: "Save Workout" }));
-
-    const checkbox = await screen.findByRole("checkbox", { name: "Post this workout to Strava" });
-    expect(checkbox).toHaveAttribute("aria-checked", "true");
-
-    checkbox.focus();
-    await user.keyboard(" ");
-    expect(checkbox).toHaveAttribute("aria-checked", "false");
-  });
-});
+// Post-to-Strava checkbox disabled along with the rest of the Strava
+// integration for now (RidePage.tsx) — kept here, commented out, rather than
+// deleted, for when it's restored.
+//
+// describe("RidePage Strava checkbox", () => {
+//   it("is labelled and keyboard-operable", async () => {
+//     const user = userEvent.setup();
+//     render(<RidePage {...baseProps} workoutSessionState={endedSessionState} />);
+//     await screen.findByRole("dialog");
+//     await user.click(screen.getByRole("button", { name: "Save Workout" }));
+//
+//     const checkbox = await screen.findByRole("checkbox", { name: "Post this workout to Strava" });
+//     expect(checkbox).toHaveAttribute("aria-checked", "true");
+//
+//     checkbox.focus();
+//     await user.keyboard(" ");
+//     expect(checkbox).toHaveAttribute("aria-checked", "false");
+//   });
+// });
 
 describe("RidePage speed unit toggle", () => {
   it("switches units, is keyboard-operable, and cannot be cleared", async () => {

@@ -134,7 +134,8 @@ const createApiStub = (): KickrDesktopApi => ({
     "sync",
     "retry",
     "getStatus"
-  ])
+  ]),
+  profile: namespace<KickrDesktopApi["profile"]>("profile", ["get", "update", "completeOnboarding"])
 });
 
 window.kickr = createApiStub();

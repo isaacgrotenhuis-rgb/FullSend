@@ -28,6 +28,8 @@ import type {
   StravaSyncResult,
   StravaRetryRequest,
   StravaStatus,
+  UpdateProfileRequest,
+  UserProfile,
   PingResult,
   ReorderIntervalsRequest,
   StartWorkoutSessionRequest,
@@ -131,5 +133,10 @@ export interface KickrDesktopApi {
     sync: (request?: Partial<StravaSyncRequest>) => Promise<StravaSyncResult>;
     retry: (request: StravaRetryRequest) => Promise<StravaSyncResult>;
     getStatus: () => Promise<StravaStatus>;
+  };
+  profile: {
+    get: () => Promise<UserProfile>;
+    update: (request: UpdateProfileRequest) => Promise<UserProfile>;
+    completeOnboarding: () => Promise<UserProfile>;
   };
 }

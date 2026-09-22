@@ -222,6 +222,18 @@ const migrations = [
   `,
   `
   CREATE INDEX IF NOT EXISTS idx_workout_bank_zone ON workout_bank(primary_zone, archived);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS user_profile (
+    id                       TEXT PRIMARY KEY DEFAULT 'default',
+    name                     TEXT,
+    email                    TEXT,
+    ftp_watts                INTEGER,
+    weight_kg                REAL,
+    onboarding_completed_at  TEXT,
+    created_at               TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   `
 ];
 

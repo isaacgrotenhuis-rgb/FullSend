@@ -99,6 +99,11 @@ const api: KickrDesktopApi = {
     sync: async (request) => ipcRenderer.invoke(ipcChannels.strava.sync, request ?? {}),
     retry: async (request) => ipcRenderer.invoke(ipcChannels.strava.retry, request),
     getStatus: async () => ipcRenderer.invoke(ipcChannels.strava.getStatus, {})
+  },
+  profile: {
+    get: async () => ipcRenderer.invoke(ipcChannels.profile.get, {}),
+    update: async (request) => ipcRenderer.invoke(ipcChannels.profile.update, request),
+    completeOnboarding: async () => ipcRenderer.invoke(ipcChannels.profile.completeOnboarding, {})
   }
 };
 

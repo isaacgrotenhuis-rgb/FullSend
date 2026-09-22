@@ -7,7 +7,7 @@ import type {
 } from "@shared/ipc/contracts";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
+// Checkbox import unused while the post-to-Strava checkbox below is disabled.
 import {
   Dialog,
   DialogContent,
@@ -17,7 +17,7 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+// Label import unused while the post-to-Strava checkbox below is disabled.
 import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
@@ -88,7 +88,10 @@ export const RidePage = ({
   setRampDurationInput,
   applyRampDuration
 }: Props): ReactElement => {
-  const [postToStrava, setPostToStrava] = useState(true);
+  // postToStrava state disabled along with the checkbox below (Strava
+  // integration isn't functional yet). finishRide is always called with
+  // false until this is restored.
+  // const [postToStrava, setPostToStrava] = useState(true);
   const [summaryStage, setSummaryStage] = useState<"none" | "pending" | "saved">("none");
   const [savedSummary, setSavedSummary] = useState<WorkoutSessionSummary | null>(null);
   const [speedUnit, setSpeedUnit] = useSpeedUnit();
@@ -381,6 +384,11 @@ export const RidePage = ({
                   speedUnit={speedUnit}
                 />
               ) : null}
+              {/* Post-to-Strava checkbox disabled for now — Strava
+                  integration isn't functional yet (see StravaService.ts /
+                  docs/onboarding-plan.md). finishRide is always called with
+                  false below until this is restored.
+
               <div className="flex items-center gap-2.5">
                 <Checkbox
                   id="post-to-strava"
@@ -392,8 +400,10 @@ export const RidePage = ({
                 </Label>
               </div>
 
+              */}
+
               <DialogFooter>
-                <Button disabled={liveWorkoutBusy} onClick={() => void finishRide(postToStrava)}>
+                <Button disabled={liveWorkoutBusy} onClick={() => void finishRide(false)}>
                   Done
                 </Button>
               </DialogFooter>
