@@ -28,6 +28,7 @@ import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { ProfilePage, type StravaSectionProps } from "./pages/ProfilePage";
 import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
 import { OnboardingFlow } from "./pages/OnboardingFlow";
+import { fromKg, toKg, useWeightUnit } from "./weightUnit";
 
 export type Page = "home" | "plan" | "profile" | "onboarding";
 
@@ -79,6 +80,7 @@ export const App = (): ReactElement => {
   const [profileEmailDraft, setProfileEmailDraft] = useState("");
   const [profileWeightDraft, setProfileWeightDraft] = useState("");
   const [profileFtpDraft, setProfileFtpDraft] = useState("");
+  const [weightUnit, setWeightUnit] = useWeightUnit();
 
   const [bleState, setBleState] = useState<BleState | null>(null);
   const [bleActionPending, setBleActionPending] = useState(false);
@@ -486,7 +488,7 @@ export const App = (): ReactElement => {
   const startProfileEdit = (): void => {
     setProfileNameDraft(profile?.name ?? "");
     setProfileEmailDraft(profile?.email ?? "");
-    setProfileWeightDraft(profile?.weightKg != null ? String(profile.weightKg) : "");
+    setProfileWeightDraft(profile?.weightKg != null ? fromKg(profile.weightKg, weightUnit).toFixed(1) : "");
     setProfileFtpDraft(profile?.ftpWatts != null ? String(profile.ftpWatts) : String(currentFtp));
     setProfileError(null);
     setProfileEditing(true);
@@ -516,7 +518,7 @@ export const App = (): ReactElement => {
       await applyProfileUpdate({
         name: trimmedName === "" ? null : trimmedName,
         email: trimmedEmail === "" ? null : trimmedEmail,
-        weightKg: weightValue,
+        weightKg: weightValue !== null ? toKg(weightValue, weightUnit) : null,
         ftpWatts: ftpValue !== null ? Math.round(ftpValue) : null
       });
       setProfileEditing(false);
@@ -750,6 +752,8 @@ export const App = (): ReactElement => {
             setEmailDraft: setProfileEmailDraft,
             weightDraft: profileWeightDraft,
             setWeightDraft: setProfileWeightDraft,
+            weightUnit,
+            setWeightUnit,
             ftpDraft: profileFtpDraft,
             setFtpDraft: setProfileFtpDraft,
             startEdit: startProfileEdit,

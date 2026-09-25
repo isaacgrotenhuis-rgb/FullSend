@@ -51,6 +51,8 @@ const makeProfile = (overrides: Partial<ProfileSectionProps> = {}): ProfileSecti
   setEmailDraft: vi.fn(),
   weightDraft: "",
   setWeightDraft: vi.fn(),
+  weightUnit: "lb",
+  setWeightUnit: vi.fn(),
   ftpDraft: "",
   setFtpDraft: vi.fn(),
   startEdit: vi.fn(),
