@@ -1,18 +1,18 @@
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Nav } from "./Nav";
 import { DeviceDrawer, type BleSectionProps } from "./DeviceDrawer";
 
-/* Mirrors App.tsx's real wiring: Nav owns the toggle button, DeviceDrawer
-   owns the panel, and `drawerOpen`/`clusterButtonRef` are threaded through
-   from a shared parent — exactly the shape that made a plain Radix
-   Collapsible (trigger + content in one tree) not fit here. A sentinel
-   button after both proves Tab can leave the drawer instead of looping. */
+/* Mirrors App.tsx's real wiring: Nav owns the toggle button and DeviceDrawer
+   (a real Radix modal Dialog) is only mounted while `drawerOpen` — matching
+   how every other dialog in this app is rendered, which is also what makes
+   DialogContent's focus-restore patch (dialog.tsx's useRestoreFocusOnClose)
+   capture the cluster button as the opener instead of whatever had focus
+   when the harness first rendered. */
 const Harness = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const clusterButtonRef = useRef<HTMLButtonElement>(null);
   const ble: BleSectionProps = {
     bleState: null,
     actionError: null,
@@ -35,29 +35,32 @@ const Harness = () => {
         bleState={null}
         drawerOpen={drawerOpen}
         onToggleDrawer={() => setDrawerOpen((open) => !open)}
-        clusterButtonRef={clusterButtonRef}
       />
-      <DeviceDrawer ble={ble} open={drawerOpen} onClose={() => setDrawerOpen(false)} clusterButtonRef={clusterButtonRef} />
+      {drawerOpen ? <DeviceDrawer ble={ble} onClose={() => setDrawerOpen(false)} /> : null}
       <button type="button">After drawer</button>
     </>
   );
 };
 
-const getCluster = (): HTMLElement => screen.getByRole("button", { name: /^Devices:/ });
-const queryDrawer = (): HTMLElement | null => screen.queryByRole("region", { name: "Devices" });
+// Radix's modal Dialog hides everything outside it from the accessibility
+// tree AND sets `pointer-events: none` on the rest of the page while open —
+// a real click can no longer reach the cluster button or the sentinel below,
+// which is why there's no "click the trigger again to close" test here the
+// way the old non-modal drawer needed: that interaction is now impossible,
+// not just untested. `hidden: true` opts back into finding the (still
+// present, just accessibility-hidden) cluster button before the dialog opens.
+const getCluster = (): HTMLElement => screen.getByRole("button", { name: /^Devices:/, hidden: true });
+const queryDialog = (): HTMLElement | null => screen.queryByRole("dialog", { name: "Connect devices" });
 
 describe("DeviceDrawer", () => {
   it("is closed until the cluster button opens it", async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
-    expect(queryDrawer()).not.toBeInTheDocument();
+    expect(queryDialog()).not.toBeInTheDocument();
 
     await user.click(getCluster());
-    await waitFor(() => expect(queryDrawer()).toBeInTheDocument());
-
-    await user.click(getCluster());
-    await waitFor(() => expect(queryDrawer()).not.toBeInTheDocument());
+    await waitFor(() => expect(queryDialog()).toBeInTheDocument());
   });
 
   it("closes on Escape", async () => {
@@ -65,58 +68,67 @@ describe("DeviceDrawer", () => {
     render(<Harness />);
 
     await user.click(getCluster());
-    await waitFor(() => expect(queryDrawer()).toBeInTheDocument());
+    await waitFor(() => expect(queryDialog()).toBeInTheDocument());
 
     await user.keyboard("{Escape}");
-    await waitFor(() => expect(queryDrawer()).not.toBeInTheDocument());
+    await waitFor(() => expect(queryDialog()).not.toBeInTheDocument());
   });
 
-  it("closes on a click outside the drawer", async () => {
+  it("closes via its own close button", async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
     await user.click(getCluster());
-    await waitFor(() => expect(queryDrawer()).toBeInTheDocument());
+    await waitFor(() => expect(queryDialog()).toBeInTheDocument());
 
-    await user.click(screen.getByRole("button", { name: "After drawer" }));
-    await waitFor(() => expect(queryDrawer()).not.toBeInTheDocument());
+    await user.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(queryDialog()).not.toBeInTheDocument());
   });
 
-  it("does not close-then-reopen when the cluster button itself is clicked while open", async () => {
+  it("closes on a click outside the dialog (the overlay)", async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
     await user.click(getCluster());
-    await waitFor(() => expect(queryDrawer()).toBeInTheDocument());
+    await waitFor(() => expect(queryDialog()).toBeInTheDocument());
 
-    // The click-outside effect explicitly exempts clusterButtonRef so this
-    // single click is a plain close, not a close-then-reopen race between
-    // the pointerdown-driven outside-click handler and the button's own
-    // onClick toggle.
-    await user.click(getCluster());
-    await waitFor(() => expect(queryDrawer()).not.toBeInTheDocument());
+    // The rest of the page has pointer-events: none while a modal Dialog is
+    // open (Radix), so the overlay — not some other on-page element — is the
+    // real "click outside" surface a user can actually reach.
+    const overlay = document.querySelector('[data-slot="dialog-overlay"]');
+    expect(overlay).toBeInstanceOf(HTMLElement);
+    await user.click(overlay as HTMLElement);
+    await waitFor(() => expect(queryDialog()).not.toBeInTheDocument());
   });
 
-  it("does not trap Tab — focus can leave the open drawer", async () => {
+  it("traps Tab inside the open dialog, unlike the old non-modal drawer", async () => {
     const user = userEvent.setup();
     render(<Harness />);
 
     await user.click(getCluster());
-    const drawer = await screen.findByRole("region", { name: "Devices" });
+    const dialog = await screen.findByRole("dialog", { name: "Connect devices" });
 
-    // Opening moves focus into the drawer (the Close button).
-    await waitFor(() => expect(screen.getByRole("button", { name: "Close" })).toHaveFocus());
+    // Radix's modal Dialog moves focus inside Content on open (onto its
+    // first tabbable element, the search input) and traps Tab from there.
+    await waitFor(() => expect(dialog).toContainElement(document.activeElement as HTMLElement));
 
-    // Tab far enough to exhaust every focusable control inside the drawer
-    // and land on the sentinel after it — a focus trap would instead loop
-    // back inside `drawer`.
+    // Tab all the way around every focusable control inside the dialog —
+    // a real focus trap loops back inside `dialog` instead of ever reaching
+    // the sentinel rendered after it.
     for (let step = 0; step < 20; step += 1) {
-      if (document.activeElement === screen.getByRole("button", { name: "After drawer" })) break;
       await user.tab();
+      expect(dialog).toContainElement(document.activeElement as HTMLElement);
     }
+  });
 
-    const sentinel = screen.getByRole("button", { name: "After drawer" });
-    expect(sentinel).toHaveFocus();
-    expect(drawer).not.toContainElement(document.activeElement as HTMLElement);
+  it("restores focus to the cluster button on close, matching this app's other dialogs", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+
+    await user.click(getCluster());
+    await waitFor(() => expect(queryDialog()).toBeInTheDocument());
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(getCluster()).toHaveFocus());
   });
 });
