@@ -1,4 +1,4 @@
-import type { ReactElement, RefObject } from "react";
+import type { ReactElement } from "react";
 import type { Page } from "../App";
 import { bleRoles, type BleState } from "@shared/ipc/contracts";
 import { connectedCount, isRoleConnected, requiredMissing, roleIcons } from "./DeviceDrawer";
@@ -11,7 +11,6 @@ type Props = {
   bleState: BleState | null;
   drawerOpen: boolean;
   onToggleDrawer: () => void;
-  clusterButtonRef: RefObject<HTMLButtonElement | null>;
 };
 
 // Shared focus ring for the plain <button> elements below (device-cluster and
@@ -20,7 +19,7 @@ type Props = {
 // there is no legacy focus style to match; this mirrors Button's own ring.
 const focusRing = "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
-export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer, clusterButtonRef }: Props): ReactElement => {
+export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: Props): ReactElement => {
   const attention = requiredMissing(bleState);
   const count = connectedCount(bleState);
   const ariaLabel = `Devices: ${count} of 3 connected${attention ? ", trainer not connected" : ""}`;
@@ -68,10 +67,9 @@ export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer, cl
 
       <div className="flex items-center gap-2 justify-self-end">
         <button
-          ref={clusterButtonRef}
           onClick={onToggleDrawer}
+          aria-haspopup="dialog"
           aria-expanded={drawerOpen}
-          aria-controls="device-drawer"
           aria-label={ariaLabel}
           className={cn(
             "inline-flex cursor-pointer items-center gap-[10px] rounded-md border-2 bg-transparent px-[10px] py-[7px] font-sans",

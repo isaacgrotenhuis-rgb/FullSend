@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type ReactElement } from "react";
 import {
   type BleConnectionEntry,
   type BleRole,
@@ -86,11 +86,10 @@ export const App = (): ReactElement => {
   const [bleActionPending, setBleActionPending] = useState(false);
   const [bleActionError, setBleActionError] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const clusterButtonRef = useRef<HTMLButtonElement>(null);
-  const closeDrawer = (): void => {
-    setDrawerOpen(false);
-    clusterButtonRef.current?.focus();
-  };
+  // DeviceDrawer is a Dialog now, so Radix's own onCloseAutoFocus (patched in
+  // dialog.tsx to restore focus to whatever opened it) puts focus back on the
+  // cluster button — no manual .focus()/ref needed here.
+  const closeDrawer = (): void => setDrawerOpen(false);
 
   const [workoutSessionState, setWorkoutSessionState] = useState<WorkoutSessionState | null>(null);
   const [activeIntervals, setActiveIntervals] = useState<WorkoutInterval[] | null>(null);
@@ -656,14 +655,8 @@ export const App = (): ReactElement => {
             bleState={bleState}
             drawerOpen={drawerOpen}
             onToggleDrawer={() => setDrawerOpen((open) => !open)}
-            clusterButtonRef={clusterButtonRef}
           />
-          <DeviceDrawer
-            ble={bleSectionProps}
-            open={drawerOpen}
-            onClose={closeDrawer}
-            clusterButtonRef={clusterButtonRef}
-          />
+          {drawerOpen ? <DeviceDrawer ble={bleSectionProps} onClose={closeDrawer} /> : null}
         </>
       ) : null}
 

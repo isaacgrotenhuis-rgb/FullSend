@@ -1,4 +1,3 @@
-import { useRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -10,19 +9,9 @@ import { Nav } from "./Nav";
    by Tab and never activatable by Enter/Space. They are now plain
    <button>s. */
 
-const Harness = ({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => void }) => {
-  const clusterButtonRef = useRef<HTMLButtonElement>(null);
-  return (
-    <Nav
-      page={page}
-      onNavigate={onNavigate}
-      bleState={null}
-      drawerOpen={false}
-      onToggleDrawer={vi.fn()}
-      clusterButtonRef={clusterButtonRef}
-    />
-  );
-};
+const Harness = ({ page, onNavigate }: { page: Page; onNavigate: (page: Page) => void }) => (
+  <Nav page={page} onNavigate={onNavigate} bleState={null} drawerOpen={false} onToggleDrawer={vi.fn()} />
+);
 
 describe("Nav", () => {
   it("renders the page links as real, focusable buttons", () => {
