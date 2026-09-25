@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { formatWeight, fromKg, type WeightUnit } from "../weightUnit";
 
 export type StravaSectionProps = {
   stravaStatus: StravaStatus | null;
@@ -36,6 +38,8 @@ export type ProfileSectionProps = {
   setEmailDraft: (value: string) => void;
   weightDraft: string;
   setWeightDraft: (value: string) => void;
+  weightUnit: WeightUnit;
+  setWeightUnit: (unit: WeightUnit) => void;
   ftpDraft: string;
   setFtpDraft: (value: string) => void;
   startEdit: () => void;
@@ -290,13 +294,33 @@ export const ProfilePage = ({ currentFtp, profile, strava }: Props): ReactElemen
           />
         </div>
         <div className="flex flex-col gap-[5px]">
-          <Label htmlFor="profile-weight" className={fieldLabelClass}>
-            Weight (kg)
-          </Label>
+          <div className="flex items-center justify-between gap-1">
+            <Label htmlFor="profile-weight" className={fieldLabelClass}>
+              Weight
+            </Label>
+            <ToggleGroup
+              type="single"
+              size="sm"
+              value={profile.weightUnit}
+              onValueChange={(value) => {
+                if (value) profile.setWeightUnit(value as WeightUnit);
+              }}
+              aria-label="Weight unit"
+            >
+              <ToggleGroupItem value="lb">LB</ToggleGroupItem>
+              <ToggleGroupItem value="kg">KG</ToggleGroupItem>
+            </ToggleGroup>
+          </div>
           <Input
             id="profile-weight"
             type="number"
-            value={editing ? profile.weightDraft : (profile.profile?.weightKg?.toString() ?? "")}
+            value={
+              editing
+                ? profile.weightDraft
+                : profile.profile?.weightKg != null
+                  ? fromKg(profile.profile.weightKg, profile.weightUnit).toFixed(1)
+                  : ""
+            }
             onChange={(event) => profile.setWeightDraft(event.target.value)}
             disabled={!editing}
             placeholder="Not yet set"
@@ -332,7 +356,7 @@ export const ProfilePage = ({ currentFtp, profile, strava }: Props): ReactElemen
         <Card className={seamCellClass}>
           <div className="text-[10px] tracking-[0.1em] uppercase text-primary">Weight</div>
           <div className={cn(cardTitleClass, "text-[28px]", weightKg == null && "opacity-40")}>
-            {weightKg != null ? `${weightKg} kg` : "—"}
+            {formatWeight(weightKg, profile.weightUnit)}
           </div>
         </Card>
         <Card className={seamCellClass}>

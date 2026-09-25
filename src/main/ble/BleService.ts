@@ -80,7 +80,7 @@ export class BleService implements BleServicePort {
 
     this.adapter.onError((error) => {
       console.error("[BleService] adapter error:", error);
-      this.setState({ lifecycle: "error", lastError: error.message }, "adapter-error");
+      this.setState({ lifecycle: "error", connectedDeviceId: null, lastError: error.message }, "adapter-error");
       for (const role of bleRoles) {
         if (role === "power") {
           continue; // already covered by the setState above (power is mirrored at top level)
@@ -88,7 +88,7 @@ export class BleService implements BleServicePort {
         if (this.getConnection(role).connectedDeviceId === null) {
           continue;
         }
-        this.patchConnection(role, { lifecycle: "error", lastError: error.message }, "adapter-error");
+        this.patchConnection(role, { lifecycle: "error", connectedDeviceId: null, lastError: error.message }, "adapter-error");
       }
     });
 

@@ -111,10 +111,10 @@ export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer, cl
           aria-current={page === "profile" ? "page" : undefined}
           aria-label="Profile"
           className={cn(
-            "text-[var(--color-bg)] hover:text-[var(--color-bg)]",
+            "text-[var(--color-bg)] hover:text-[var(--color-bg)] dark:hover:text-[var(--color-bg)]",
             page === "profile"
-              ? "bg-[var(--color-accent)] hover:bg-[var(--color-accent)]"
-              : "bg-[var(--color-text)] hover:bg-[var(--color-text)]"
+              ? "bg-[var(--color-accent)] hover:bg-[var(--color-accent)] dark:hover:bg-[var(--color-accent)]"
+              : "bg-[var(--color-text)] hover:bg-[var(--color-text)] dark:hover:bg-[var(--color-text)]"
           )}
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">

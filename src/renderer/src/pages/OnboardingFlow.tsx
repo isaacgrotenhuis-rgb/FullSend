@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import {
   type BleSectionProps,
@@ -12,6 +13,7 @@ import {
   deviceLabel,
   roleIcons
 } from "./DeviceDrawer";
+import { fromKg, toKg, useWeightUnit, type WeightUnit } from "../weightUnit";
 // Strava step removed for now — see the "strava" step block further down
 // (kept commented out, not deleted) and the note on `finishOnboarding`'s
 // call sites below.
@@ -68,6 +70,7 @@ export const OnboardingFlow = ({ ble, currentFtp, onSaveProfile, onComplete }: O
   const [nameInput, setNameInput] = useState("");
   const [emailInput, setEmailInput] = useState("");
   const [weightInput, setWeightInput] = useState("");
+  const [weightUnit, setWeightUnit] = useWeightUnit();
   const [stepSaving, setStepSaving] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
@@ -181,7 +184,7 @@ export const OnboardingFlow = ({ ble, currentFtp, onSaveProfile, onComplete }: O
       await onSaveProfile({
         name: trimmedName === "" ? null : trimmedName,
         email: trimmedEmail === "" ? null : trimmedEmail,
-        weightKg: weightValue !== null && Number.isFinite(weightValue) ? weightValue : null
+        weightKg: weightValue !== null && Number.isFinite(weightValue) ? toKg(weightValue, weightUnit) : null
       });
       goNext();
     } finally {
@@ -316,9 +319,30 @@ export const OnboardingFlow = ({ ble, currentFtp, onSaveProfile, onComplete }: O
             />
           </div>
           <div className="flex flex-col gap-[5px]">
-            <Label htmlFor="onboarding-weight" className={fieldLabelClass}>
-              Weight (kg)
-            </Label>
+            <div className="flex items-center justify-between gap-1">
+              <Label htmlFor="onboarding-weight" className={fieldLabelClass}>
+                Weight
+              </Label>
+              <ToggleGroup
+                type="single"
+                size="sm"
+                value={weightUnit}
+                onValueChange={(value) => {
+                  if (!value) return;
+                  const nextUnit = value as WeightUnit;
+                  const trimmed = weightInput.trim();
+                  const parsed = trimmed === "" ? null : Number(trimmed);
+                  if (parsed !== null && Number.isFinite(parsed)) {
+                    setWeightInput(fromKg(toKg(parsed, weightUnit), nextUnit).toFixed(1));
+                  }
+                  setWeightUnit(nextUnit);
+                }}
+                aria-label="Weight unit"
+              >
+                <ToggleGroupItem value="lb">LB</ToggleGroupItem>
+                <ToggleGroupItem value="kg">KG</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
             <Input
               id="onboarding-weight"
               type="number"

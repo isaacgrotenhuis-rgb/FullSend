@@ -201,7 +201,7 @@ describe("BleService concurrent trainer + heart rate connections", () => {
     expect(state.connections.heart_rate.lastError).toBe("BLE signal lost; disconnected");
   });
 
-  it("sets the heart rate connection lifecycle to error when the adapter errors while only the heart rate device is connected", async () => {
+  it("sets the heart rate connection lifecycle to error and clears connectedDeviceId when the adapter errors while only the heart rate device is connected", async () => {
     const adapter = new FakeBleAdapter();
     const service = new BleService({ adapter });
     adapter.emitDiscovered({ id: HR_ID, roles: ["heart_rate"] });
@@ -213,7 +213,7 @@ describe("BleService concurrent trainer + heart rate connections", () => {
     const state = service.getState();
     expect(state.connections.heart_rate.lifecycle).toBe("error");
     expect(state.connections.heart_rate.lastError).toBe("adapter lost");
-    expect(state.connections.heart_rate.connectedDeviceId).toBe(HR_ID);
+    expect(state.connections.heart_rate.connectedDeviceId).toBeNull();
   });
 });
 
