@@ -638,6 +638,7 @@ export const generateEventPlanResultSchema = z.object({
   ok: z.literal(true),
   planId: z.string().min(1),
   name: z.string().min(1),
+  eventDate: isoDateSchema,
   versionId: z.string().min(1),
   versionNumber: z.number().int().min(1),
   weeks: z.array(eventPlanWeekSchema)
@@ -647,6 +648,7 @@ export const getCurrentEventPlanResultSchema = z
   .object({
     planId: z.string().min(1),
     name: z.string().min(1),
+    eventDate: isoDateSchema,
     weeks: z.array(eventPlanWeekSchema)
   })
   .nullable();
@@ -655,6 +657,7 @@ export const adaptEventPlanResultSchema = z.object({
   ok: z.literal(true),
   planId: z.string().min(1),
   name: z.string().min(1),
+  eventDate: isoDateSchema,
   versionId: z.string().min(1),
   versionNumber: z.number().int().min(1),
   weeks: z.array(eventPlanWeekSchema),

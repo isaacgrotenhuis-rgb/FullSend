@@ -57,7 +57,7 @@ const thisWeek = (): EventPlanWeek => {
   };
 };
 
-const renderPage = () => {
+const renderPage = (eventDate: string | null = "2099-01-01") => {
   // Keeps the recent-activity section in its empty state, so the only buttons
   // on the page are the event countdown and the one workout cell.
   vi.mocked(window.kickr.workout.listCompletedSessions).mockResolvedValue([]);
@@ -66,7 +66,7 @@ const renderPage = () => {
     <HomePage
       dashboard={null}
       currentFtp={240}
-      eventDate="2099-01-01"
+      eventDate={eventDate}
       weeks={[thisWeek()]}
       previewWorkoutForDay={previewWorkoutForDay}
       onNavigateToPlan={vi.fn()}
@@ -142,5 +142,46 @@ describe("HomePage this-week calendar", () => {
     await screen.findByText("No completed workouts recorded yet.");
 
     expect(workoutCell().querySelector("button, a, [role='button'], [tabindex]")).toBeNull();
+  });
+});
+
+const daysFromToday = (days: number): string => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return isoDate(date);
+};
+
+/* The countdown used to read App's plan-wizard form state, which defaults to
+   today — so after a restart every saved plan showed "Event day". It now takes
+   the saved plan's own event date. */
+describe("HomePage event countdown", () => {
+  it("counts down to a saved plan's future event", async () => {
+    renderPage(daysFromToday(42));
+    await screen.findByText("No completed workouts recorded yet.");
+
+    expect(screen.getByRole("button", { name: "42 days to event" })).toBeInTheDocument();
+    expect(screen.queryByText("Event day")).not.toBeInTheDocument();
+  });
+
+  it("uses the singular for one day out", async () => {
+    renderPage(daysFromToday(1));
+    await screen.findByText("No completed workouts recorded yet.");
+
+    expect(screen.getByRole("button", { name: "1 day to event" })).toBeInTheDocument();
+  });
+
+  it("shows Event day only when the event is today", async () => {
+    renderPage(daysFromToday(0));
+    await screen.findByText("No completed workouts recorded yet.");
+
+    expect(screen.getByRole("button", { name: "Event day" })).toBeInTheDocument();
+  });
+
+  it("hides the countdown when no plan event date is known", async () => {
+    renderPage(null);
+    await screen.findByText("No completed workouts recorded yet.");
+
+    expect(screen.queryByText(/to event|Event day|Event completed/)).not.toBeInTheDocument();
   });
 });

@@ -107,6 +107,9 @@ type Props = {
   generate: GeneratePlanSectionProps;
   adapt: AdaptPlanSectionProps;
   weeks: EventPlanWeek[];
+  // The saved plan's event date — not `generate.eventDate`, which is the
+  // wizard's form state and defaults to today.
+  eventDate: string | null;
   currentPlanName: string | null;
   liveWorkoutBusy: boolean;
   isWorkoutSessionActive: boolean;
@@ -237,6 +240,7 @@ export const PlanPage = ({
   generate,
   adapt,
   weeks,
+  eventDate,
   currentPlanName,
   liveWorkoutBusy,
   isWorkoutSessionActive,
@@ -281,14 +285,16 @@ export const PlanPage = ({
       viewport.scrollTop = target.offsetTop;
     }
   }, [currentWeekId, weeks]);
-  const daysUntilEvent = Math.round((parseIsoDate(generate.eventDate).getTime() - today.getTime()) / 86400000);
-  const countdownLabel = hasPlan
-    ? daysUntilEvent > 0
-      ? `${daysUntilEvent} day${daysUntilEvent === 1 ? "" : "s"} to event`
-      : daysUntilEvent === 0
-        ? "Event day"
-        : "Event completed"
-    : null;
+  const daysUntilEvent =
+    eventDate === null ? null : Math.round((parseIsoDate(eventDate).getTime() - today.getTime()) / 86400000);
+  const countdownLabel =
+    hasPlan && daysUntilEvent !== null
+      ? daysUntilEvent > 0
+        ? `${daysUntilEvent} day${daysUntilEvent === 1 ? "" : "s"} to event`
+        : daysUntilEvent === 0
+          ? "Event day"
+          : "Event completed"
+      : null;
 
   const openWizard = (): void => {
     setWizardStep(0);

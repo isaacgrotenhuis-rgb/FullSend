@@ -828,6 +828,7 @@ export class EventPlanService {
         ok: true,
         planId,
         name: planTitle,
+        eventDate: request.eventDate,
         versionId: version.versionId,
         versionNumber: version.versionNumber,
         weeks
@@ -887,6 +888,7 @@ export class EventPlanService {
         ok: true,
         planId: request.planId,
         name: planTitle,
+        eventDate: adaptation.nextInput.eventDate,
         versionId: version.versionId,
         versionNumber: version.versionNumber,
         weeks,
@@ -918,6 +920,7 @@ export class EventPlanService {
     return {
       planId: latestPlan.id,
       name: latestPlan.name,
+      eventDate: snapshot.input.eventDate,
       weeks: snapshot.weeks as EventPlanWeek[]
     };
   }
