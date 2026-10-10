@@ -136,21 +136,30 @@ export const HomePage = ({
       </div>
       <Separator className={cn(dividerClass, "my-4")} />
       {currentWeek ? (
-        <div className="mb-8 grid grid-cols-7 gap-0 border-2 border-[color:var(--color-divider)]">
-          {currentWeek.days.map((day, index) => {
+        <div className="mb-8 grid grid-cols-7 gap-2">
+          {currentWeek.days.map((day) => {
             const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
             const isToday = cellDate.getTime() === today.getTime();
             const hasWorkout = day.workoutId !== null;
             const durationLabel = `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}`;
 
-            /* One class list for both variants so the interactive and rest
-               cells stay pixel-identical. `text-left` is the only addition a
-               button needs over a div: the UA centers button text, everything
-               else (font, color, background) Preflight already inherits. */
+            /* Each day is its own rounded tile rather than a cell in one
+               square-bordered strip. One base class list for both variants so
+               the interactive and rest tiles share their geometry; `text-left`
+               is the only addition a button needs over a div: the UA centers
+               button text, everything else Preflight already inherits.
+               Workout days sit on the muted surface (the same fill as the
+               Training status card — `bg-card` is the page colour in this
+               theme, so it would read as an empty outline); rest days recede
+               to a dashed outline; today is marked with the brand border on
+               top of its accent tint. */
             const cellClass = cn(
-              "flex min-h-24 flex-col gap-1 p-3 text-left",
-              index < 6 && "border-r border-[color:var(--color-divider)]",
-              isToday ? "bg-[var(--color-accent-100)]" : "bg-background"
+              "flex min-h-24 flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
+              isToday
+                ? "border-primary bg-[var(--color-accent-100)]"
+                : hasWorkout
+                  ? "border-foreground/15 bg-muted shadow-xs"
+                  : "border-dashed border-foreground/30 text-muted-foreground"
             );
 
             const cellContent = (
@@ -194,7 +203,10 @@ export const HomePage = ({
                 onClick={() =>
                   void previewWorkoutForDay(day.workoutId as string, workoutName, day.sessionType)
                 }
-                className={cn(cellClass, "cursor-pointer appearance-none")}
+                className={cn(
+                  cellClass,
+                  "cursor-pointer appearance-none hover:border-primary/60"
+                )}
               >
                 {cellContent}
               </button>
