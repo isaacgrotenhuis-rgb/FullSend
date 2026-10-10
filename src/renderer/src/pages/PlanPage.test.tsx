@@ -76,6 +76,7 @@ const renderPage = (props: Partial<Parameters<typeof PlanPage>[0]> = {}) => {
       generate={buildGenerate()}
       adapt={buildAdapt()}
       weeks={[]}
+      eventDate={null}
       currentPlanName={null}
       liveWorkoutBusy={false}
       isWorkoutSessionActive={false}
@@ -185,5 +186,45 @@ describe("PlanPage delete confirmation", () => {
 
     await waitFor(() => expect(onDeletePlan).toHaveBeenCalledTimes(1));
     await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+});
+
+const isoDaysFromToday = (days: number): string => {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  date.setDate(date.getDate() + days);
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0")
+  ].join("-");
+};
+
+/* App keeps the wizard's event-date field at today until the wizard is used,
+   and the countdown used to read that field — so after a restart a saved plan
+   always showed "Event day". The countdown now reads the saved plan's date. */
+describe("PlanPage event countdown", () => {
+  it("counts down to the saved plan's future event, ignoring the wizard's date", () => {
+    renderPage({
+      generate: buildGenerate({ eventDate: isoDaysFromToday(0) }),
+      weeks: [oneWeek],
+      eventDate: isoDaysFromToday(42),
+      currentPlanName: "road-race 2026-11-21 (12w)"
+    });
+
+    expect(screen.getByText("42 days to event")).toBeInTheDocument();
+    expect(screen.queryByText("Event day")).not.toBeInTheDocument();
+  });
+
+  it("shows Event completed once the saved plan's event has passed", () => {
+    renderPage({ weeks: [oneWeek], eventDate: isoDaysFromToday(-3), currentPlanName: "Spring race" });
+
+    expect(screen.getByText("Event completed")).toBeInTheDocument();
+  });
+
+  it("shows no countdown without a saved plan", () => {
+    renderPage({ eventDate: isoDaysFromToday(42) });
+
+    expect(screen.queryByText(/to event|Event day|Event completed/)).not.toBeInTheDocument();
   });
 });

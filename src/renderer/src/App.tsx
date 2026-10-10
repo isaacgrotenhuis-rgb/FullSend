@@ -105,6 +105,9 @@ export const App = (): ReactElement => {
 
   const [planId, setPlanId] = useState("");
   const [weeks, setWeeks] = useState<EventPlanWeek[]>([]);
+  // The saved plan's event date, which drives the countdown. Kept separate from
+  // `eventDate` above, which is only the plan wizard's form state.
+  const [planEventDate, setPlanEventDate] = useState<string | null>(null);
 
   const [adaptReason, setAdaptReason] = useState("Adapt plan based on latest constraints");
   const [adaptationPrompt, setAdaptationPrompt] = useState("");
@@ -136,6 +139,7 @@ export const App = (): ReactElement => {
         setPlanId(current.planId);
         setWeeks(current.weeks);
         setCurrentPlanName(current.name);
+        setPlanEventDate(current.eventDate);
       }
     })();
   }, []);
@@ -387,6 +391,7 @@ export const App = (): ReactElement => {
     setPlanId(result.planId);
     setWeeks(result.weeks);
     setCurrentPlanName(result.name);
+    setPlanEventDate(result.eventDate);
     setStatus(`Generated plan "${result.name}", version ${result.versionNumber}`);
   };
 
@@ -411,6 +416,7 @@ export const App = (): ReactElement => {
     });
     setWeeks(result.weeks);
     setCurrentPlanName(result.name);
+    setPlanEventDate(result.eventDate);
     setStatus(`Adapted to version ${result.versionNumber} using ${result.appliedStrategy}`);
   };
 
@@ -422,6 +428,7 @@ export const App = (): ReactElement => {
     await window.kickr.eventPlan.delete({ planId });
     setPlanId("");
     setWeeks([]);
+    setPlanEventDate(null);
     setStatus("Plan deleted");
   };
 
@@ -724,6 +731,7 @@ export const App = (): ReactElement => {
             adaptPlan
           }}
           weeks={weeks}
+          eventDate={planEventDate}
           currentPlanName={currentPlanName}
           liveWorkoutBusy={liveWorkoutBusy}
           isWorkoutSessionActive={isWorkoutSessionActive}
@@ -759,7 +767,7 @@ export const App = (): ReactElement => {
         <HomePage
           dashboard={dashboard}
           currentFtp={currentFtp}
-          eventDate={eventDate}
+          eventDate={planEventDate}
           weeks={weeks}
           previewWorkoutForDay={previewWorkoutForDay}
           onNavigateToPlan={() => setPage("plan")}

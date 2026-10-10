@@ -104,4 +104,23 @@ describe("EventPlanService — phase matrix + taper", () => {
     expect(finalWeekTypes.some((type) => type === "threshold" || type === "neuromuscular")).toBe(true);
     expect(finalWeekTypes.every((type) => type === "recovery" || type === "endurance")).toBe(false);
   });
+
+  it("reports the plan's event date from generate, getCurrent and adapt (with an override date)", () => {
+    const generated = service.generatePlan(baseRequest());
+    expect(generated.eventDate).toBe("2026-11-07");
+    expect(service.getCurrentPlan()?.eventDate).toBe("2026-11-07");
+
+    const adapted = service.adaptPlan({
+      planId: generated.planId,
+      reason: "Race moved",
+      source: "user",
+      overrides: { eventDate: "2026-11-21" }
+    });
+    expect(adapted.eventDate).toBe("2026-11-21");
+    expect(service.getCurrentPlan()?.eventDate).toBe("2026-11-21");
+
+    // An adapt without a date override keeps the adapted date.
+    const readapted = service.adaptPlan({ planId: generated.planId, reason: "FTP bump", source: "user" });
+    expect(readapted.eventDate).toBe("2026-11-21");
+  });
 });

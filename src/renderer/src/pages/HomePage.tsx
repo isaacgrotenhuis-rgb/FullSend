@@ -8,7 +8,7 @@ import { RecentWorkoutsSection } from "./RecentWorkoutsSection";
 type Props = {
   dashboard: DashboardMetrics | null;
   currentFtp: number;
-  eventDate: string;
+  eventDate: string | null;
   weeks: EventPlanWeek[];
   previewWorkoutForDay: (
     workoutId: string,
@@ -77,9 +77,10 @@ export const HomePage = ({
       return match;
     }) ?? null;
 
-  const daysUntilEvent = Math.round((parseIsoDate(eventDate).getTime() - today.getTime()) / 86400000);
+  const daysUntilEvent =
+    eventDate === null ? null : Math.round((parseIsoDate(eventDate).getTime() - today.getTime()) / 86400000);
   const countdownLabel =
-    weeks.length === 0
+    weeks.length === 0 || daysUntilEvent === null
       ? null
       : daysUntilEvent > 0
         ? `${daysUntilEvent} day${daysUntilEvent === 1 ? "" : "s"} to event`
