@@ -1,5 +1,4 @@
 import { defineConfig } from "vitest/config";
-import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 
 const alias = {
@@ -29,10 +28,11 @@ export default defineConfig({
         }
       },
       {
-        // The React plugin has to be registered on the project rather than at
-        // the root, or .tsx test files reach esbuild without the JSX
-        // transform and fail to parse.
-        plugins: [react()],
+        // Vitest runs on its own Vite 8 while electron-vite pins the app to
+        // Vite 5, so @vitejs/plugin-react (which picks esbuild vs oxc from the
+        // Vite it imports) configures deprecated esbuild options here. Tests
+        // need no Fast Refresh, so use Vite 8's oxc JSX transform directly.
+        oxc: { jsx: { runtime: "automatic" } },
         resolve: { alias },
         test: {
           name: "renderer",
