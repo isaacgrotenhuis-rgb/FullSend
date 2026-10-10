@@ -105,7 +105,12 @@ export const WorkoutTimelineChart = ({
   return (
     <svg
       viewBox={`0 0 ${width} ${height}`}
-      className={cn(timelineChartClass, compact ? "h-[72px]" : "h-[220px]")}
+      className={cn(
+        timelineChartClass,
+        // The compact thumbnail sits inside a rounded list row, so it trades
+        // the full chart's square 2px frame for a hairline rounded one.
+        compact ? "h-[72px] rounded-md border border-foreground/15" : "h-[220px]"
+      )}
       role="img"
       aria-label="Workout power timeline"
     >
