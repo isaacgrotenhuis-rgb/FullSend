@@ -228,3 +228,86 @@ describe("PlanPage event countdown", () => {
     expect(screen.queryByText(/to event|Event day|Event completed/)).not.toBeInTheDocument();
   });
 });
+
+/* The week list is anchored to the real current date (no fake timers): week
+   offsets are relative to the week containing today, so the fixture always
+   has two finished weeks, the current one, and one still to come. */
+const isoDate = (date: Date): string =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const weekAt = (offset: number, weekIndex: number): EventPlanWeek => {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - start.getDay() + offset * 7);
+  return { ...oneWeek, weekId: `week-${weekIndex}`, weekIndex, startDate: isoDate(start) };
+};
+
+describe("PlanPage week list", () => {
+  const weeks = [weekAt(-2, 0), weekAt(-1, 1), weekAt(0, 2), weekAt(1, 3)];
+
+  const trainingWeek = (): EventPlanWeek => {
+    const week = weekAt(0, 0);
+    const days = week.days.map((day) => ({ ...day }));
+    days[2] = { ...days[2], workoutId: "w-1", workoutName: "Threshold 2x20", sessionType: null, durationMin: 60, targetIF: 0.9 };
+    days[6] = { ...days[6], workoutId: "w-2", workoutName: "Endurance", sessionType: null, durationMin: 120, targetIF: 0.6 };
+    return { ...week, days };
+  };
+
+  it("lists every week in order, past weeks included, inside one scroll area", () => {
+    const { container } = renderPage({ weeks, currentPlanName: "Test plan" });
+
+    const headings = screen.getAllByRole("heading", { level: 4 }).map((heading) => heading.textContent);
+    expect(headings).toEqual(["Week 1", "Week 2", "Week 3", "Week 4"]);
+    expect(container.querySelectorAll('[data-slot="scroll-area"] section')).toHaveLength(4);
+  });
+
+  it("marks the week containing today as current", () => {
+    renderPage({ weeks, currentPlanName: "Test plan" });
+
+    const current = screen.getByRole("region", { name: "Week 3" });
+    expect(current).toHaveAttribute("aria-current", "date");
+    expect(within(current).getByText("This week")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Week 2" })).not.toHaveAttribute("aria-current");
+    expect(screen.getAllByText("This week")).toHaveLength(1);
+  });
+
+  it("marks no week as current when none contains today", () => {
+    renderPage({ weeks: [weekAt(2, 0), weekAt(3, 1)], currentPlanName: "Test plan" });
+
+    expect(screen.queryByText("This week")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("heading", { level: 4 })).toHaveLength(2);
+  });
+
+  it("summarises each week's workouts and scheduled time", () => {
+    renderPage({ weeks: [trainingWeek()], currentPlanName: "Test plan" });
+
+    expect(screen.getByText("2 workouts · 3h")).toBeInTheDocument();
+  });
+
+  it("previews a day's workout, and disables preview during a ride", async () => {
+    const user = userEvent.setup();
+    const { previewWorkoutForDay, rerender } = renderPage({ weeks: [trainingWeek()], currentPlanName: "Test plan" });
+
+    const [firstPreview] = screen.getAllByRole("button", { name: "Preview" });
+    await user.click(firstPreview);
+    expect(previewWorkoutForDay).toHaveBeenCalledWith("w-1", "Threshold 2x20", null);
+
+    rerender(
+      <PlanPage
+        generate={buildGenerate()}
+        adapt={buildAdapt()}
+        weeks={[trainingWeek()]}
+        eventDate={null}
+        currentPlanName="Test plan"
+        liveWorkoutBusy={false}
+        isWorkoutSessionActive
+        previewWorkoutForDay={previewWorkoutForDay}
+        onDeletePlan={vi.fn(async () => {})}
+        onOpenWorkoutBank={vi.fn()}
+      />
+    );
+    for (const button of screen.getAllByRole("button", { name: "Preview" })) {
+      expect(button).toBeDisabled();
+    }
+  });
+});

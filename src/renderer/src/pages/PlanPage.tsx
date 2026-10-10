@@ -1,5 +1,13 @@
-import { useState, type ReactElement } from "react";
-import type { DayAvailability, EventPlanWeek, EventType, PlanLengthWeeks, SessionType } from "@shared/ipc/contracts";
+import { Fragment, useEffect, useRef, useState, type ReactElement } from "react";
+import type {
+  DayAvailability,
+  EventPlanWeek,
+  EventType,
+  LoadTag,
+  PlanLengthWeeks,
+  SessionType
+} from "@shared/ipc/contracts";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,8 +26,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle
 } from "@/components/ui/alert-dialog";
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Input } from "@/components/ui/input";
+import { Item, ItemActions, ItemContent, ItemGroup, ItemSeparator } from "@/components/ui/item";
 import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -111,6 +122,120 @@ type Props = {
   onOpenWorkoutBank: () => void;
 };
 
+const loadTagLabels: Record<LoadTag, string> = {
+  build: "Build",
+  recovery: "Recovery",
+  taper: "Taper"
+};
+
+const formatMinutes = (minutes: number): string => {
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours === 0) return `${rest}m`;
+  return rest === 0 ? `${hours}h` : `${hours}h ${rest}m`;
+};
+
+/** "3 workouts · 5h 24m" — totals over the days actually scheduled. */
+const weekSummary = (week: EventPlanWeek): string => {
+  const workouts = week.days.filter((day) => day.workoutId !== null);
+  if (workouts.length === 0) return "Rest week";
+  const totalMinutes = workouts.reduce((sum, day) => sum + day.durationMin, 0);
+  return `${workouts.length} workout${workouts.length === 1 ? "" : "s"} · ${formatMinutes(totalMinutes)}`;
+};
+
+type PlanWeekSectionProps = {
+  week: EventPlanWeek;
+  isCurrent: boolean;
+  today: Date;
+  previewDisabled: boolean;
+  previewWorkoutForDay: Props["previewWorkoutForDay"];
+};
+
+/** One week in the scrolling plan list: a sticky header that pins to the top
+    of the scroll area while its days scroll beneath it (and is pushed off by
+    the next week's header), over hairline-separated day rows. */
+const PlanWeekSection = ({
+  week,
+  isCurrent,
+  today,
+  previewDisabled,
+  previewWorkoutForDay
+}: PlanWeekSectionProps): ReactElement => {
+  const weekStart = parseIsoDate(week.startDate);
+  const weekEnd = addDaysToDate(weekStart, 6);
+  const headingId = `plan-week-${week.weekId}`;
+
+  return (
+    <section aria-labelledby={headingId} data-week-id={week.weekId} aria-current={isCurrent ? "date" : undefined}>
+      <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-foreground/15 bg-background px-4 py-2.5">
+        <h4 id={headingId} className={cn("m-0", isCurrent && "text-[var(--color-accent-700)]")}>
+          Week {week.weekIndex + 1}
+        </h4>
+        <span className={cn("text-[13px]", mutedText60Class)}>
+          {formatShortDate(weekStart)} – {formatShortDate(weekEnd)}
+        </span>
+        <span className={cn("ml-auto text-[13px] font-semibold", mutedText65Class)}>{weekSummary(week)}</span>
+        {isCurrent ? <Badge>This week</Badge> : null}
+        <Badge variant="outline" className="border-foreground/25">
+          {loadTagLabels[week.loadTag]}
+        </Badge>
+      </div>
+      <ItemGroup className="pb-4">
+        {week.days.map((day, index) => {
+          const cellDate = addDaysToDate(weekStart, day.dayIndex);
+          const isToday = cellDate.getTime() === today.getTime();
+          const hasWorkout = day.workoutId !== null;
+          return (
+            <Fragment key={`${week.weekId}-${day.dayIndex}`}>
+              {index > 0 ? <ItemSeparator className="bg-foreground/10" /> : null}
+              <Item
+                role="listitem"
+                aria-current={isToday ? "date" : undefined}
+                className={cn(
+                  "flex-nowrap gap-4 rounded-none px-4",
+                  hasWorkout ? "py-2.5" : "py-1.5",
+                  isToday && "bg-[var(--color-accent-100)]",
+                  !hasWorkout && "text-muted-foreground"
+                )}
+              >
+                <div
+                  className={cn(
+                    "w-36 shrink-0 text-[11px] tracking-wide whitespace-nowrap uppercase",
+                    isToday ? "font-bold text-[var(--color-accent-700)]" : mutedText55Class
+                  )}
+                >
+                  {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
+                  {isToday ? " · Today" : ""}
+                </div>
+                <ItemContent className={cn("min-w-0", hasWorkout ? "text-sm font-semibold" : "text-[13px]")}>
+                  {day.workoutName ?? "Rest"}
+                </ItemContent>
+                {hasWorkout ? (
+                  <ItemActions>
+                    <span className={cn("text-[11px] whitespace-nowrap", mutedText50Class)}>
+                      {day.durationMin} min{day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="xs"
+                      disabled={previewDisabled}
+                      onClick={() =>
+                        void previewWorkoutForDay(day.workoutId as string, day.workoutName ?? "Workout", day.sessionType)
+                      }
+                    >
+                      Preview
+                    </Button>
+                  </ItemActions>
+                ) : null}
+              </Item>
+            </Fragment>
+          );
+        })}
+      </ItemGroup>
+    </section>
+  );
+};
+
 export const PlanPage = ({
   generate,
   adapt,
@@ -137,6 +262,29 @@ export const PlanPage = ({
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+
+  /* The week containing today is scrolled to the top of the list on open;
+     earlier weeks sit above it, reachable by scrolling up. */
+  const currentWeekId =
+    weeks.find((week) => {
+      const start = parseIsoDate(week.startDate);
+      return today >= start && today < addDaysToDate(start, 7);
+    })?.weekId ?? null;
+  const weekListRef = useRef<HTMLDivElement>(null);
+
+  /* Runs when the plan (or the current week) changes, not on every render,
+     so it never yanks the list back while someone is scrolling it. The
+     viewport is Radix's own scroll container; offsetTop is measured from it
+     since the week sections are its direct content. */
+  useEffect(() => {
+    const viewport = weekListRef.current?.querySelector<HTMLElement>('[data-slot="scroll-area-viewport"]');
+    const target = currentWeekId
+      ? viewport?.querySelector<HTMLElement>(`[data-week-id="${currentWeekId}"]`)
+      : null;
+    if (viewport && target) {
+      viewport.scrollTop = target.offsetTop;
+    }
+  }, [currentWeekId, weeks]);
   const daysUntilEvent =
     eventDate === null ? null : Math.round((parseIsoDate(eventDate).getTime() - today.getTime()) / 86400000);
   const countdownLabel =
@@ -192,74 +340,49 @@ export const PlanPage = ({
             <h6 className="mb-6 text-[var(--color-accent-700)]">{countdownLabel}</h6>
           ) : null}
 
-          {weeks.map((week) => {
-            const weekStart = parseIsoDate(week.startDate);
-            const weekEnd = addDaysToDate(weekStart, 6);
-            return (
-              <div key={week.weekId} className="mb-6">
-                <div className="flex items-baseline justify-between mb-1">
-                  <h4 className="m-0">
-                    Week {week.weekIndex + 1} · {week.loadTag}
-                  </h4>
-                  <span className={cn("text-[13px]", mutedText60Class)}>
-                    {formatShortDate(weekStart)} – {formatShortDate(weekEnd)}
-                  </span>
-                </div>
-                <div className="mb-2 h-0.5 w-full bg-[var(--color-divider)]" />
-                <div className="flex flex-col gap-0.5 border-2 border-[color:var(--color-divider)] bg-[var(--color-divider)]">
-                  {week.days.map((day) => {
-                    const cellDate = addDaysToDate(weekStart, day.dayIndex);
-                    const hasWorkout = day.workoutId !== null;
-                    return (
-                      <div
-                        key={`${week.weekId}-${day.dayIndex}`}
-                        className={cn(
-                          "flex items-center gap-4 px-4 py-3 border-l-[3px] bg-[var(--color-bg)]",
-                          hasWorkout ? "border-l-[var(--color-accent)]" : "border-l-[var(--color-divider)]"
-                        )}
-                      >
-                        <div className="w-24 flex-shrink-0">
-                          <div className={cn("text-[11px] uppercase tracking-wide", mutedText55Class)}>
-                            {dayLabels[day.dayIndex]}
-                          </div>
-                          <div className={cn("text-xs", mutedText55Class)}>{formatShortDate(cellDate)}</div>
-                        </div>
-                        <div className="flex-1 text-sm font-semibold">{day.workoutName ?? "Rest"}</div>
-                        <div className={cn("flex items-center gap-1.5 text-[11px]", mutedText50Class)}>
-                          {hasWorkout ? `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}` : "Rest day"}
-                        </div>
-                        {hasWorkout ? (
-                          <Button
-                            variant="ghost"
-                            className="h-auto px-2 py-0.5 text-[11px]"
-                            disabled={liveWorkoutBusy || isWorkoutSessionActive}
-                            onClick={() =>
-                              void previewWorkoutForDay(
-                                day.workoutId as string,
-                                day.workoutName ?? "Workout",
-                                day.sessionType
-                              )
-                            }
-                          >
-                            Preview
-                          </Button>
-                        ) : null}
-                      </div>
-                    );
-                  })}
-                </div>
+          {/* All weeks in one scroll area, opened at the current week. Each
+              week's header sticks to the top while its days scroll away
+              beneath it, and a gradient over the bottom edge makes upcoming
+              weeks trail off rather than being cut off. (An overlay rather
+              than a CSS mask: a mask on the scroll root made Chromium paint
+              scrolled rows above the card's top edge.) The height fills the
+              window below the page heading. */}
+          <div className="relative">
+            <ScrollArea
+              ref={weekListRef}
+              className="h-[max(420px,calc(100vh-13.5rem))] overflow-hidden rounded-xl border border-foreground/15 bg-muted"
+            >
+              <div className="relative">
+                {weeks.map((week) => (
+                  <PlanWeekSection
+                    key={week.weekId}
+                    week={week}
+                    isCurrent={week.weekId === currentWeekId}
+                    today={today}
+                    previewDisabled={liveWorkoutBusy || isWorkoutSessionActive}
+                    previewWorkoutForDay={previewWorkoutForDay}
+                  />
+                ))}
               </div>
-            );
-          })}
+            </ScrollArea>
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-px bottom-px h-10 rounded-b-xl bg-gradient-to-t from-muted to-transparent"
+            />
+          </div>
         </>
       ) : (
-        <div className="mt-6 border-2 border-[color:var(--color-divider)] px-6 py-16 text-center">
-          <h2 className="mb-2">No training plan yet</h2>
-          <p className={cn("mx-auto mb-4 max-w-[420px]", mutedText65Class)}>
-            Tell us what event you're training for and we'll build a weekly schedule of workouts around it.
-          </p>
-          <Button onClick={openWizard}>Create a plan</Button>
-        </div>
+        <Empty className="mt-6 border border-foreground/30 py-16">
+          <EmptyHeader>
+            <EmptyTitle className="text-2xl font-extrabold">No training plan yet</EmptyTitle>
+            <EmptyDescription>
+              Tell us what event you're training for and we'll build a weekly schedule of workouts around it.
+            </EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button onClick={openWizard}>Create a plan</Button>
+          </EmptyContent>
+        </Empty>
       )}
 
       {/* The plan wizard, the adapt dialog and the delete confirmation all
