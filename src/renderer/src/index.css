@@ -153,7 +153,7 @@
    reference them. A plain @theme would emit --color-accent, --color-primary,
    --color-border etc. into :root and clobber the legacy --color-accent /
    --color-neutral-* tokens that styles.css defines and that
-   WorkoutTimelineChart.tsx, SessionMetricChart.tsx and WorkoutSummaryView.tsx
+   WorkoutTimelineChart.tsx, RideMetricsChart.tsx and WorkoutSummaryView.tsx
    read as runtime strings in JSX. That failure is silent: no type error, no
    test failure, just charts that render with the wrong colours or none. */
 @theme inline {
