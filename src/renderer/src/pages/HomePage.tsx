@@ -1,13 +1,15 @@
-import type { ReactElement } from "react";
+import type { CSSProperties, ReactElement } from "react";
 import type { DashboardMetrics, EventPlanWeek, SessionType } from "@shared/ipc/contracts";
-import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { RecentWorkoutsSection } from "./RecentWorkoutsSection";
+import { TrainingStatusBar, TrainingStatusCards } from "./TrainingStatusCards";
 
 type Props = {
   dashboard: DashboardMetrics | null;
   currentFtp: number;
+  /** Profile weight, for the FTP card's W/kg; null when not entered. */
+  weightKg?: number | null;
   eventDate: string | null;
   weeks: EventPlanWeek[];
   previewWorkoutForDay: (
@@ -59,6 +61,7 @@ const greetingForNow = (): string => {
 export const HomePage = ({
   dashboard,
   currentFtp,
+  weightKg = null,
   eventDate,
   weeks,
   previewWorkoutForDay,
@@ -88,49 +91,32 @@ export const HomePage = ({
           ? "Event day"
           : "Event completed";
 
+  // Shared by the full cards and the pinned bar that replaces them on scroll.
+  const statusProps = {
+    dashboard,
+    currentFtp,
+    weightKg,
+    eventDate: eventDate === null ? null : parseIsoDate(eventDate),
+    daysUntilEvent: weeks.length === 0 ? null : daysUntilEvent,
+    countdownLabel,
+    weeks,
+    currentWeek,
+    currentWeekIndex,
+    onNavigateToPlan
+  };
+
   return (
-    <main className="mx-auto max-w-[960px] p-6">
-      <div className="mb-6">
-        <h1>{greetingForNow()}</h1>
-        {countdownLabel ? (
-          <button
-            type="button"
-            onClick={onNavigateToPlan}
-            className="flex cursor-pointer items-center gap-2 border-0 bg-transparent p-0 text-[var(--color-accent-700)]"
-          >
-            <span className="text-sm font-bold">{countdownLabel}</span>
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="8,3 18,12 8,21" />
-            </svg>
-          </button>
-        ) : null}
+    <main className="status-timeline-scope mx-auto max-w-[1040px] p-6">
+      <div className="mb-6 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-500">
+        <h1 className="mb-1">{greetingForNow()}</h1>
+        <p className="m-0 text-sm text-muted-foreground">
+          {today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+        </p>
       </div>
 
-      {/* Deliberate visual change: this card used to override its radius to
-          0 (a square corner surviving PR 1's token flip). Removed so it picks
-          up the hybrid theme's rounded-md, matching every other surface. */}
-      <Card className="mb-8 gap-2 rounded-md border-0 bg-muted p-3 shadow-none">
-        <h6>Training status</h6>
-        <Separator className={cn(dividerClass, "mb-3")} />
-        <div className="flex flex-col">
-          <div className="flex items-baseline justify-between border-b border-[color:var(--color-divider)] py-2">
-            <span className={cardMetaClass}>Current FTP</span>
-            <span className="text-[22px] font-extrabold">{currentFtp} W</span>
-          </div>
-          <div className="flex items-baseline justify-between border-b border-[color:var(--color-divider)] py-2">
-            <span className={cardMetaClass}>Plan compliance</span>
-            <span className="text-[22px] font-extrabold">
-              {dashboard?.planCompliancePercent != null ? `${dashboard.planCompliancePercent}%` : "—"}
-            </span>
-          </div>
-          <div className="flex items-baseline justify-between py-2">
-            <span className={cardMetaClass}>Training block</span>
-            <span className="text-[22px] font-extrabold">
-              {currentWeek ? `Week ${currentWeekIndex + 1} / ${weeks.length}` : "—"}
-            </span>
-          </div>
-        </div>
-      </Card>
+      <section aria-label="Training status" className="mb-10">
+        <TrainingStatusCards {...statusProps} />
+      </section>
 
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="m-0">This week</h2>
@@ -150,18 +136,21 @@ export const HomePage = ({
                is the only addition a button needs over a div: the UA centers
                button text, everything else Preflight already inherits.
                Workout days sit on the muted surface (the same fill as the
-               Training status card — `bg-card` is the page colour in this
+               status cards' muted surfaces — `bg-card` is the page colour in this
                theme, so it would read as an empty outline); rest days recede
                to a dashed outline; today is marked with the brand border on
                top of its accent tint. */
             const cellClass = cn(
-              "flex min-h-24 flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
+              "scroll-reveal flex min-h-24 flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
               isToday
                 ? "border-primary bg-[var(--color-accent-100)]"
                 : hasWorkout
                   ? "border-foreground/15 bg-muted shadow-xs"
                   : "border-dashed border-foreground/30 text-muted-foreground"
             );
+
+            // Tiles enter together, so each day trails the previous one slightly.
+            const revealStyle = { "--reveal-offset": `${day.dayIndex * 3}%` } as CSSProperties;
 
             const cellContent = (
               <>
@@ -181,7 +170,7 @@ export const HomePage = ({
                never reaches and Enter/Space never activates. */
             if (!hasWorkout) {
               return (
-                <div key={day.dayIndex} className={cn(cellClass, "cursor-default")}>
+                <div key={day.dayIndex} className={cn(cellClass, "cursor-default")} style={revealStyle}>
                   {cellContent}
                 </div>
               );
@@ -200,6 +189,7 @@ export const HomePage = ({
               <button
                 key={day.dayIndex}
                 type="button"
+                style={revealStyle}
                 aria-label={ariaLabel}
                 onClick={() =>
                   void previewWorkoutForDay(day.workoutId as string, workoutName, day.sessionType)
@@ -221,6 +211,9 @@ export const HomePage = ({
       )}
 
       <RecentWorkoutsSection />
+
+      {/* Last in the DOM so it is last in the tab order; it is fixed-position. */}
+      <TrainingStatusBar {...statusProps} />
     </main>
   );
 };

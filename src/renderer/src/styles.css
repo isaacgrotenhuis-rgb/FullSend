@@ -69,6 +69,11 @@
   /* Matched to shadcn's --radius: 0.625rem scale (index.css) so any
      arbitrary-value radius built from these tokens agrees with shadcn's own
      rounded-sm/md/lg utilities. */
+  /* Height of the sticky app Nav. Anything pinned beneath it (Home's
+     TrainingStatusBar) offsets by this, and the status-card scroll timeline
+     insets by it, so keep the Nav's fixed height in step via this token. */
+  --app-header-height: 68px;
+
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;

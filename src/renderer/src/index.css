@@ -199,3 +199,109 @@
   --radius-lg: var(--radius); /* 10px */
   --radius-xl: calc(var(--radius) + 4px); /* 14px */
 }
+
+/* Scroll-driven reveal: an element fades and rises into place as it scrolls
+   into view, tied to scroll position (animation-timeline: view()) rather than
+   a timer, so it scrubs both ways and costs no JS. Electron's Chromium
+   supports it; anything without support, and anyone with reduced motion set,
+   just sees the element in place. Set --reveal-offset (e.g. 8%) on siblings
+   that enter together, like a row of tiles, to stagger them. */
+@keyframes scroll-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@utility scroll-reveal {
+  @media (prefers-reduced-motion: no-preference) {
+    @supports (animation-timeline: view()) {
+      animation: scroll-reveal linear both;
+      animation-timeline: view();
+      animation-range: entry var(--reveal-offset, 0%) cover calc(22% + var(--reveal-offset, 0%));
+    }
+  }
+}
+
+/* Pinned Home status bar (TrainingStatusBar). The status-card grid publishes
+   its scroll position as the named view timeline --status-cards; the bar
+   rides that timeline so it slides in (from under the sticky Nav) over the
+   last half of the cards' exit and back out as they return. HomePage's <main> declares
+   timeline-scope so the bar, a sibling subtree, can see the name.
+   `visibility` animates discretely — hidden only at the very start — which
+   keeps the hidden bar out of the tab order and the a11y tree. Without
+   scroll-timeline support the bar simply never appears. */
+@utility status-cards-timeline {
+  view-timeline-name: --status-cards;
+  /* The sticky Nav covers the top of the scrollport, so the cards "exit"
+     when they pass under it, not when they leave the window. */
+  view-timeline-inset: var(--app-header-height) 0;
+}
+
+@utility status-timeline-scope {
+  timeline-scope: --status-cards;
+}
+
+@keyframes status-bar-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+    visibility: hidden;
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    visibility: visible;
+  }
+}
+
+@keyframes status-bar-reveal-reduced {
+  from {
+    opacity: 0;
+    visibility: hidden;
+  }
+  to {
+    opacity: 1;
+    visibility: visible;
+  }
+}
+
+@utility status-bar-reveal {
+  visibility: hidden;
+  @supports (animation-timeline: view()) {
+    animation: status-bar-reveal linear both;
+    animation-timeline: --status-cards;
+    animation-range: exit 50% exit 100%;
+    @media (prefers-reduced-motion: reduce) {
+      animation-name: status-bar-reveal-reduced;
+      animation-range: exit 90% exit 100%;
+    }
+  }
+}
+
+/* Sticky app Nav: transparent edge at rest, then a hairline and soft shadow
+   scrubbed in over the first 48px of page scroll (animation-timeline:
+   scroll()). Without support it keeps the hairline-free resting look. */
+@keyframes nav-elevate {
+  from {
+    border-bottom-color: transparent;
+    box-shadow: none;
+  }
+  to {
+    border-bottom-color: color-mix(in srgb, var(--color-text) 12%, transparent);
+    box-shadow: var(--shadow-sm);
+  }
+}
+
+@utility nav-scroll-elevate {
+  border-bottom: 1px solid transparent;
+  @supports (animation-timeline: scroll()) {
+    animation: nav-elevate linear both;
+    animation-timeline: scroll();
+    animation-range: 0 48px;
+  }
+}
