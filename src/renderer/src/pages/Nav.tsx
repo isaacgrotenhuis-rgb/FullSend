@@ -25,7 +25,10 @@ export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: 
   const ariaLabel = `Devices: ${count} of 3 connected${attention ? ", trainer not connected" : ""}`;
 
   return (
-    <nav className="grid grid-cols-[1fr_auto_1fr] items-center px-6 py-4">
+    // Sticky with a frosted backdrop; nav-scroll-elevate (index.css) fades in
+    // its hairline and shadow over the first few pixels of scroll, so at rest
+    // it sits flush with the page exactly as before.
+    <nav className="nav-scroll-elevate sticky top-0 z-40 grid h-[var(--app-header-height)] grid-cols-[1fr_auto_1fr] items-center bg-background/85 px-6 backdrop-blur-md">
       <button
         type="button"
         onClick={() => onNavigate("home")}

@@ -93,13 +93,16 @@ export const RecentWorkoutsSection = (): ReactElement => {
         /* One rounded card holding the whole list, rows split by hairlines —
            the same muted surface, soft border and shadow as the This week
            workout tiles. ItemGroup is role="list", so each row is wrapped in
-           a listitem (a <button> cannot carry that role itself). */
-        <Card className="mb-8 gap-0 overflow-hidden rounded-xl border-foreground/15 bg-muted py-0 shadow-xs">
+           a listitem (a <button> cannot carry that role itself). The card
+           clips with overflow-clip, not overflow-hidden: a hidden overflow
+           would make it a scroll container, and the rows' scroll-reveal
+           view() timeline would then track the card instead of the page. */
+        <Card className="mb-8 gap-0 overflow-clip rounded-xl border-foreground/15 bg-muted py-0 shadow-xs">
           <ItemGroup>
             {sessions.map((session, index) => (
               <Fragment key={session.sessionId}>
                 {index > 0 ? <ItemSeparator className="bg-foreground/10" /> : null}
-                <div role="listitem">
+                <div role="listitem" className="scroll-reveal">
                   <RecentWorkoutCard session={session} speedUnit={speedUnit} onOpen={openRecap} />
                 </div>
               </Fragment>

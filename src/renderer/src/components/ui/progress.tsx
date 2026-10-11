@@ -16,6 +16,9 @@ function Progress({
         "relative h-2 w-full overflow-hidden rounded-full bg-primary/20",
         className
       )}
+      // Stock shadcn only feeds `value` to the indicator's transform, which
+      // leaves the Radix root without aria-valuenow (read as indeterminate).
+      value={value}
       {...props}
     >
       <ProgressPrimitive.Indicator

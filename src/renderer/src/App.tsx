@@ -767,6 +767,7 @@ export const App = (): ReactElement => {
         <HomePage
           dashboard={dashboard}
           currentFtp={currentFtp}
+          weightKg={profile?.weightKg ?? null}
           eventDate={planEventDate}
           weeks={weeks}
           previewWorkoutForDay={previewWorkoutForDay}
