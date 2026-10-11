@@ -344,7 +344,10 @@ export const RidePage = ({
       <Dialog open={showEndSummary} onOpenChange={() => {}}>
         <DialogContent
           showCloseButton={false}
-          className="max-h-[calc(100vh-2rem)] gap-3 overflow-y-auto sm:max-w-[480px]"
+          className={cn(
+            "max-h-[calc(100vh-2rem)] gap-4 overflow-y-auto",
+            summaryStage === "saved" ? "sm:max-w-[760px]" : "sm:max-w-[480px]"
+          )}
           onEscapeKeyDown={(event) => event.preventDefault()}
           onInteractOutside={(event) => event.preventDefault()}
         >
@@ -381,6 +384,7 @@ export const RidePage = ({
                   summary={savedSummary}
                   telemetry={telemetrySeries}
                   telemetryLoading={telemetryLoading}
+                  plannedIntervals={activeIntervals}
                   speedUnit={speedUnit}
                 />
               ) : null}

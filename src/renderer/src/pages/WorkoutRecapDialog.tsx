@@ -9,7 +9,7 @@ import {
   DialogHeader,
   DialogTitle
 } from "@/components/ui/dialog";
-import { formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
+import { formatClock } from "../WorkoutTimelineChart";
 import type { SpeedUnit } from "../speedUnit";
 import { WorkoutSummaryView } from "../WorkoutSummaryView";
 
@@ -69,7 +69,7 @@ export const WorkoutRecapDialog = ({
         if (!next) onClose();
       }}
     >
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-3 overflow-y-auto sm:max-w-[560px]">
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-4 overflow-y-auto sm:max-w-[760px]">
         <DialogHeader>
           <DialogTitle>{session.workoutName ?? "Ad-hoc ride"}</DialogTitle>
           <DialogDescription>
@@ -82,22 +82,13 @@ export const WorkoutRecapDialog = ({
         ) : loading || !recap ? (
           <p className="m-0 text-sm text-muted-foreground">Loading recap…</p>
         ) : (
-          <>
-            {recap.plannedIntervals.length > 0 ? (
-              <WorkoutTimelineChart
-                intervals={recap.plannedIntervals}
-                elapsedSec={0}
-                currentIndex={null}
-                actualPowerWatts={null}
-              />
-            ) : null}
-            <WorkoutSummaryView
-              summary={recap.summary}
-              telemetry={recap.telemetry}
-              speedUnit={speedUnit}
-              onSpeedUnitChange={onSpeedUnitChange}
-            />
-          </>
+          <WorkoutSummaryView
+            summary={recap.summary}
+            telemetry={recap.telemetry}
+            plannedIntervals={recap.plannedIntervals}
+            speedUnit={speedUnit}
+            onSpeedUnitChange={onSpeedUnitChange}
+          />
         )}
 
         <DialogFooter>

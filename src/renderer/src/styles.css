@@ -53,6 +53,14 @@
   --color-accent-2-800: #71261b;
   --color-accent-2-900: #471d16;
 
+  /* Ride-metric series colours for RideMetricsChart and the summary stat keys.
+     Power keeps the brand red; HR and speed are the only non-red hues in the
+     app, picked so the trio passes the dataviz CVD / contrast validator
+     (all pairs, against #f3f2f2 and #fff). Re-run it before changing one. */
+  --color-metric-power: var(--color-accent);
+  --color-metric-hr: #7c3aed;
+  --color-metric-speed: #0e8fa8;
+
   /* "Archivo Variable" is the family name fontsource's variable build
      registers — plain "Archivo" would silently fall back to system-ui. */
   --font-heading: "Archivo Variable", system-ui, sans-serif;

@@ -1,120 +1,106 @@
-import type { ReactElement } from "react";
-import type { WorkoutSessionSummary, WorkoutSessionTelemetrySamples } from "@shared/ipc/contracts";
-import { Separator } from "@/components/ui/separator";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import type { ReactElement, ReactNode } from "react";
+import type { WorkoutInterval, WorkoutSessionSummary, WorkoutSessionTelemetrySamples } from "@shared/ipc/contracts";
 import { formatClock } from "./WorkoutTimelineChart";
-import { SessionMetricChart } from "./SessionMetricChart";
+import { metricColors, RideMetricsChart } from "./RideMetricsChart";
 import { KMH_TO_MPH, formatDistance, type SpeedUnit } from "./speedUnit";
 
 type Props = {
   summary: WorkoutSessionSummary;
   telemetry: WorkoutSessionTelemetrySamples | null;
   telemetryLoading?: boolean;
+  /** Planned blocks, drawn as the target-power ghost behind the chart. */
+  plannedIntervals?: WorkoutInterval[];
   speedUnit: SpeedUnit;
-  /** Pass a handler to show an MPH/KPH toggle on the Distance tile; omit to hide it. */
+  /** Pass a handler to show an MPH/KPH toggle on the chart; omit to hide it. */
   onSpeedUnitChange?: (unit: SpeedUnit) => void;
 };
 
-const tileClassName = "bg-[var(--color-bg)] p-3";
-const tileValueClassName = "text-xl font-extrabold";
+type Stat = { label: string; value: string | null; unit?: string; color?: string };
+
+const StatCell = ({ label, value, unit, color }: Stat): ReactElement => (
+  <div className="flex min-w-0 flex-col gap-0.5 px-3 py-2.5">
+    <span className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-[color-mix(in_srgb,var(--color-text)_55%,transparent)] uppercase">
+      {color ? <span aria-hidden className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} /> : null}
+      {label}
+    </span>
+    <span className="truncate text-lg leading-tight font-extrabold tabular-nums">
+      {value ?? "—"}
+      {value !== null && unit ? <Unit>{unit}</Unit> : null}
+    </span>
+  </div>
+);
+
+const Unit = ({ children }: { children: ReactNode }): ReactElement => (
+  <span className="ml-0.5 text-xs font-semibold text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
+    {children}
+  </span>
+);
 
 /**
- * Post-ride stat tiles + Speed/Power/HR time-series. Shared by the live end-of-ride
- * "Saved" dialog (RidePage) and the Home workout-recap modal.
+ * Post-ride stat strip + layered Power/HR/Speed chart. Shared by the live
+ * end-of-ride "Saved" dialog (RidePage) and the Home workout-recap modal.
  */
 export const WorkoutSummaryView = ({
   summary,
   telemetry,
   telemetryLoading = false,
+  plannedIntervals,
   speedUnit,
   onSpeedUnitChange
 }: Props): ReactElement => {
-  const showToggle = onSpeedUnitChange != null;
+  const [distanceValue, distanceUnit] = splitUnit(formatDistance(summary.distanceMeters, speedUnit));
+  const avgSpeed =
+    summary.avgSpeedKmh != null
+      ? (speedUnit === "mph" ? summary.avgSpeedKmh * KMH_TO_MPH : summary.avgSpeedKmh).toFixed(1)
+      : null;
+
+  const stats: Stat[] = [
+    { label: "Time", value: formatClock(summary.durationSec) },
+    { label: "Distance", value: distanceValue, unit: distanceUnit },
+    {
+      label: "Power",
+      value: summary.avgPowerWatts != null ? `${Math.round(summary.avgPowerWatts)}` : null,
+      unit: "W",
+      color: metricColors.power
+    },
+    {
+      label: "Heart rate",
+      value: summary.avgHeartRateBpm != null ? `${Math.round(summary.avgHeartRateBpm)}` : null,
+      unit: "bpm",
+      color: metricColors.hr
+    },
+    { label: "Speed", value: avgSpeed, unit: speedUnit === "mph" ? "mph" : "km/h", color: metricColors.speed },
+    {
+      label: "Cadence",
+      value: summary.avgCadenceRpm != null ? `${Math.round(summary.avgCadenceRpm)}` : null,
+      unit: "rpm"
+    }
+  ];
 
   return (
-    <>
-      <div className="grid grid-cols-3 gap-[2px] border-2 border-[var(--color-divider)] bg-[var(--color-divider)]">
-        <div className={tileClassName}>
-          <h6>Duration</h6>
-          <div className={tileValueClassName}>{formatClock(summary.durationSec)}</div>
-        </div>
-        <div className={tileClassName}>
-          <h6>Avg power</h6>
-          <div className={tileValueClassName}>{summary.avgPowerWatts != null ? `${summary.avgPowerWatts} W` : "—"}</div>
-        </div>
-        <div className={tileClassName}>
-          <h6>Avg cadence</h6>
-          <div className={tileValueClassName}>
-            {summary.avgCadenceRpm != null ? `${summary.avgCadenceRpm} rpm` : "—"}
-          </div>
-        </div>
-        <div className={tileClassName}>
-          <h6>Avg HR</h6>
-          <div className={tileValueClassName}>
-            {summary.avgHeartRateBpm != null ? `${summary.avgHeartRateBpm} bpm` : "—"}
-          </div>
-        </div>
-        <div className={tileClassName}>
-          <div className="flex items-center justify-between gap-1">
-            <h6 className="m-0">Distance</h6>
-            {showToggle ? (
-              // Required single-select: a unit is always chosen, so the empty-string
-              // callback Radix sends when re-clicking the active item is ignored
-              // instead of being allowed to clear the selection.
-              <ToggleGroup
-                type="single"
-                size="sm"
-                value={speedUnit}
-                onValueChange={(value) => {
-                  if (value) onSpeedUnitChange?.(value as SpeedUnit);
-                }}
-                aria-label="Speed unit"
-              >
-                <ToggleGroupItem value="mph">MPH</ToggleGroupItem>
-                <ToggleGroupItem value="kph">KPH</ToggleGroupItem>
-              </ToggleGroup>
-            ) : null}
-          </div>
-          <div className={tileValueClassName}>{formatDistance(summary.distanceMeters, speedUnit)}</div>
-        </div>
+    <div className="flex flex-col gap-3">
+      <div
+        className="grid grid-cols-3 divide-foreground/10 overflow-hidden rounded-xl border border-foreground/15 bg-muted sm:grid-cols-6 sm:divide-x"
+        aria-label="Ride averages"
+        role="group"
+      >
+        {stats.map((stat) => (
+          <StatCell key={stat.label} {...stat} />
+        ))}
       </div>
-
-      <Separator className="my-2 h-0.5 bg-[var(--color-divider)]" />
-      {telemetryLoading ? (
-        <div className="py-2 text-xs text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
-          Loading charts…
-        </div>
-      ) : telemetry && telemetry.length > 0 ? (
-        <>
-          <SessionMetricChart
-            label="Speed"
-            unit={speedUnit}
-            color="var(--color-accent-700)"
-            samples={telemetry.map((sample) => ({
-              elapsedSec: sample.elapsedSec,
-              value:
-                sample.actualSpeedKmh !== null
-                  ? speedUnit === "mph"
-                    ? sample.actualSpeedKmh * KMH_TO_MPH
-                    : sample.actualSpeedKmh
-                  : null
-            }))}
-          />
-          <SessionMetricChart
-            label="Power output"
-            unit="W"
-            color="var(--color-accent)"
-            samples={telemetry.map((sample) => ({ elapsedSec: sample.elapsedSec, value: sample.actualPowerWatts }))}
-          />
-          <SessionMetricChart
-            label="Heart rate"
-            unit="bpm"
-            color="var(--color-accent-2)"
-            samples={telemetry.map((sample) => ({ elapsedSec: sample.elapsedSec, value: sample.actualHeartRateBpm }))}
-          />
-          <Separator className="my-2 h-0.5 bg-[var(--color-divider)]" />
-        </>
-      ) : null}
-    </>
+      <RideMetricsChart
+        telemetry={telemetry}
+        loading={telemetryLoading}
+        plannedIntervals={plannedIntervals}
+        speedUnit={speedUnit}
+        onSpeedUnitChange={onSpeedUnitChange}
+      />
+    </div>
   );
+};
+
+/** "12.4 mi" → ["12.4", "mi"]; "—" → [null, undefined]. */
+const splitUnit = (formatted: string): [string | null, string | undefined] => {
+  const match = /^([\d.,]+)\s*(.*)$/.exec(formatted);
+  return match ? [match[1], match[2] || undefined] : [null, undefined];
 };
