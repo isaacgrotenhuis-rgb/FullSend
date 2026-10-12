@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent, { PointerEventsCheckLevel } from "@testing-library/user-event";
 import type { WorkoutDetail } from "@shared/ipc/contracts";
 import { WorkoutPreviewDialog } from "./WorkoutPreviewDialog";
@@ -125,5 +125,38 @@ describe("WorkoutPreviewDialog", () => {
       await user.tab();
       expect(dialog).toContainElement(document.activeElement as HTMLElement);
     }
+  });
+
+  /* Only bank-compiled workouts carry metadata.estTSS; anything else (plan
+     template fallbacks, manual builds) used to show a blank TSS tile. */
+  it("derives TSS from the workout's IF when none is stored", async () => {
+    const user = userEvent.setup();
+    render(<Harness />);
+    const dialog = await openDialog(user);
+
+    // 30 min at IF 0.85: 0.5 h × 0.85² × 100 = 36.
+    const tss = within(dialog).getByText("TSS").parentElement as HTMLElement;
+    expect(tss).toHaveTextContent("36");
+  });
+
+  it("falls back to the interval targets when the workout has no IF either", async () => {
+    render(
+      <WorkoutPreviewDialog
+        name="Manual build"
+        sessionType={null}
+        detail={{ ...detail, workout: { ...detail.workout, intensityFactor: null } }}
+        ftpWatts={250}
+        connectedTrainerDeviceId={null}
+        busy={false}
+        error={null}
+        onStart={vi.fn()}
+        onBack={vi.fn()}
+      />
+    );
+    const dialog = await screen.findByRole("dialog");
+
+    // 200 W at FTP 250 is IF 0.80; 0.5 h × 0.64 × 100 = 32.
+    expect(within(dialog).getByText("Intensity").parentElement).toHaveTextContent("0.80");
+    expect(within(dialog).getByText("TSS").parentElement).toHaveTextContent("32");
   });
 });

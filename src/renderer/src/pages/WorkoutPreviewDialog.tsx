@@ -1,13 +1,26 @@
 import type { ReactElement } from "react";
+import { Bluetooth, Play } from "lucide-react";
 import type { SessionType, WorkoutDetail } from "@shared/ipc/contracts";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { averageTargetWatts, formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
+import { StatStrip, type Stat } from "../StatStrip";
+import { averageTargetWatts, formatClock } from "../WorkoutTimelineChart";
+import { WorkoutProfileChart } from "../WorkoutProfileChart";
 
 type Props = {
   name: string;
   sessionType: SessionType | null;
   detail: WorkoutDetail;
+  /** Rider's current FTP; zones fall back to it when the workout wasn't compiled at a known FTP. */
+  ftpWatts?: number | null;
   connectedTrainerDeviceId: string | null;
   busy: boolean;
   error: string | null;
@@ -26,22 +39,33 @@ const sessionTypeLabel: Record<SessionType, string> = {
   neuromuscular: "Neuromuscular"
 };
 
-/* Matches the legacy `.tag.tag-accent` pill exactly (styles.css ~L204-209):
-   font-size 11px, letter-spacing 0.02em, 3px/10px padding, 6px radius
-   (0.75 * --radius-md), --color-accent-100/800 background/text. */
-const zoneTagClassName =
-  "inline-flex items-center rounded-[6px] bg-[color:var(--color-accent-100)] px-2.5 py-[3px] text-[11px] tracking-[0.02em] text-[color:var(--color-accent-800)] capitalize";
+/**
+ * IF from interval targets, matching the bank's deriveFswMetrics
+ * (shared/fsw.ts): root of the duration-weighted mean of (watts / FTP)^2,
+ * ramps at their midpoint, free-ride time excluded. null with no powered time.
+ */
+const intensityFromIntervals = (intervals: WorkoutDetail["intervals"], ftpWatts: number): number | null => {
+  let weightedSquareSum = 0;
+  let poweredSec = 0;
+  for (const interval of intervals) {
+    if (interval.targetPowerWatts === null) continue;
+    const midpoint = (interval.targetPowerWatts + (interval.targetPowerWattsEnd ?? interval.targetPowerWatts)) / 2;
+    weightedSquareSum += interval.durationSec * (midpoint / ftpWatts) ** 2;
+    poweredSec += interval.durationSec;
+  }
+  return poweredSec > 0 ? Math.sqrt(weightedSquareSum / poweredSec) : null;
+};
 
-/* Matches the legacy stat-tile pair (former tileStyle/tileValueStyle
-   constants): --color-bg background, --space-3 padding for the tile;
-   800-weight 22px/1 for the value. */
-const tileClassName = "bg-[color:var(--color-bg)] p-3";
-const tileValueClassName = "text-[22px] font-extrabold leading-none";
-
+/**
+ * Pre-ride preview of a planned workout, laid out like the ride recap: a stat
+ * strip, then the zone-shaded workout profile, so the before and after views
+ * of a ride read as a pair. Sized to fit without scrolling.
+ */
 export const WorkoutPreviewDialog = ({
   name,
   sessionType,
   detail,
+  ftpWatts = null,
   connectedTrainerDeviceId,
   busy,
   error,
@@ -51,22 +75,44 @@ export const WorkoutPreviewDialog = ({
   const meta = detail.metadata ?? {};
   const description = typeof meta.description === "string" && meta.description.trim() ? meta.description : null;
   const primaryZone = typeof meta.primaryZone === "string" ? meta.primaryZone : null;
-  const estTSS = typeof meta.estTSS === "number" ? Math.round(meta.estTSS) : null;
+  const storedTSS = typeof meta.estTSS === "number" ? Math.round(meta.estTSS) : null;
+  // Bank workouts are compiled to watts at a specific FTP; zone them against that
+  // FTP so the shading matches the targets, falling back to the rider's current one.
+  const compiledAtFtp = typeof meta.compiledAtFtp === "number" && meta.compiledAtFtp > 0 ? meta.compiledAtFtp : null;
+  const zoneFtp = compiledAtFtp ?? (ftpWatts && ftpWatts > 0 ? ftpWatts : null);
 
   const totalDurationSec = detail.intervals.reduce((sum, interval) => sum + interval.durationSec, 0);
   const avgWatts = averageTargetWatts(detail.intervals);
-  const intensityFactor = detail.workout.intensityFactor;
-  const maxWatts = Math.max(
-    50,
+  // Only bank-compiled workouts store an estTSS (and not every workout stores an
+  // IF), so derive what's missing with the bank's own formula:
+  // TSS = hours × IF² × 100, IF falling back to the interval targets.
+  const intensityFactor =
+    detail.workout.intensityFactor ?? (zoneFtp ? intensityFromIntervals(detail.intervals, zoneFtp) : null);
+  const estTSS =
+    storedTSS ??
+    (intensityFactor !== null ? Math.round((totalDurationSec / 3600) * intensityFactor ** 2 * 100) : null);
+  const peakWatts = Math.max(
+    0,
     ...detail.intervals.flatMap((interval) => [interval.targetPowerWatts ?? 0, interval.targetPowerWattsEnd ?? 0])
   );
+  const workIntervals = detail.intervals.filter((interval) => interval.kind === "work").length;
 
   const typeLabel =
     (sessionType ? sessionTypeLabel[sessionType] : null) ??
     (primaryZone ? primaryZone.replace(/-/g, " ") : null) ??
     detail.workout.source;
 
-  const canStart = !busy && connectedTrainerDeviceId !== null;
+  const stats: Stat[] = [
+    { label: "Duration", value: formatClock(totalDurationSec) },
+    { label: "Avg power", value: avgWatts !== null ? `${avgWatts}` : null, unit: "W" },
+    { label: "Peak", value: peakWatts > 0 ? `${Math.round(peakWatts)}` : null, unit: "W" },
+    { label: "Intensity", value: intensityFactor !== null ? intensityFactor.toFixed(2) : null, unit: "IF" },
+    { label: "TSS", value: estTSS !== null ? `${estTSS}` : null },
+    { label: "Intervals", value: `${detail.intervals.length}` }
+  ];
+
+  const trainerMissing = connectedTrainerDeviceId === null;
+  const canStart = !busy && !trainerMissing;
 
   return (
     <Dialog
@@ -75,58 +121,30 @@ export const WorkoutPreviewDialog = ({
         if (!next) onBack();
       }}
     >
-      <DialogContent className="max-h-[calc(100vh-2rem)] gap-3 overflow-y-auto sm:max-w-[720px]">
-        <DialogHeader className="flex-row items-center gap-2 flex-wrap space-y-0">
-          <span className={zoneTagClassName}>{typeLabel}</span>
-          <DialogTitle>{name}</DialogTitle>
+      <DialogContent className="max-h-[calc(100vh-2rem)] gap-4 overflow-y-auto sm:max-w-[760px]">
+        <DialogHeader>
+          <div className="flex flex-wrap items-center gap-2">
+            <DialogTitle>{name}</DialogTitle>
+            <Badge variant="secondary" className="capitalize">
+              {typeLabel}
+            </Badge>
+          </div>
+          <DialogDescription>
+            {formatClock(totalDurationSec)}
+            {workIntervals > 0 ? ` · ${workIntervals} work interval${workIntervals === 1 ? "" : "s"}` : ""}
+          </DialogDescription>
+          {description ? <p className="m-0 line-clamp-2 text-sm text-foreground/80">{description}</p> : null}
         </DialogHeader>
 
-        <div className="grid grid-cols-5 gap-0.5 bg-[color:var(--color-divider)] border-2 border-[color:var(--color-divider)]">
-          <div className={tileClassName}>
-            <h6 className="text-[11px]">Duration</h6>
-            <div className={tileValueClassName}>{formatClock(totalDurationSec)}</div>
-          </div>
-          <div className={tileClassName}>
-            <h6 className="text-[11px]">Avg power</h6>
-            <div className={tileValueClassName}>
-              {avgWatts ?? "—"}
-              {avgWatts !== null ? <span className="text-[13px] font-semibold">W</span> : null}
-            </div>
-          </div>
-          <div className={tileClassName}>
-            <h6 className="text-[11px]">Intensity</h6>
-            <div className={tileValueClassName}>{intensityFactor !== null ? intensityFactor.toFixed(2) : "—"}</div>
-          </div>
-          <div className={tileClassName}>
-            <h6 className="text-[11px]">TSS</h6>
-            <div className={tileValueClassName}>{estTSS ?? "—"}</div>
-          </div>
-          <div className={tileClassName}>
-            <h6 className="text-[11px]">Intervals</h6>
-            <div className={tileValueClassName}>{detail.intervals.length}</div>
-          </div>
-        </div>
+        <StatStrip stats={stats} label="Workout targets" />
+        <WorkoutProfileChart intervals={detail.intervals} ftpWatts={zoneFtp} />
 
-        {description ? <p className="m-0 text-sm opacity-85">{description}</p> : null}
+        {error ? <p className="m-0 text-[13px] text-destructive">{error}</p> : null}
 
-        <div>
-          <h6>Workout timeline</h6>
-          <div className="relative">
-            <div className="absolute top-2 left-2 z-[1] text-xs font-extrabold">{Math.round(maxWatts)} W peak</div>
-            <WorkoutTimelineChart
-              intervals={detail.intervals}
-              elapsedSec={0}
-              currentIndex={null}
-              actualPowerWatts={null}
-            />
-          </div>
-        </div>
-
-        {error ? <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{error}</p> : null}
-
-        <DialogFooter>
-          {connectedTrainerDeviceId === null ? (
-            <span className="mr-auto flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
+        <DialogFooter className="sm:items-center">
+          {trainerMissing ? (
+            <span className="mr-auto flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Bluetooth className="size-3.5" />
               Connect a trainer to start
             </span>
           ) : null}
@@ -134,6 +152,7 @@ export const WorkoutPreviewDialog = ({
             Cancel
           </Button>
           <Button type="button" className="min-w-[150px]" disabled={!canStart} onClick={onStart}>
+            <Play />
             Start workout
           </Button>
         </DialogFooter>
