@@ -18,16 +18,22 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 // Label import unused while the post-to-Strava checkbox below is disabled.
-import { Separator } from "@/components/ui/separator";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import { formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
+import { Minus, Pause, Play, Plus, Square, TriangleAlert } from "lucide-react";
+import { metricColors } from "../RideMetricsChart";
+import { StatStrip } from "../StatStrip";
+import { formatClock } from "../WorkoutTimelineChart";
+import { WorkoutProfileChart, type PowerSample } from "../WorkoutProfileChart";
 import { KMH_TO_MPH, useSpeedUnit, type SpeedUnit } from "../speedUnit";
 import { WorkoutSummaryView } from "../WorkoutSummaryView";
+import { BigValue, CardLabel, IntervalCard, PowerCard, RideCard } from "./RideMetricCards";
 
 type Props = {
   activeIntervals: WorkoutInterval[];
   activeWorkoutName: string | null;
+  /** Rider's FTP, for the power zone and % FTP readouts. */
+  ftpWatts?: number | null;
   workoutSessionState: WorkoutSessionState | null;
   liveWorkoutError: string | null;
   liveWorkoutBusy: boolean;
@@ -45,33 +51,10 @@ type Props = {
   applyRampDuration: () => Promise<void>;
 };
 
-const blockKindLabel = (kind: string): string => kind.charAt(0).toUpperCase() + kind.slice(1);
-
-/* --font-heading and --font-body (index.css) currently resolve to the same
-   family string, so these callouts rely on the inherited body font instead of
-   repeating fontFamily: var(--font-heading) — no visual change, one less
-   inline style. */
-const MetricTileValue = ({
-  value,
-  unit,
-  color
-}: {
-  value: string | number | null;
-  unit: string;
-  color?: string;
-}): ReactElement => (
-  // `color` is a runtime CSS-variable string (e.g. "var(--color-accent)") chosen per-tile —
-  // it can't be a static Tailwind class, so it stays inline. See the PR7 hard constraint:
-  // never rename the --color-* tokens these strings point at.
-  <div className="text-[48px] font-extrabold leading-none" style={{ color }}>
-    {value !== null ? value : <span className="text-[28px] font-normal opacity-[0.35]">–</span>}
-    <span className="ml-1 text-lg font-semibold">{unit}</span>
-  </div>
-);
-
 export const RidePage = ({
   activeIntervals,
   activeWorkoutName,
+  ftpWatts = null,
   workoutSessionState,
   liveWorkoutError,
   liveWorkoutBusy,
@@ -102,7 +85,7 @@ export const RidePage = ({
   const elapsedSec = workoutSessionState?.elapsedSec ?? 0;
   const currentIndex = workoutSessionState?.currentIntervalIndex ?? null;
   const liveMetrics = workoutSessionState?.liveMetrics ?? null;
-  const maxWatts = Math.max(50, ...activeIntervals.map((interval) => interval.targetPowerWatts ?? 0));
+  const sessionId = workoutSessionState?.sessionId ?? null;
 
   const speedKmh = liveMetrics?.actualSpeedKmh ?? null;
   const displaySpeed =
@@ -116,9 +99,23 @@ export const RidePage = ({
         : (liveDistanceMeters / 1000).toFixed(2)
       : null;
 
-  const currentKind = liveMetrics?.blockKind ?? (currentIndex !== null ? activeIntervals[currentIndex]?.kind : undefined);
-  const intervalPositionLabel =
-    currentIndex !== null && activeIntervals.length > 0 ? `Interval ${currentIndex + 1} of ${activeIntervals.length}` : "";
+  // Actual power per elapsed second, for the trace over the workout chart.
+  // Kept here because the engine only streams the current sample; reset when
+  // a new session starts.
+  const [powerTrace, setPowerTrace] = useState<PowerSample[]>([]);
+  useEffect(() => {
+    setPowerTrace([]);
+  }, [sessionId]);
+  const sampleSec = liveMetrics?.elapsedSec;
+  const sampleWatts = liveMetrics?.actualPowerWatts ?? null;
+  useEffect(() => {
+    if (sampleSec === undefined || sampleWatts === null) return;
+    setPowerTrace((trace) =>
+      trace.length > 0 && trace[trace.length - 1].elapsedSec >= sampleSec
+        ? trace
+        : [...trace, { elapsedSec: sampleSec, watts: sampleWatts }]
+    );
+  }, [sampleSec, sampleWatts]);
 
   const isPaused = workoutSessionState?.lifecycle === "paused";
   const hasEndedLifecycle =
@@ -157,166 +154,200 @@ export const RidePage = ({
   };
 
   return (
-    <main className="mx-auto max-w-[960px] p-6">
-      <div className="flex items-center justify-between pb-4">
-        <div>
-          <h6 className="mb-0.5 text-[var(--color-accent-700)]">
-            {currentKind ? blockKindLabel(currentKind) : "Workout"}
-          </h6>
-          <h2 className="m-0 flex items-center gap-3">
+    <main className="mx-auto flex max-w-[1120px] flex-col gap-4 p-6">
+      <header className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="m-0 text-xs font-semibold tracking-wide text-muted-foreground uppercase">Now riding</p>
+          <h2 className="m-0 flex items-center gap-3 truncate">
             {activeWorkoutName ?? "Workout"}
             {isPaused ? (
-              <Badge className="border-transparent bg-[color-mix(in_srgb,var(--color-accent-700)_15%,transparent)] font-extrabold uppercase tracking-[0.08em] text-[var(--color-accent-700)]">
+              <Badge className="gap-1 font-extrabold tracking-[0.08em] uppercase">
+                <Pause />
                 Paused
               </Badge>
             ) : null}
           </h2>
         </div>
-        <div className="flex items-center gap-6">
+        <div className="flex shrink-0 items-center gap-5">
           <div className="text-right">
-            <h6 className="mb-0.5">Elapsed / Total</h6>
-            <div className="text-xl font-extrabold">
-              {formatClock(elapsedSec)} / {formatClock(totalDurationSec)}
+            <div className="text-xs font-semibold text-muted-foreground">Elapsed</div>
+            <div className="text-2xl leading-tight font-extrabold tabular-nums">
+              {formatClock(elapsedSec)}
+              <span className="text-base font-semibold text-muted-foreground"> / {formatClock(totalDurationSec)}</span>
             </div>
           </div>
           {isWorkoutSessionActive ? (
             <Button variant="outline" disabled={liveWorkoutBusy} onClick={() => void stopWorkout()}>
-              End
+              <Square />
+              End ride
             </Button>
           ) : null}
         </div>
-      </div>
-      <Separator className="mb-6 h-0.5 bg-[var(--color-divider)]" />
+      </header>
 
-      {liveWorkoutError ? <p className="text-[var(--color-accent-700)]">{liveWorkoutError}</p> : null}
-      {workoutSessionState?.lastError ? (
-        <p className="text-[var(--color-accent-700)]">{workoutSessionState.lastError}</p>
-      ) : null}
+      {[liveWorkoutError, workoutSessionState?.lastError].filter(Boolean).map((message) => (
+        <div
+          key={message}
+          role="alert"
+          className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive"
+        >
+          <TriangleAlert className="size-4 shrink-0" />
+          {message}
+        </div>
+      ))}
 
-      <div className="mb-6 grid grid-cols-3 gap-[2px] border-2 border-[var(--color-divider)] bg-[var(--color-divider)]">
-        <div className={cn("bg-[var(--color-bg)] p-4", isPaused && "opacity-[0.45]")}>
-          <h6>Target power{isPaused ? " · holding" : ""}</h6>
-          <MetricTileValue value={liveMetrics?.targetPowerWatts ?? null} unit="W" />
-        </div>
-        <div className="bg-[var(--color-bg)] p-4">
-          <h6>Actual power</h6>
-          <MetricTileValue value={liveMetrics?.actualPowerWatts ?? null} unit="W" color="var(--color-accent)" />
-        </div>
-        <div className="bg-[var(--color-bg)] p-4">
-          <h6>Cadence</h6>
-          <MetricTileValue
-            value={
-              liveMetrics?.actualCadenceRpm !== null && liveMetrics?.actualCadenceRpm !== undefined
-                ? Math.round(liveMetrics.actualCadenceRpm)
-                : null
-            }
-            unit="rpm"
+      {/* Related readouts share a card: actual beside target for power and
+          cadence; speed with distance. The interval card answers "how long
+          until this ends, and what's next". */}
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-12 lg:col-span-7">
+          <PowerCard
+            actualWatts={liveMetrics?.actualPowerWatts ?? null}
+            targetWatts={liveMetrics?.targetPowerWatts ?? null}
+            ftpWatts={ftpWatts}
+            paused={isPaused}
           />
         </div>
-        <div className="bg-[var(--color-bg)] p-4">
-          <h6>Heart rate</h6>
-          <MetricTileValue
-            value={
-              liveMetrics?.actualHeartRateBpm !== null && liveMetrics?.actualHeartRateBpm !== undefined
-                ? Math.round(liveMetrics.actualHeartRateBpm)
-                : null
-            }
-            unit="bpm"
-            color="var(--color-accent-2)"
-          />
+        <div className="col-span-12 lg:col-span-5">
+          <IntervalCard intervals={activeIntervals} currentIndex={currentIndex} elapsedSec={elapsedSec} />
         </div>
-        <div className="bg-[var(--color-bg)] p-4">
-          <div className="mb-2 flex items-center justify-between gap-1">
-            <h6 className="m-0">Speed</h6>
-            {/* Required single-select: a unit is always chosen, so we ignore
-                the empty-string callback Radix sends when re-clicking the
-                active item instead of letting it clear the selection. */}
-            <ToggleGroup
-              type="single"
-              size="sm"
-              value={speedUnit}
-              onValueChange={(value) => {
-                if (value) setSpeedUnit(value as SpeedUnit);
-              }}
-              aria-label="Speed unit"
-            >
-              <ToggleGroupItem value="mph">MPH</ToggleGroupItem>
-              <ToggleGroupItem value="kph">KPH</ToggleGroupItem>
-            </ToggleGroup>
-          </div>
-          <MetricTileValue value={displaySpeed} unit={speedUnit} />
-        </div>
-        <div className="bg-[var(--color-bg)] p-4">
-          <h6>Distance</h6>
-          <MetricTileValue value={displayLiveDistance} unit={speedUnit === "mph" ? "mi" : "km"} />
-        </div>
-      </div>
 
-      <h6 className="mb-3">
-        Workout timeline{intervalPositionLabel ? ` · ${intervalPositionLabel}` : ""}
-      </h6>
-      <div className="mb-8 flex gap-3">
-        <div className="flex items-center justify-center rotate-180 text-[10px] uppercase tracking-[0.08em] text-[color-mix(in_srgb,var(--color-text)_55%,transparent)] [writing-mode:vertical-rl]">
-          Watts
-        </div>
-        <div className="flex-1">
-          <div className="relative">
-            <div className="absolute top-3 left-3 z-[1] text-[13px] font-extrabold">{Math.round(maxWatts)} W peak</div>
-            <WorkoutTimelineChart
-              intervals={activeIntervals}
-              elapsedSec={elapsedSec}
-              currentIndex={currentIndex}
-              actualPowerWatts={liveMetrics?.actualPowerWatts ?? null}
+        <RideCard className="col-span-4">
+          <CardLabel>Cadence</CardLabel>
+          <div className="flex items-end justify-between gap-2">
+            <BigValue
+              value={liveMetrics?.actualCadenceRpm != null ? Math.round(liveMetrics.actualCadenceRpm) : null}
+              unit="rpm"
+              className="text-4xl"
             />
+            {liveMetrics?.targetCadenceRpm != null ? (
+              <div className="text-right text-sm text-muted-foreground">
+                Target <span className="font-bold text-foreground tabular-nums">{Math.round(liveMetrics.targetCadenceRpm)}</span>
+              </div>
+            ) : null}
           </div>
-          <div className="mt-1 flex justify-between">
-            <span className="text-[10px] uppercase tracking-[0.08em] text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
-              Time
+        </RideCard>
+
+        <RideCard className="col-span-4">
+          <CardLabel>
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="size-2 rounded-full" style={{ background: metricColors.hr }} />
+              Heart rate
             </span>
-            <span className="text-[10px] text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
-              {formatClock(totalDurationSec)} total
+          </CardLabel>
+          <BigValue
+            value={liveMetrics?.actualHeartRateBpm != null ? Math.round(liveMetrics.actualHeartRateBpm) : null}
+            unit="bpm"
+            className="text-4xl"
+          />
+        </RideCard>
+
+        <RideCard className="col-span-4">
+          <CardLabel
+            right={
+              // Required single-select: a unit is always chosen, so we ignore
+              // the empty-string callback Radix sends when re-clicking the
+              // active item instead of letting it clear the selection.
+              <ToggleGroup
+                type="single"
+                size="sm"
+                variant="outline"
+                value={speedUnit}
+                onValueChange={(value) => {
+                  if (value) setSpeedUnit(value as SpeedUnit);
+                }}
+                aria-label="Speed unit"
+              >
+                <ToggleGroupItem value="mph" className="h-6 px-2 text-[11px]">
+                  MPH
+                </ToggleGroupItem>
+                <ToggleGroupItem value="kph" className="h-6 px-2 text-[11px]">
+                  KPH
+                </ToggleGroupItem>
+              </ToggleGroup>
+            }
+          >
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="size-2 rounded-full" style={{ background: metricColors.speed }} />
+              Speed &amp; distance
             </span>
+          </CardLabel>
+          <div className="flex items-end justify-between gap-2">
+            <BigValue value={displaySpeed} unit={speedUnit === "mph" ? "mph" : "km/h"} className="text-4xl" />
+            <div className="text-right text-sm text-muted-foreground">
+              <span className="font-bold text-foreground tabular-nums">{displayLiveDistance ?? "–"}</span>{" "}
+              {speedUnit === "mph" ? "mi" : "km"}
+            </div>
           </div>
-        </div>
+        </RideCard>
       </div>
 
-      <div className="mb-4 flex items-center justify-between gap-4">
+      <WorkoutProfileChart
+        intervals={activeIntervals}
+        ftpWatts={ftpWatts}
+        title="Workout"
+        heightClass="h-[140px]"
+        live={{ elapsedSec, currentIndex, actualTrace: powerTrace }}
+        headerExtra={
+          <span className="flex items-center gap-3 text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              <span aria-hidden className="h-0.5 w-3 rounded-full bg-foreground" />
+              Your power
+            </span>
+            <span className="tabular-nums">{formatClock(Math.max(0, totalDurationSec - elapsedSec))} to go</span>
+          </span>
+        }
+      />
+
+      <RideCard className="flex-row flex-wrap items-center justify-between gap-4 py-3">
         <Button
-          className="min-w-[140px]"
+          size="lg"
+          className="min-w-40"
           disabled={liveWorkoutBusy || !isWorkoutSessionActive}
           onClick={() => void (isPaused ? resumeWorkout() : pauseWorkout())}
         >
+          {isPaused ? <Play /> : <Pause />}
           {isPaused ? "Resume" : "Pause"}
         </Button>
-        <div className="flex items-center gap-3">
-          <h6 className="m-0">Intensity</h6>
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={liveWorkoutBusy || !isWorkoutSessionActive}
-            onClick={() => void adjustIntensity(-0.05)}
-          >
-            −
-          </Button>
-          <div className="min-w-[52px] text-center text-lg font-extrabold">
-            {Math.round((workoutSessionState?.intensityMultiplier ?? 1) * 100)}%
-          </div>
-          <Button
-            variant="outline"
-            size="icon"
-            disabled={liveWorkoutBusy || !isWorkoutSessionActive}
-            onClick={() => void adjustIntensity(0.05)}
-          >
-            +
-          </Button>
-        </div>
-      </div>
 
-      <div className="mb-8 flex items-center gap-3">
-        <label className="flex items-center gap-1.5 text-[11px] text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]">
-          Ramp-in (sec)
+        <div className="flex items-center gap-3">
+          <div className="text-right">
+            <div className="text-sm font-semibold">Intensity</div>
+            <div className="text-xs text-muted-foreground">Scales every target</div>
+          </div>
+          <div className="flex items-center gap-1 rounded-lg border border-foreground/15 bg-background p-1">
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Decrease intensity"
+              disabled={liveWorkoutBusy || !isWorkoutSessionActive}
+              onClick={() => void adjustIntensity(-0.05)}
+            >
+              <Minus />
+            </Button>
+            <div className="min-w-14 text-center text-lg font-extrabold tabular-nums">
+              {Math.round((workoutSessionState?.intensityMultiplier ?? 1) * 100)}%
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Increase intensity"
+              disabled={liveWorkoutBusy || !isWorkoutSessionActive}
+              onClick={() => void adjustIntensity(0.05)}
+            >
+              <Plus />
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <label htmlFor="ramp-in" className="text-right">
+            <div className="text-sm font-semibold">Ramp-in</div>
+            <div className="text-xs text-muted-foreground">Seconds to ease into targets</div>
+          </label>
           <Input
-            className="h-7 w-16 px-1.5 py-0.5"
+            id="ramp-in"
+            className="h-9 w-16 bg-background text-center tabular-nums"
             type="number"
             min={0}
             max={60}
@@ -324,16 +355,15 @@ export const RidePage = ({
             onChange={(event) => setRampDurationInput(event.target.value)}
             disabled={liveWorkoutBusy || !isWorkoutSessionActive}
           />
-        </label>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={liveWorkoutBusy || !isWorkoutSessionActive}
-          onClick={() => void applyRampDuration()}
-        >
-          Apply
-        </Button>
-      </div>
+          <Button
+            variant="outline"
+            disabled={liveWorkoutBusy || !isWorkoutSessionActive}
+            onClick={() => void applyRampDuration()}
+          >
+            Apply
+          </Button>
+        </div>
+      </RideCard>
 
       {/* Deliberately non-dismissible: this is the end-of-ride summary, and unlike
           every other dialog in the app there is no way out except Discard/Save or
@@ -360,14 +390,14 @@ export const RidePage = ({
 
           {summaryStage === "pending" ? (
             <>
-              <div className="grid grid-cols-1 gap-[2px] border-2 border-[var(--color-divider)] bg-[var(--color-divider)]">
-                <div className="bg-[var(--color-bg)] p-3">
-                  <h6>Duration</h6>
-                  <div className="text-xl font-extrabold">{formatClock(elapsedSec)}</div>
-                </div>
-              </div>
-
-              <Separator className="my-2 h-0.5 bg-[var(--color-divider)]" />
+              <StatStrip
+                label="Ride so far"
+                stats={[
+                  { label: "Time", value: formatClock(elapsedSec) },
+                  { label: "Distance", value: displayLiveDistance, unit: speedUnit === "mph" ? "mi" : "km" }
+                ]}
+              />
+              <p className="m-0 text-sm text-muted-foreground">Save this ride to your history, or discard it.</p>
               <DialogFooter>
                 <Button variant="outline" disabled={liveWorkoutBusy} onClick={() => void handleDiscard()}>
                   Discard
