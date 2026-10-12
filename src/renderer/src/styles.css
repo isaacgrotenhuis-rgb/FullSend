@@ -61,6 +61,18 @@
   --color-metric-hr: #7c3aed;
   --color-metric-speed: #0e8fa8;
 
+  /* FTP training-zone ramp (Z1 recovery → Z6 anaerobic) for the workout
+     profile chart: one hue, light→dark, drawn from the accent ramp. Z1 is a
+     custom step between accent-400 and -500 so the light end clears the
+     #f3f2f2 chart surface (2:1) while keeping a visible step to Z2; the set
+     passes the dataviz ordinal validator. Re-run it before changing one. */
+  --color-zone-1: #f68974;
+  --color-zone-2: var(--color-accent-500);
+  --color-zone-3: var(--color-accent-600);
+  --color-zone-4: var(--color-accent-700);
+  --color-zone-5: var(--color-accent-800);
+  --color-zone-6: var(--color-accent-900);
+
   /* "Archivo Variable" is the family name fontsource's variable build
      registers — plain "Archivo" would silently fall back to system-ui. */
   --font-heading: "Archivo Variable", system-ui, sans-serif;

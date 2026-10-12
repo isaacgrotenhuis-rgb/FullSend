@@ -780,6 +780,7 @@ export const App = (): ReactElement => {
           name={previewWorkout.name}
           sessionType={previewWorkout.sessionType}
           detail={previewDetail}
+          ftpWatts={currentFtp}
           connectedTrainerDeviceId={bleState?.connectedDeviceId ?? null}
           busy={liveWorkoutBusy}
           error={liveWorkoutError}
