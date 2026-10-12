@@ -4,6 +4,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
 import { formatClock } from "./WorkoutTimelineChart";
 import { KMH_TO_MPH, type SpeedUnit } from "./speedUnit";
+import { formatTick, timeTicks } from "./chartTime";
 
 type SeriesKey = "power" | "hr" | "speed";
 
@@ -96,17 +97,6 @@ const targetWattsAt = (intervals: WorkoutInterval[], elapsedSec: number): number
   }
   return null;
 };
-
-const formatTick = (sec: number): string => {
-  if (sec === 0) return "0";
-  const hours = Math.floor(sec / 3600);
-  const minutes = Math.round((sec % 3600) / 60);
-  if (hours === 0) return `${minutes}m`;
-  return minutes === 0 ? `${hours}h` : `${hours}h${`${minutes}`.padStart(2, "0")}`;
-};
-
-const tickStepSec = (durationSec: number): number =>
-  [60, 300, 600, 900, 1800, 3600, 7200].find((step) => durationSec / step <= 6) ?? 7200;
 
 const mutedText = "text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]";
 
@@ -257,9 +247,7 @@ export const RideMetricsChart = ({
       return next;
     });
 
-  const step = tickStepSec(durationSec);
-  const ticks: number[] = [];
-  for (let sec = 0; sec <= durationSec - step * 0.4; sec += step) ticks.push(sec);
+  const ticks = timeTicks(durationSec);
 
   const indexFromPointer = (event: PointerEvent<HTMLDivElement>): number => {
     const rect = event.currentTarget.getBoundingClientRect();
