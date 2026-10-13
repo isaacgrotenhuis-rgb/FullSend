@@ -1,15 +1,31 @@
-import { useMemo, useState, type KeyboardEvent, type PointerEvent, type ReactElement } from "react";
+import { useMemo, useState, type KeyboardEvent, type PointerEvent, type ReactElement, type ReactNode } from "react";
 import type { WorkoutInterval, WorkoutIntervalKind } from "@shared/ipc/contracts";
 import { cn } from "@/lib/utils";
 import { formatTick, timeTicks } from "./chartTime";
 import { formatClock } from "./WorkoutTimelineChart";
 import { powerZones, zoneFor, type PowerZone } from "./zones";
 
+export type PowerSample = { elapsedSec: number; watts: number };
+
 type Props = {
   intervals: WorkoutInterval[];
   /** FTP the zones are measured against; null draws every powered block in one colour and hides time-in-zone. */
   ftpWatts: number | null;
+  /** Card heading; defaults to "Workout profile". */
+  title?: string;
+  /** Extra content for the right side of the card header (replaces the FTP note). */
+  headerExtra?: ReactNode;
+  /**
+   * Live-ride mode: shades the elapsed part of the workout, marks "now",
+   * emphasises the current block and draws the rider's actual power over the
+   * targets. Also hides the time-in-zone breakdown, which is a planning aid.
+   */
+  live?: { elapsedSec: number; currentIndex: number | null; actualTrace: PowerSample[] };
+  /** Plot height class; defaults to h-[200px]. */
+  heightClass?: string;
 };
+
+const maxTracePoints = 300;
 
 type Block = {
   index: number;
@@ -22,7 +38,7 @@ type Block = {
   zone: PowerZone | null;
 };
 
-const kindLabels: Record<WorkoutIntervalKind, string> = {
+export const kindLabels: Record<WorkoutIntervalKind, string> = {
   warmup: "Warm-up",
   work: "Work",
   recovery: "Recovery",
@@ -46,7 +62,14 @@ const formatMinutes = (sec: number): string => {
  * clip-path wedge. Hover (or arrow keys on the focused chart) reads out a
  * block's target, zone and timing.
  */
-export const WorkoutProfileChart = ({ intervals, ftpWatts }: Props): ReactElement => {
+export const WorkoutProfileChart = ({
+  intervals,
+  ftpWatts,
+  title = "Workout profile",
+  headerExtra,
+  live,
+  heightClass = "h-[200px]"
+}: Props): ReactElement => {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const model = useMemo(() => {
@@ -117,17 +140,46 @@ export const WorkoutProfileChart = ({ intervals, ftpWatts }: Props): ReactElemen
   const active = activeIndex !== null ? blocks[activeIndex] : null;
   const activeCenterPct = active ? pct(active.startSec + active.durationSec / 2) : 0;
   const ftpPct = ftpWatts ? heightPct(ftpWatts) : null;
-  const zonesUsed = powerZones.filter((zone) => zoneSeconds.has(zone.id));
+  const zonesUsed = live ? [] : powerZones.filter((zone) => zoneSeconds.has(zone.id));
+
+  const elapsedPct = live ? Math.min(100, pct(live.elapsedSec)) : 0;
+  // Actual power, averaged into at most maxTracePoints buckets so a long ride
+  // stays a smooth, cheap path. Clamped to the plot rather than rescaling it,
+  // so the target blocks never jump while riding.
+  let tracePath = "";
+  if (live && live.actualTrace.length > 1) {
+    const bucketSec = Math.max(1, durationSec / maxTracePoints);
+    const buckets = new Map<number, { sum: number; count: number }>();
+    for (const sample of live.actualTrace) {
+      const key = Math.floor(sample.elapsedSec / bucketSec);
+      const bucket = buckets.get(key) ?? { sum: 0, count: 0 };
+      bucket.sum += sample.watts;
+      bucket.count += 1;
+      buckets.set(key, bucket);
+    }
+    tracePath = [...buckets.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([key, bucket], index) => {
+        const x = Math.min(1000, ((key + 0.5) * bucketSec * 1000) / durationSec);
+        const y = 100 - Math.min(100, heightPct(bucket.sum / bucket.count));
+        return `${index === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(2)}`;
+      })
+      .join("");
+  }
 
   return (
     <div className="rounded-xl border border-foreground/15 bg-muted p-3">
       <div className="mb-2 flex min-h-8 items-center justify-between gap-2">
-        <h6 className="m-0">Workout profile</h6>
-        {ftpWatts ? <span className={cn("text-xs", mutedText)}>Zones at FTP {Math.round(ftpWatts)} W</span> : null}
+        <h6 className="m-0">{title}</h6>
+        {headerExtra ??
+          (ftpWatts ? <span className={cn("text-xs", mutedText)}>Zones at FTP {Math.round(ftpWatts)} W</span> : null)}
       </div>
 
       <div
-        className="relative h-[200px] cursor-crosshair touch-none rounded-lg bg-background outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        className={cn(
+          "relative cursor-crosshair touch-none rounded-lg bg-background outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          heightClass
+        )}
         tabIndex={0}
         role="group"
         aria-label="Workout power profile. Use the arrow keys to step through the intervals."
@@ -148,12 +200,14 @@ export const WorkoutProfileChart = ({ intervals, ftpWatts }: Props): ReactElemen
 
           {blocks.map((block) => {
             const isActive = activeIndex === block.index;
-            const dimmed = activeIndex !== null && !isActive;
+            const isCurrent = live?.currentIndex === block.index;
+            const isDone = live !== undefined && live.currentIndex !== null && block.index < live.currentIndex;
+            const dimmed = activeIndex !== null ? !isActive : isDone;
             const color = colorOf(block);
             const common = cn(
               "absolute bottom-0 transition-[opacity,filter] duration-150",
               dimmed && "opacity-45",
-              isActive && "brightness-110"
+              (isActive || (activeIndex === null && isCurrent)) && "brightness-110"
             );
             // 2px surface gap between neighbours; never thinner than a hairline.
             const geometry = { left: `${pct(block.startSec)}%`, width: `max(1px, calc(${pct(block.durationSec)}% - 2px))` };
@@ -193,6 +247,35 @@ export const WorkoutProfileChart = ({ intervals, ftpWatts }: Props): ReactElemen
               />
             );
           })}
+
+          {live ? (
+            <>
+              {/* Elapsed wash and the "now" line. */}
+              <span
+                className="absolute inset-y-0 left-0 bg-[color-mix(in_srgb,var(--color-text)_5%,transparent)]"
+                style={{ width: `${elapsedPct}%` }}
+              />
+              {tracePath ? (
+                <svg
+                  viewBox="0 0 1000 100"
+                  preserveAspectRatio="none"
+                  className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
+                >
+                  <path
+                    d={tracePath}
+                    fill="none"
+                    stroke="var(--color-text)"
+                    strokeWidth={2}
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </svg>
+              ) : null}
+              <span className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-foreground" style={{ left: `${elapsedPct}%` }}>
+                <span className="absolute -top-1.5 left-1/2 size-2.5 -translate-x-1/2 rounded-full bg-foreground ring-2 ring-background" />
+              </span>
+            </>
+          ) : null}
 
           {ftpPct !== null ? (
             <div className="pointer-events-none absolute inset-x-0" style={{ bottom: `${ftpPct}%` }}>

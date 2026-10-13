@@ -677,6 +677,7 @@ export const App = (): ReactElement => {
         <RidePage
           activeIntervals={activeIntervals}
           activeWorkoutName={activeWorkoutName}
+          ftpWatts={currentFtp}
           workoutSessionState={workoutSessionState}
           liveWorkoutError={liveWorkoutError}
           liveWorkoutBusy={liveWorkoutBusy}
