@@ -108,3 +108,46 @@ describe("WorkoutBankBrowser filter chips", () => {
     expect(screen.queryByText("Threshold Intervals")).not.toBeInTheDocument();
   });
 });
+
+/* The bank used to carry its own copy of the pre-ride preview and missed the
+   redesign that plan days got. It now renders the shared WorkoutPreviewContent,
+   so these pin the shared pieces showing up from the bank as well. */
+describe("WorkoutBankBrowser detail", () => {
+  beforeEach(() => {
+    vi.mocked(window.kickr.workoutBank.list).mockResolvedValue(summaries);
+    vi.mocked(window.kickr.workoutBank.get).mockResolvedValue({
+      ...summaries[1],
+      document: {
+        schemaVersion: 1,
+        id: "bank-threshold",
+        name: "Threshold Intervals",
+        primaryZone: "threshold",
+        description: "Two long threshold efforts.",
+        segments: [{ type: "steady", durationSec: 3_600, power: 0.92 }]
+      }
+    } as Awaited<ReturnType<typeof window.kickr.workoutBank.get>>);
+    vi.mocked(window.kickr.workoutBank.compile).mockResolvedValue({
+      intervals: [{ kind: "work", durationSec: 3_600, targetPowerWatts: 230, targetResistancePercent: null }],
+      durationSec: 3_600,
+      estIF: 0.92,
+      estTSS: 85
+    });
+  });
+
+  it("opens a workout in the shared preview, with Back returning to the list", async () => {
+    const user = userEvent.setup();
+    renderBrowser();
+    await user.click(await screen.findByRole("button", { name: /Threshold Intervals/ }));
+
+    expect(await screen.findByRole("group", { name: "Workout targets" })).toHaveTextContent("85");
+    expect(screen.getByRole("group", { name: /Workout power profile/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start now" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /1 segment/ })).toBeInTheDocument();
+    // 230 W at FTP 250 is 92%: the app's Sweet Spot band (88–93%), so the chart
+    // must agree with the bank's own zone naming rather than call it Tempo/Threshold.
+    expect(screen.getByRole("list", { name: "Time in zone" })).toHaveTextContent("Sweet Spot");
+
+    await user.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByText("Endurance Base")).toBeInTheDocument();
+  });
+});

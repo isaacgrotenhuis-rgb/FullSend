@@ -61,17 +61,21 @@
   --color-metric-hr: #7c3aed;
   --color-metric-speed: #0e8fa8;
 
-  /* FTP training-zone ramp (Z1 recovery → Z6 anaerobic) for the workout
-     profile chart: one hue, light→dark, drawn from the accent ramp. Z1 is a
-     custom step between accent-400 and -500 so the light end clears the
-     #f3f2f2 chart surface (2:1) while keeping a visible step to Z2; the set
-     passes the dataviz ordinal validator. Re-run it before changing one. */
-  --color-zone-1: #f68974;
-  --color-zone-2: var(--color-accent-500);
-  --color-zone-3: var(--color-accent-600);
-  --color-zone-4: var(--color-accent-700);
-  --color-zone-5: var(--color-accent-800);
-  --color-zone-6: var(--color-accent-900);
+  /* Training-zone ramp, one step per @shared/zones zone in ZONE_KEYS order
+     (recovery → neuromuscular): a single brand hue (OKLCH h≈33) with evenly
+     spaced lightness, light → dark. Eight steps don't fit the accent ramp's
+     spacing, so these are generated rather than borrowed from it. The set
+     passes the dataviz ordinal validator against the #f3f2f2 chart surface
+     (monotone, visible step gaps, light end ≥ 2:1). Re-run it before changing
+     one, and keep the count in step with ZONE_KEYS. */
+  --color-zone-1: #fe8167;
+  --color-zone-2: #f8593a;
+  --color-zone-3: #e04222;
+  --color-zone-4: #c72801;
+  --color-zone-5: #a62103;
+  --color-zone-6: #871901;
+  --color-zone-7: #691000;
+  --color-zone-8: #4b0a01;
 
   /* "Archivo Variable" is the family name fontsource's variable build
      registers — plain "Archivo" would silently fall back to system-ui. */

@@ -158,5 +158,7 @@ describe("WorkoutPreviewDialog", () => {
     // 200 W at FTP 250 is IF 0.80; 0.5 h × 0.64 × 100 = 32.
     expect(within(dialog).getByText("Intensity").parentElement).toHaveTextContent("0.80");
     expect(within(dialog).getByText("TSS").parentElement).toHaveTextContent("32");
+    // 80% FTP falls in the shared Tempo band (76–87%).
+    expect(within(dialog).getByRole("list", { name: "Time in zone" })).toHaveTextContent("Tempo");
   });
 });

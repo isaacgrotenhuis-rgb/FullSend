@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type ReactElement } from "react";
-import { X } from "lucide-react";
+import { Fragment, useEffect, useMemo, useState, type ReactElement } from "react";
+import { ChevronDown, ChevronRight } from "lucide-react";
 import type {
   BankWorkoutDetail,
   BankWorkoutSummary,
@@ -10,16 +10,13 @@ import type {
 } from "@shared/ipc/contracts";
 import { ZONES } from "@shared/zones";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle
-} from "@/components/ui/dialog";
+import { Card } from "@/components/ui/card";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemSeparator, ItemTitle } from "@/components/ui/item";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { averageTargetWatts, formatClock, WorkoutTimelineChart } from "../WorkoutTimelineChart";
+import { formatClock } from "../WorkoutTimelineChart";
+import { previewDialogClassName, WorkoutPreviewContent } from "./WorkoutPreviewDialog";
 
 type Props = {
   ftp: number;
@@ -70,18 +67,6 @@ const describeSegment = (segment: FswSegment): string => {
       return "Segment";
   }
 };
-
-/* Matches the legacy `.tag.tag-accent` pill exactly (styles.css ~L204-209):
-   font-size 11px, letter-spacing 0.02em, 3px/10px padding, 6px radius
-   (0.75 * --radius-md), --color-accent-100/800 background/text. */
-const zoneTagClassName =
-  "inline-flex items-center rounded-[6px] bg-[color:var(--color-accent-100)] px-2.5 py-[3px] text-[11px] tracking-[0.02em] text-[color:var(--color-accent-800)] capitalize";
-
-/* Matches the legacy stat-tile pair (styles.css tileStyle/tileValueStyle
-   constants this replaces): --color-bg background, --space-3 padding for the
-   tile; 800-weight 22px/1 for the value. */
-const tileClassName = "bg-[color:var(--color-bg)] p-3";
-const tileValueClassName = "text-[22px] font-extrabold leading-none";
 
 /* Filter chip group — was a hand-rolled chipStyle(active) cva reinvention on
    a <span onClick>, which meant no keyboard access at all (no tabIndex, no
@@ -182,13 +167,9 @@ export const WorkoutBankBrowser = ({
 
   const renderList = (): ReactElement => (
     <>
-      <DialogHeader className="flex-row items-center justify-between gap-2 space-y-0">
+      <DialogHeader>
         <DialogTitle>Workout Bank</DialogTitle>
-        <DialogClose asChild>
-          <Button type="button" variant="ghost" size="icon" aria-label="Close">
-            <X />
-          </Button>
-        </DialogClose>
+        <DialogDescription>Pick a workout to preview it at your FTP of {ftp} W.</DialogDescription>
       </DialogHeader>
 
       <div className="flex flex-col gap-2">
@@ -240,161 +221,99 @@ export const WorkoutBankBrowser = ({
 
       {listError ? <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{listError}</p> : null}
 
-      <div className="flex flex-col gap-0.5">
-        {visible.length === 0 && !listError ? (
-          <p className="m-0 flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
-            No workouts match these filters.
-          </p>
-        ) : null}
-        {visible.map((summary) => (
-          <Button
-            key={summary.id}
-            type="button"
-            variant="outline"
-            className="h-auto w-full justify-between px-3 py-2 text-left"
-            onClick={() => setSelectedId(summary.id)}
-          >
-            <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="overflow-hidden font-bold text-ellipsis">{summary.name}</span>
-              <span className="flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
-                {zoneLabel(summary.primaryZone)} · {formatClock(summary.durationSec)}
-                {summary.estTSS !== null ? ` · ${Math.round(summary.estTSS)} TSS` : ""}
-              </span>
-            </span>
-          </Button>
-        ))}
-      </div>
+      {visible.length === 0 && !listError ? (
+        <p className="m-0 text-sm text-muted-foreground">No workouts match these filters.</p>
+      ) : null}
+      {visible.length > 0 ? (
+        /* Same rounded card of Item rows as Home's Recent activity. ItemGroup is
+           role="list", so each row is wrapped in a listitem. */
+        <Card className="gap-0 overflow-clip rounded-xl border-foreground/15 bg-muted py-0 shadow-xs">
+          <ItemGroup>
+            {visible.map((summary, index) => (
+              <Fragment key={summary.id}>
+                {index > 0 ? <ItemSeparator className="bg-foreground/10" /> : null}
+                <div role="listitem">
+                  <Item
+                    asChild
+                    className="w-full cursor-pointer rounded-none px-3 py-2.5 text-left hover:bg-foreground/5 focus-visible:ring-inset"
+                  >
+                    <button type="button" onClick={() => setSelectedId(summary.id)}>
+                      <ItemContent className="min-w-0">
+                        <ItemTitle className="font-bold">{summary.name}</ItemTitle>
+                        <ItemDescription className="text-xs">
+                          {zoneLabel(summary.primaryZone)} · {formatClock(summary.durationSec)}
+                          {summary.estTSS !== null ? ` · ${Math.round(summary.estTSS)} TSS` : ""}
+                        </ItemDescription>
+                      </ItemContent>
+                      <ItemActions>
+                        <ChevronRight className="size-4 text-muted-foreground" />
+                      </ItemActions>
+                    </button>
+                  </Item>
+                </div>
+              </Fragment>
+            ))}
+          </ItemGroup>
+        </Card>
+      ) : null}
     </>
   );
 
   const renderDetail = (): ReactElement => {
-    const ready = detail !== null && compiled !== null;
-    const totalDurationSec = compiled?.durationSec ?? 0;
-    const avgWatts = compiled ? averageTargetWatts(compiled.intervals) : null;
-    const maxWatts = compiled
-      ? Math.max(
-          50,
-          ...compiled.intervals.flatMap((interval) => [
-            interval.targetPowerWatts ?? 0,
-            interval.targetPowerWattsEnd ?? 0
-          ])
-        )
-      : 0;
-    const canStart = ready && !busy && connectedTrainerDeviceId !== null;
-
-    return (
-      <>
-        <DialogHeader className="flex-row items-center justify-between gap-2 flex-wrap space-y-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            {detail ? <span className={zoneTagClassName}>{zoneLabel(detail.primaryZone)}</span> : null}
-            <DialogTitle>{detail?.name ?? "Loading…"}</DialogTitle>
-          </div>
-          <DialogClose asChild>
-            <Button type="button" variant="ghost" size="icon" aria-label="Close">
-              <X />
+    if (detail === null || compiled === null) {
+      return (
+        <>
+          <DialogHeader>
+            <DialogTitle>{detailError ? "Couldn't load workout" : "Loading…"}</DialogTitle>
+            <DialogDescription>
+              {detailError ?? `Compiling at your FTP of ${ftp} W…`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end">
+            <Button type="button" variant="outline" onClick={() => setSelectedId(null)}>
+              Back
             </Button>
-          </DialogClose>
-        </DialogHeader>
+          </div>
+        </>
+      );
+    }
 
-        {detailError ? (
-          <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{detailError}</p>
-        ) : null}
-
-        {ready ? (
-          <>
-            <div className="grid grid-cols-5 gap-0.5 bg-[color:var(--color-divider)] border-2 border-[color:var(--color-divider)]">
-              <div className={tileClassName}>
-                <h6 className="text-[11px]">Duration</h6>
-                <div className={tileValueClassName}>{formatClock(totalDurationSec)}</div>
-              </div>
-              <div className={tileClassName}>
-                <h6 className="text-[11px]">Avg power</h6>
-                <div className={tileValueClassName}>
-                  {avgWatts ?? "—"}
-                  {avgWatts !== null ? <span className="text-[13px] font-semibold">W</span> : null}
-                </div>
-              </div>
-              <div className={tileClassName}>
-                <h6 className="text-[11px]">Intensity</h6>
-                <div className={tileValueClassName}>
-                  {compiled?.estIF !== null && compiled?.estIF !== undefined
-                    ? compiled.estIF.toFixed(2)
-                    : "—"}
-                </div>
-              </div>
-              <div className={tileClassName}>
-                <h6 className="text-[11px]">TSS</h6>
-                <div className={tileValueClassName}>
-                  {compiled?.estTSS !== null && compiled?.estTSS !== undefined
-                    ? Math.round(compiled.estTSS)
-                    : "—"}
-                </div>
-              </div>
-              <div className={tileClassName}>
-                <h6 className="text-[11px]">Blocks</h6>
-                <div className={tileValueClassName}>{compiled?.intervals.length ?? 0}</div>
-              </div>
-            </div>
-
-            {detail?.document.description ? (
-              <p className="m-0 text-sm opacity-85">{detail.document.description}</p>
-            ) : null}
-
-            <div>
-              <h6>Workout timeline</h6>
-              <div className="relative">
-                <div className="absolute top-2 left-2 z-[1] text-xs font-extrabold">
-                  {Math.round(maxWatts)} W peak · FTP {ftp} W
-                </div>
-                {compiled ? (
-                  <WorkoutTimelineChart
-                    intervals={compiled.intervals}
-                    elapsedSec={0}
-                    currentIndex={null}
-                    actualPowerWatts={null}
-                  />
-                ) : null}
-              </div>
-            </div>
-
-            <div>
-              <h6>Segments</h6>
-              <ol className="m-0 flex flex-col gap-1 pl-4 text-[13px]">
-                {detail?.document.segments.map((segment, index) => (
-                  <li key={index}>{describeSegment(segment)}</li>
-                ))}
-              </ol>
-            </div>
-          </>
-        ) : detailError === null ? (
-          <p className="m-0 flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
-            Compiling at {ftp} W…
-          </p>
-        ) : null}
-
-        {error ? <p className="m-0 text-[13px] text-[color:var(--color-accent-700)]">{error}</p> : null}
-
-        <DialogFooter>
-          {connectedTrainerDeviceId === null ? (
-            <span className="mr-auto flex items-center gap-1.5 text-[11px] text-[color:color-mix(in_srgb,var(--color-text)_50%,transparent)]">
-              Connect a trainer to start
-            </span>
-          ) : null}
-          <Button type="button" variant="outline" disabled={busy} onClick={() => setSelectedId(null)}>
-            Back
-          </Button>
-          <Button
-            type="button"
-            className="min-w-[150px]"
-            disabled={!canStart}
-            onClick={() =>
-              detail && compiled ? onStartAdhoc(detail.id, detail.name, compiled.intervals) : undefined
-            }
-          >
-            Start now
-          </Button>
-        </DialogFooter>
-      </>
+    // The bank's own preview is the same component a plan day opens, so the
+    // two entry points can't drift apart again; the bank adds its segment list.
+    return (
+      <WorkoutPreviewContent
+        name={detail.name}
+        typeLabel={zoneLabel(detail.primaryZone)}
+        description={detail.document.description ?? null}
+        intervals={compiled.intervals}
+        intensityFactor={compiled.estIF}
+        storedTSS={compiled.estTSS}
+        zoneFtp={ftp}
+        connectedTrainerDeviceId={connectedTrainerDeviceId}
+        busy={busy}
+        error={error}
+        onStart={() => onStartAdhoc(detail.id, detail.name, compiled.intervals)}
+        startLabel="Start now"
+        secondaryLabel="Back"
+        onSecondary={() => setSelectedId(null)}
+      >
+        {/* Collapsed by default so the preview still fits without scrolling. */}
+        <Collapsible>
+          <CollapsibleTrigger asChild>
+            <Button type="button" variant="ghost" size="sm" className="group/segments -ml-2 text-muted-foreground">
+              <ChevronDown className="transition-transform group-data-[state=open]/segments:rotate-180" />
+              {detail.document.segments.length} segment{detail.document.segments.length === 1 ? "" : "s"}
+            </Button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <ol className="m-0 mt-1 flex flex-col gap-1 rounded-xl border border-foreground/15 bg-muted py-3 pr-3 pl-8 text-[13px]">
+              {detail.document.segments.map((segment, index) => (
+                <li key={index}>{describeSegment(segment)}</li>
+              ))}
+            </ol>
+          </CollapsibleContent>
+        </Collapsible>
+      </WorkoutPreviewContent>
     );
   };
 
@@ -405,10 +324,7 @@ export const WorkoutBankBrowser = ({
         if (!next) onClose();
       }}
     >
-      <DialogContent
-        showCloseButton={false}
-        className="max-h-[calc(100vh-2rem)] gap-3 overflow-y-auto sm:max-w-[720px]"
-      >
+      <DialogContent className={previewDialogClassName}>
         {selectedId === null ? renderList() : renderDetail()}
       </DialogContent>
     </Dialog>
