@@ -93,7 +93,8 @@ export const PowerCard = ({
         right={
           zone ? (
             <Badge variant="outline" className="gap-1.5 bg-background">
-              <span aria-hidden className="size-2 rounded-full" style={{ background: zone.color }} />Z{zone.id} {zone.name}
+              <span aria-hidden className="size-2 rounded-full" style={{ background: zone.color }} />
+              {zone.name}
             </Badge>
           ) : null
         }

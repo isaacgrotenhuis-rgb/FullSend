@@ -6,8 +6,9 @@
  * adds each zone's numeric band + label. Intensity metrics (estIF / estTSS) live
  * in `@shared/fsw` (`deriveFswMetrics`) — do not re-add them here.
  *
- * Not yet imported: consumed by the Workout Bank UI and zone-configurable
- * generator work (follow-ups to the bank slice).
+ * Also the single source for the renderer's zone display (renderer/src/zones.ts):
+ * workout-chart shading, the in-ride zone badge and time-in-zone all use these
+ * bands and labels.
  */
 import { FSW_PRIMARY_ZONES, type FswPrimaryZone } from "@shared/fsw";
 
