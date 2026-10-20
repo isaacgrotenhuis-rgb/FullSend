@@ -95,11 +95,11 @@ export const WorkoutProfileChart = ({
     // Headroom above the taller of the peak and the FTP line, so both stay inside the frame.
     const maxWatts = Math.max(100, peakWatts, ftpWatts ?? 0) * 1.12;
 
-    const zoneSeconds = new Map<number, number>();
+    const zoneSeconds = new Map<PowerZone["key"], number>();
     let freeRideSec = 0;
     for (const block of blocks) {
       if (block.startWatts === null) freeRideSec += block.durationSec;
-      else if (block.zone) zoneSeconds.set(block.zone.id, (zoneSeconds.get(block.zone.id) ?? 0) + block.durationSec);
+      else if (block.zone) zoneSeconds.set(block.zone.key, (zoneSeconds.get(block.zone.key) ?? 0) + block.durationSec);
     }
     return { blocks, durationSec, maxWatts, zoneSeconds, freeRideSec };
   }, [intervals, ftpWatts]);
@@ -140,7 +140,7 @@ export const WorkoutProfileChart = ({
   const active = activeIndex !== null ? blocks[activeIndex] : null;
   const activeCenterPct = active ? pct(active.startSec + active.durationSec / 2) : 0;
   const ftpPct = ftpWatts ? heightPct(ftpWatts) : null;
-  const zonesUsed = live ? [] : powerZones.filter((zone) => zoneSeconds.has(zone.id));
+  const zonesUsed = live ? [] : powerZones.filter((zone) => zoneSeconds.has(zone.key));
 
   const elapsedPct = live ? Math.min(100, pct(live.elapsedSec)) : 0;
   // Actual power, averaged into at most maxTracePoints buckets so a long ride
@@ -300,7 +300,7 @@ export const WorkoutProfileChart = ({
               <span className="font-bold">{kindLabels[active.kind]}</span>
               {active.zone ? (
                 <span className={mutedText}>
-                  Z{active.zone.id} {active.zone.name}
+                  {active.zone.name}
                 </span>
               ) : null}
             </div>
@@ -339,18 +339,16 @@ export const WorkoutProfileChart = ({
         <div className="mt-3 flex flex-col gap-2">
           <div className="flex h-2 gap-0.5 overflow-hidden rounded-full" aria-hidden>
             {zonesUsed.map((zone) => (
-              <span key={zone.id} style={{ flexGrow: zoneSeconds.get(zone.id), background: zone.color }} />
+              <span key={zone.key} style={{ flexGrow: zoneSeconds.get(zone.key), background: zone.color }} />
             ))}
             {freeRideSec > 0 ? <span style={{ flexGrow: freeRideSec, background: freeRideColor }} /> : null}
           </div>
           <ul className="m-0 flex list-none flex-wrap gap-x-4 gap-y-1 p-0 text-xs" aria-label="Time in zone">
             {zonesUsed.map((zone) => (
-              <li key={zone.id} className="flex items-center gap-1.5">
+              <li key={zone.key} className="flex items-center gap-1.5">
                 <span aria-hidden className="h-2.5 w-2.5 rounded-[3px]" style={{ background: zone.color }} />
-                <span className="font-semibold">
-                  Z{zone.id} {zone.name}
-                </span>
-                <span className={cn("tabular-nums", mutedText)}>{formatMinutes(zoneSeconds.get(zone.id) ?? 0)}</span>
+                <span className="font-semibold">{zone.name}</span>
+                <span className={cn("tabular-nums", mutedText)}>{formatMinutes(zoneSeconds.get(zone.key) ?? 0)}</span>
               </li>
             ))}
             {freeRideSec > 0 ? (

@@ -1,24 +1,28 @@
+import { ZONE_KEYS, ZONES, zoneForFraction, type Zone } from "@shared/zones";
+
 /**
- * Coggan-style power zones as a fraction of FTP, used to shade workout blocks.
- * Upper bounds are exclusive; the last zone is open-ended.
+ * Display model for the app's training zones. The bands and labels come from
+ * `@shared/zones` — the same eight zones the plan generator, workout bank
+ * badges and bank filter chips use — so a block the chart calls "Sweet Spot"
+ * is the same Sweet Spot everywhere. This module only adds a colour per zone.
  */
 export type PowerZone = {
-  id: number;
+  key: Zone;
+  /** 1-based position in ZONE_KEYS, light → dark on the colour ramp. */
+  index: number;
   name: string;
-  /** Upper bound as a fraction of FTP. */
-  maxFraction: number;
   color: string;
 };
 
-export const powerZones: PowerZone[] = [
-  { id: 1, name: "Recovery", maxFraction: 0.55, color: "var(--color-zone-1)" },
-  { id: 2, name: "Endurance", maxFraction: 0.76, color: "var(--color-zone-2)" },
-  { id: 3, name: "Tempo", maxFraction: 0.91, color: "var(--color-zone-3)" },
-  { id: 4, name: "Threshold", maxFraction: 1.06, color: "var(--color-zone-4)" },
-  { id: 5, name: "VO2 max", maxFraction: 1.21, color: "var(--color-zone-5)" },
-  { id: 6, name: "Anaerobic", maxFraction: Number.POSITIVE_INFINITY, color: "var(--color-zone-6)" }
-];
+export const powerZones: PowerZone[] = ZONE_KEYS.map((key, i) => ({
+  key,
+  index: i + 1,
+  name: ZONES[key].label,
+  color: `var(--color-zone-${i + 1})`
+}));
 
 /** The zone a target wattage falls in for a given FTP. */
-export const zoneFor = (watts: number, ftpWatts: number): PowerZone =>
-  powerZones.find((zone) => watts / ftpWatts < zone.maxFraction) ?? powerZones[powerZones.length - 1];
+export const zoneFor = (watts: number, ftpWatts: number): PowerZone => {
+  const key = zoneForFraction(watts / ftpWatts);
+  return powerZones.find((zone) => zone.key === key) ?? powerZones[powerZones.length - 1];
+};
