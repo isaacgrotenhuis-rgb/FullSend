@@ -72,6 +72,13 @@ describe("WorkoutBankService", () => {
     expect(detail.document.segments).toHaveLength(1);
   });
 
+  it("rejects a duplicate id with a readable message instead of a SQLite constraint error", () => {
+    service.createBankWorkout(freerideOnly, "user");
+    expect(() => service.createBankWorkout({ ...freerideOnly, name: "Other" }, "user")).toThrow(
+      'A workout with the id "skills-only" is already in the bank'
+    );
+  });
+
   it("compileAndPersist stamps preview metadata (description, tags, estTSS) on the compiled workout", () => {
     const doc: FswDocument = {
       schemaVersion: 1,

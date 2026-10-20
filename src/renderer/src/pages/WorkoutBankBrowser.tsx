@@ -1,5 +1,5 @@
-import { Fragment, useEffect, useMemo, useState, type ReactElement } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactElement } from "react";
+import { ChevronDown, ChevronRight, Copy, Pencil, Plus } from "lucide-react";
 import type {
   BankWorkoutDetail,
   BankWorkoutSummary,
@@ -9,13 +9,26 @@ import type {
   WorkoutInterval
 } from "@shared/ipc/contracts";
 import { ZONES } from "@shared/zones";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle
+} from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemSeparator, ItemTitle } from "@/components/ui/item";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatClock } from "../WorkoutTimelineChart";
+import { WorkoutBuilder, type BuilderMode } from "./WorkoutBuilder";
 import { previewDialogClassName, WorkoutPreviewContent } from "./WorkoutPreviewDialog";
 
 type Props = {
@@ -101,16 +114,27 @@ export const WorkoutBankBrowser = ({
   const [detail, setDetail] = useState<BankWorkoutDetail | null>(null);
   const [compiled, setCompiled] = useState<CompileBankWorkoutResult | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // Bumped after an edit is saved so the detail view re-reads the same id.
+  const [detailVersion, setDetailVersion] = useState(0);
+
+  // The builder replaces the list/detail view while it's open.
+  const [builder, setBuilder] = useState<{ mode: BuilderMode; source: BankWorkoutDetail | null } | null>(null);
+  const [builderDirty, setBuilderDirty] = useState(false);
+  // Set while "Discard changes?" is showing; runs if the rider confirms.
+  const [pendingDiscard, setPendingDiscard] = useState<(() => void) | null>(null);
+
+  const loadSummaries = useCallback(async (): Promise<void> => {
+    try {
+      setSummaries(await window.kickr.workoutBank.list({}));
+      setListError(null);
+    } catch (err) {
+      setListError(err instanceof Error ? err.message : "Could not load the workout bank");
+    }
+  }, []);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        setSummaries(await window.kickr.workoutBank.list({}));
-      } catch (err) {
-        setListError(err instanceof Error ? err.message : "Could not load the workout bank");
-      }
-    })();
-  }, []);
+    void loadSummaries();
+  }, [loadSummaries]);
 
   useEffect(() => {
     if (selectedId === null) {
@@ -142,7 +166,7 @@ export const WorkoutBankBrowser = ({
     return () => {
       cancelled = true;
     };
-  }, [selectedId, ftp]);
+  }, [selectedId, ftp, detailVersion]);
 
   const allTags = useMemo(
     () => [...new Set(summaries.flatMap((summary) => summary.tags))].sort(),
@@ -165,11 +189,22 @@ export const WorkoutBankBrowser = ({
     [summaries]
   );
 
+  const openBuilder = (mode: BuilderMode, source: BankWorkoutDetail | null): void => {
+    setBuilderDirty(false);
+    setBuilder({ mode, source });
+  };
+
   const renderList = (): ReactElement => (
     <>
-      <DialogHeader>
-        <DialogTitle>Workout Bank</DialogTitle>
-        <DialogDescription>Pick a workout to preview it at your FTP of {ftp} W.</DialogDescription>
+      <DialogHeader className="flex-row items-start justify-between gap-4 pr-8">
+        <div className="flex flex-col gap-2">
+          <DialogTitle>Workout Bank</DialogTitle>
+          <DialogDescription>Pick a workout to preview it at your FTP of {ftp} W.</DialogDescription>
+        </div>
+        <Button type="button" size="sm" onClick={() => openBuilder("create", null)}>
+          <Plus />
+          New workout
+        </Button>
       </DialogHeader>
 
       <div className="flex flex-col gap-2">
@@ -239,7 +274,14 @@ export const WorkoutBankBrowser = ({
                   >
                     <button type="button" onClick={() => setSelectedId(summary.id)}>
                       <ItemContent className="min-w-0">
-                        <ItemTitle className="font-bold">{summary.name}</ItemTitle>
+                        <ItemTitle className="font-bold">
+                          {summary.name}
+                          {summary.source === "user" ? (
+                            <Badge variant="outline" className="font-normal">
+                              Custom
+                            </Badge>
+                          ) : null}
+                        </ItemTitle>
                         <ItemDescription className="text-xs">
                           {zoneLabel(summary.primaryZone)} · {formatClock(summary.durationSec)}
                           {summary.estTSS !== null ? ` · ${Math.round(summary.estTSS)} TSS` : ""}
@@ -298,13 +340,29 @@ export const WorkoutBankBrowser = ({
         onSecondary={() => setSelectedId(null)}
       >
         {/* Collapsed by default so the preview still fits without scrolling. */}
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button type="button" variant="ghost" size="sm" className="group/segments -ml-2 text-muted-foreground">
-              <ChevronDown className="transition-transform group-data-[state=open]/segments:rotate-180" />
-              {detail.document.segments.length} segment{detail.document.segments.length === 1 ? "" : "s"}
-            </Button>
-          </CollapsibleTrigger>
+        <Collapsible className="flex flex-col">
+          <div className="flex items-center justify-between gap-2">
+            <CollapsibleTrigger asChild>
+              <Button type="button" variant="ghost" size="sm" className="group/segments -ml-2 text-muted-foreground">
+                <ChevronDown className="transition-transform group-data-[state=open]/segments:rotate-180" />
+                {detail.document.segments.length} segment{detail.document.segments.length === 1 ? "" : "s"}
+              </Button>
+            </CollapsibleTrigger>
+            {/* Seed workouts are the curated library plans draw from, so they're
+                copied rather than changed; the rider's own can be edited in place. */}
+            <ButtonGroup aria-label="Workout actions">
+              {detail.source === "user" ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => openBuilder("edit", detail)}>
+                  <Pencil />
+                  Edit
+                </Button>
+              ) : null}
+              <Button type="button" variant="outline" size="sm" onClick={() => openBuilder("duplicate", detail)}>
+                <Copy />
+                Duplicate
+              </Button>
+            </ButtonGroup>
+          </div>
           <CollapsibleContent>
             <ol className="m-0 mt-1 flex flex-col gap-1 rounded-xl border border-foreground/15 bg-muted py-3 pr-3 pl-8 text-[13px]">
               {detail.document.segments.map((segment, index) => (
@@ -317,16 +375,84 @@ export const WorkoutBankBrowser = ({
     );
   };
 
+  /** Run `action` now, or after "Discard changes?" if the builder has unsaved edits. */
+  const confirmLeaveBuilder = (action: () => void): void => {
+    if (builder && builderDirty) {
+      setPendingDiscard(() => action);
+    } else {
+      action();
+    }
+  };
+
+  const closeBuilder = (): void => {
+    setBuilder(null);
+    setBuilderDirty(false);
+  };
+
   return (
-    <Dialog
-      open
-      onOpenChange={(next) => {
-        if (!next) onClose();
-      }}
-    >
-      <DialogContent className={previewDialogClassName}>
-        {selectedId === null ? renderList() : renderDetail()}
-      </DialogContent>
-    </Dialog>
+    <>
+      <Dialog
+        open
+        onOpenChange={(next) => {
+          if (!next) confirmLeaveBuilder(onClose);
+        }}
+      >
+        <DialogContent className={previewDialogClassName}>
+          {builder ? (
+            <WorkoutBuilder
+              key={`${builder.mode}:${builder.source?.id ?? "new"}`}
+              mode={builder.mode}
+              source={builder.source}
+              ftp={ftp}
+              takenIds={summaries.map((summary) => summary.id)}
+              onDirtyChange={setBuilderDirty}
+              onCancel={() => confirmLeaveBuilder(closeBuilder)}
+              onSaved={(id) => {
+                closeBuilder();
+                void loadSummaries();
+                setSelectedId(id);
+                setDetailVersion((version) => version + 1);
+              }}
+            />
+          ) : selectedId === null ? (
+            renderList()
+          ) : (
+            renderDetail()
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={pendingDiscard !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDiscard(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard changes?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {builder?.mode === "edit"
+                ? "Your edits to this workout haven't been saved."
+                : "This workout hasn't been saved to the bank yet."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                const action = pendingDiscard;
+                setPendingDiscard(null);
+                closeBuilder();
+                action?.();
+              }}
+            >
+              Discard
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 };

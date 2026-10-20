@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fswDocumentSchema, type FswDocument } from "@shared/ipc/contracts";
-import { compile } from "@main/workout/WorkoutCompiler";
+import { compile } from "@shared/workoutCompiler";
 
 const doc = (partial: Omit<Partial<FswDocument>, "segments"> & Pick<FswDocument, "segments">): FswDocument =>
   fswDocumentSchema.parse({

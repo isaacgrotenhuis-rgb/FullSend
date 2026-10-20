@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Repositories } from "@main/database/repositories";
-import { compile } from "@main/workout/WorkoutCompiler";
+import { compile } from "@shared/workoutCompiler";
 import { deriveFswMetrics } from "@shared/fsw";
 import {
   fswDocumentSchema,
@@ -108,6 +108,10 @@ export class WorkoutBankService {
 
   createBankWorkout(rawDocument: unknown, source = "user"): { id: string } {
     const document = fswDocumentSchema.parse(rawDocument);
+    // The id is the primary key; say so plainly rather than surfacing a SQLite UNIQUE error.
+    if (this.repositories.workoutBank.getById(document.id)) {
+      throw new Error(`A workout with the id "${document.id}" is already in the bank`);
+    }
     const metrics = this.deriveMetrics(document);
     const stored: FswDocument = {
       ...document,
