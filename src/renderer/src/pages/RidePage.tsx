@@ -17,10 +17,23 @@ import {
   DialogTitle
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 // Label import unused while the post-to-Strava checkbox below is disabled.
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
-import { Minus, Pause, Play, Plus, Square, TriangleAlert } from "lucide-react";
+import {
+  CircleCheck,
+  Flag,
+  Minus,
+  Pause,
+  Play,
+  Plus,
+  Save,
+  Square,
+  Trash2,
+  TriangleAlert,
+  Trophy
+} from "lucide-react";
 import { metricColors } from "../RideMetricsChart";
 import { StatStrip } from "../StatStrip";
 import { formatClock } from "../WorkoutTimelineChart";
@@ -131,6 +144,16 @@ export const RidePage = ({
   }, [hasEndedLifecycle, summaryStage]);
 
   const showEndSummary = activeIntervals.length > 0 && summaryStage !== "none";
+
+  // End-of-ride readouts. Average power comes from the trace kept above, since
+  // the saved summary doesn't exist until the rider chooses Save.
+  const lifecycle = workoutSessionState?.lifecycle;
+  const endTone = lifecycle === "completed" ? "done" : lifecycle === "degraded" || lifecycle === "error" ? "warn" : "stopped";
+  const endEyebrow = endTone === "done" ? "Workout complete" : endTone === "warn" ? "Ride interrupted" : "Ride ended early";
+  const completionPct = totalDurationSec > 0 ? Math.min(100, Math.round((elapsedSec / totalDurationSec) * 100)) : 0;
+  const completedIntervals = lifecycle === "completed" ? activeIntervals.length : (currentIndex ?? 0);
+  const avgPowerWatts =
+    powerTrace.length > 0 ? Math.round(powerTrace.reduce((sum, sample) => sum + sample.watts, 0) / powerTrace.length) : null;
 
   const handleDiscard = async (): Promise<void> => {
     await discardWorkout();
@@ -381,30 +404,59 @@ export const RidePage = ({
           onEscapeKeyDown={(event) => event.preventDefault()}
           onInteractOutside={(event) => event.preventDefault()}
         >
-          <DialogHeader>
-            <DialogTitle>{activeWorkoutName ?? "Workout"}</DialogTitle>
-            <DialogDescription>
-              {summaryStage === "saved" ? "Saved" : "Ended"} · {formatClock(elapsedSec)}
-            </DialogDescription>
+          <DialogHeader className="flex-row items-center gap-4 text-left">
+            <div
+              aria-hidden
+              className={cn(
+                "flex size-12 shrink-0 items-center justify-center rounded-xl [&_svg]:size-6",
+                endTone === "warn" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"
+              )}
+            >
+              {summaryStage === "saved" ? <CircleCheck /> : endTone === "warn" ? <TriangleAlert /> : endTone === "done" ? <Trophy /> : <Flag />}
+            </div>
+            <div className="flex min-w-0 flex-col gap-1">
+              <p className="m-0 text-xs font-semibold tracking-wide text-muted-foreground uppercase">
+                {summaryStage === "saved" ? "Saved to history" : endEyebrow}
+              </p>
+              <DialogTitle className="truncate text-xl leading-tight font-extrabold">
+                {activeWorkoutName ?? "Workout"}
+              </DialogTitle>
+              <DialogDescription className="tabular-nums">
+                {formatClock(elapsedSec)} of {formatClock(totalDurationSec)} planned
+              </DialogDescription>
+            </div>
           </DialogHeader>
 
           {summaryStage === "pending" ? (
             <>
+              <div className="flex flex-col gap-2">
+                <div className="flex items-baseline justify-between text-sm">
+                  <span className="font-semibold">Workout completed</span>
+                  <span className="font-extrabold tabular-nums">{completionPct}%</span>
+                </div>
+                <Progress value={completionPct} aria-label="Workout completed" />
+              </div>
               <StatStrip
                 label="Ride so far"
                 stats={[
                   { label: "Time", value: formatClock(elapsedSec) },
-                  { label: "Distance", value: displayLiveDistance, unit: speedUnit === "mph" ? "mi" : "km" }
+                  { label: "Distance", value: displayLiveDistance, unit: speedUnit === "mph" ? "mi" : "km" },
+                  { label: "Avg power", value: avgPowerWatts !== null ? String(avgPowerWatts) : null, unit: "W" },
+                  { label: "Intervals", value: `${completedIntervals}/${activeIntervals.length}` }
                 ]}
               />
-              <p className="m-0 text-sm text-muted-foreground">Save this ride to your history, or discard it.</p>
-              <DialogFooter>
-                <Button variant="outline" disabled={liveWorkoutBusy} onClick={() => void handleDiscard()}>
-                  Discard
-                </Button>
-                <Button disabled={liveWorkoutBusy} onClick={() => void handleSave()}>
-                  Save Workout
-                </Button>
+              <DialogFooter className="-mx-6 -mb-6 items-center rounded-b-lg border-t bg-muted/60 px-6 py-4 sm:justify-between">
+                <p className="m-0 text-xs text-muted-foreground">Discarding can't be undone.</p>
+                <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                  <Button variant="ghost" disabled={liveWorkoutBusy} onClick={() => void handleDiscard()}>
+                    <Trash2 />
+                    Discard
+                  </Button>
+                  <Button disabled={liveWorkoutBusy} onClick={() => void handleSave()}>
+                    <Save />
+                    Save Workout
+                  </Button>
+                </div>
               </DialogFooter>
             </>
           ) : (
@@ -436,7 +488,7 @@ export const RidePage = ({
 
               */}
 
-              <DialogFooter>
+              <DialogFooter className="-mx-6 -mb-6 rounded-b-lg border-t bg-muted/60 px-6 py-4">
                 <Button disabled={liveWorkoutBusy} onClick={() => void finishRide(false)}>
                   Done
                 </Button>
