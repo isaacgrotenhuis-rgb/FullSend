@@ -27,6 +27,7 @@ import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { FitnessTestBriefingDialog } from "./pages/FitnessTestBriefingDialog";
 import type { FitnessTestVariant } from "@shared/fitnessTest";
+import type { ApplyFitnessTestRequest, FitnessTestRecord } from "@shared/ipc/contracts";
 import { ProfilePage, type StravaSectionProps } from "./pages/ProfilePage";
 import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
 import { OnboardingFlow } from "./pages/OnboardingFlow";
@@ -82,6 +83,10 @@ export const App = (): ReactElement => {
   const [profileEmailDraft, setProfileEmailDraft] = useState("");
   const [profileWeightDraft, setProfileWeightDraft] = useState("");
   const [profileFtpDraft, setProfileFtpDraft] = useState("");
+  const [profileMapDraft, setProfileMapDraft] = useState("");
+  const [profileThresholdHrDraft, setProfileThresholdHrDraft] = useState("");
+  const [profileMaxHrDraft, setProfileMaxHrDraft] = useState("");
+  const [fitnessTests, setFitnessTests] = useState<FitnessTestRecord[]>([]);
   const [weightUnit, setWeightUnit] = useWeightUnit();
 
   const [bleState, setBleState] = useState<BleState | null>(null);
@@ -341,6 +346,44 @@ export const App = (): ReactElement => {
     await runWorkoutAction(() => window.kickr.fitnessTest.keepGoing({ sessionId }));
   };
 
+  const refreshFitnessTests = async (): Promise<void> => {
+    try {
+      setFitnessTests(await window.kickr.fitnessTest.list({ limit: 20 }));
+    } catch (error) {
+      console.error("[fitness tests] list failed:", error);
+    }
+  };
+
+  useEffect(() => {
+    if (page === "profile") {
+      void refreshFitnessTests();
+    }
+  }, [page]);
+
+  const openFitnessBriefing = (): void => {
+    setLiveWorkoutError(null);
+    setFitnessBriefingOpen(true);
+  };
+
+  const fetchFitnessTestResult = async (sessionId: string): Promise<FitnessTestRecord> => {
+    const record = await window.kickr.fitnessTest.getResult({ sessionId });
+    void refreshFitnessTests();
+    return record;
+  };
+
+  const applyFitnessTest = async (
+    testId: string,
+    apply: ApplyFitnessTestRequest["apply"]
+  ): Promise<FitnessTestRecord> => {
+    const result = await window.kickr.fitnessTest.apply({ testId, apply });
+    setProfile(result.profile);
+    if (result.profile.ftpWatts != null) {
+      setCurrentFtp(result.profile.ftpWatts);
+    }
+    void refreshFitnessTests();
+    return result.record;
+  };
+
   const seekWorkout = async (positionSec: number): Promise<void> => {
     const sessionId = workoutSessionState?.sessionId;
     if (!sessionId) {
@@ -538,6 +581,9 @@ export const App = (): ReactElement => {
     setProfileEmailDraft(profile?.email ?? "");
     setProfileWeightDraft(profile?.weightKg != null ? fromKg(profile.weightKg, weightUnit).toFixed(1) : "");
     setProfileFtpDraft(profile?.ftpWatts != null ? String(profile.ftpWatts) : String(currentFtp));
+    setProfileMapDraft(profile?.mapWatts != null ? String(profile.mapWatts) : "");
+    setProfileThresholdHrDraft(profile?.thresholdHrBpm != null ? String(profile.thresholdHrBpm) : "");
+    setProfileMaxHrDraft(profile?.maxHrBpm != null ? String(profile.maxHrBpm) : "");
     setProfileError(null);
     setProfileEditing(true);
   };
@@ -563,11 +609,27 @@ export const App = (): ReactElement => {
       if (ftpValue !== null && !Number.isFinite(ftpValue)) {
         throw new Error("FTP must be a number.");
       }
+      // Optional whole numbers within the profile's bounds (contracts.userProfileSchema).
+      const parseOptional = (draft: string, label: string, min: number, max: number): number | null => {
+        const trimmed = draft.trim();
+        if (trimmed === "") return null;
+        const value = Number(trimmed);
+        if (!Number.isFinite(value) || value < min || value > max) {
+          throw new Error(`${label} must be a number between ${min} and ${max}.`);
+        }
+        return Math.round(value);
+      };
+      const mapValue = parseOptional(profileMapDraft, "MAP", 100, 1000);
+      const thresholdHrValue = parseOptional(profileThresholdHrDraft, "Threshold heart rate", 80, 220);
+      const maxHrValue = parseOptional(profileMaxHrDraft, "Max heart rate", 100, 230);
       await applyProfileUpdate({
         name: trimmedName === "" ? null : trimmedName,
         email: trimmedEmail === "" ? null : trimmedEmail,
         weightKg: weightValue !== null ? toKg(weightValue, weightUnit) : null,
-        ftpWatts: ftpValue !== null ? Math.round(ftpValue) : null
+        ftpWatts: ftpValue !== null ? Math.round(ftpValue) : null,
+        mapWatts: mapValue,
+        thresholdHrBpm: thresholdHrValue,
+        maxHrBpm: maxHrValue
       });
       setProfileEditing(false);
     } catch (error) {
@@ -735,6 +797,9 @@ export const App = (): ReactElement => {
           adjustIntensity={adjustIntensity}
           endFitnessTestRamp={endFitnessTestRamp}
           keepGoingFitnessTest={keepGoingFitnessTest}
+          fetchFitnessTestResult={fetchFitnessTestResult}
+          applyFitnessTest={applyFitnessTest}
+          profile={profile}
           rampDurationInput={rampDurationInput}
           setRampDurationInput={setRampDurationInput}
           applyRampDuration={applyRampDuration}
@@ -803,11 +868,18 @@ export const App = (): ReactElement => {
             setWeightUnit,
             ftpDraft: profileFtpDraft,
             setFtpDraft: setProfileFtpDraft,
+            mapDraft: profileMapDraft,
+            setMapDraft: setProfileMapDraft,
+            thresholdHrDraft: profileThresholdHrDraft,
+            setThresholdHrDraft: setProfileThresholdHrDraft,
+            maxHrDraft: profileMaxHrDraft,
+            setMaxHrDraft: setProfileMaxHrDraft,
             startEdit: startProfileEdit,
             cancelEdit: cancelProfileEdit,
             save: saveProfile
           }}
           strava={stravaSectionProps}
+          fitness={{ tests: fitnessTests, onTakeTest: openFitnessBriefing }}
         />
       ) : (
         <HomePage
@@ -818,10 +890,7 @@ export const App = (): ReactElement => {
           weeks={weeks}
           previewWorkoutForDay={previewWorkoutForDay}
           onNavigateToPlan={() => setPage("plan")}
-          onStartFitnessTest={() => {
-            setLiveWorkoutError(null);
-            setFitnessBriefingOpen(true);
-          }}
+          onStartFitnessTest={openFitnessBriefing}
         />
       )}
 

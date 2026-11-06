@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import type {
+  ApplyFitnessTestRequest,
+  FitnessTestRecord,
+  UserProfile,
   WorkoutInterval,
   WorkoutSessionState,
   WorkoutSessionSummary,
@@ -44,6 +47,7 @@ import { KMH_TO_MPH, useSpeedUnit, type SpeedUnit } from "../speedUnit";
 import { WorkoutSummaryView } from "../WorkoutSummaryView";
 import { activeCueAt, fillCue } from "../cues";
 import { FitnessTestPanel } from "./FitnessTestPanel";
+import { FitnessTestResults } from "./FitnessTestResults";
 import { BigValue, CardLabel, IntervalCard, PowerCard, RideCard } from "./RideMetricCards";
 
 type Props = {
@@ -68,6 +72,11 @@ type Props = {
   /** Fitness test only: end the ramp now / cancel the ramp-complete countdown. */
   endFitnessTestRamp?: () => Promise<void>;
   keepGoingFitnessTest?: () => Promise<void>;
+  /** Fitness test only: score the saved test, and apply its result to the profile. */
+  fetchFitnessTestResult?: (sessionId: string) => Promise<FitnessTestRecord>;
+  applyFitnessTest?: (testId: string, apply: ApplyFitnessTestRequest["apply"]) => Promise<FitnessTestRecord>;
+  /** Current profile, for the results' "from → to". */
+  profile?: UserProfile | null;
   rampDurationInput: string;
   setRampDurationInput: (value: string) => void;
   applyRampDuration: () => Promise<void>;
@@ -92,6 +101,9 @@ export const RidePage = ({
   adjustIntensity,
   endFitnessTestRamp = async () => {},
   keepGoingFitnessTest = async () => {},
+  fetchFitnessTestResult,
+  applyFitnessTest,
+  profile = null,
   rampDurationInput,
   setRampDurationInput,
   applyRampDuration
@@ -105,6 +117,10 @@ export const RidePage = ({
   const [speedUnit, setSpeedUnit] = useSpeedUnit();
   const [telemetrySeries, setTelemetrySeries] = useState<WorkoutSessionTelemetrySamples | null>(null);
   const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [testRecord, setTestRecord] = useState<FitnessTestRecord | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testApplying, setTestApplying] = useState(false);
 
   const totalDurationSec = activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0);
   // Ride clock (moving time) vs. where the rider is in the workout: they differ
@@ -175,7 +191,15 @@ export const RidePage = ({
   // the saved summary doesn't exist until the rider chooses Save.
   const lifecycle = workoutSessionState?.lifecycle;
   const endTone = lifecycle === "completed" ? "done" : lifecycle === "degraded" || lifecycle === "error" ? "warn" : "stopped";
-  const endEyebrow = endTone === "done" ? "Workout complete" : endTone === "warn" ? "Ride interrupted" : "Ride ended early";
+  const testDone = fitnessTest?.rampEnded === true;
+  const endEyebrow =
+    endTone === "warn"
+      ? "Ride interrupted"
+      : testDone
+        ? "Test complete"
+        : endTone === "done"
+          ? "Workout complete"
+          : "Ride ended early";
   const completionPct = totalDurationSec > 0 ? Math.min(100, Math.round((positionSec / totalDurationSec) * 100)) : 0;
   const completedIntervals = lifecycle === "completed" ? activeIntervals.length : (currentIndex ?? 0);
   const avgPowerWatts =
@@ -185,11 +209,42 @@ export const RidePage = ({
     await discardWorkout();
   };
 
+  const loadTestResult = async (savedSessionId: string): Promise<void> => {
+    if (!fetchFitnessTestResult) return;
+    setTestLoading(true);
+    setTestError(null);
+    try {
+      setTestRecord(await fetchFitnessTestResult(savedSessionId));
+    } catch (error) {
+      console.error("[fitness test] scoring failed:", error);
+      setTestError(error instanceof Error ? error.message : "Couldn't score this test.");
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
+  const handleApplyTest = async (apply: ApplyFitnessTestRequest["apply"]): Promise<void> => {
+    if (!testRecord || !applyFitnessTest) return;
+    setTestApplying(true);
+    setTestError(null);
+    try {
+      setTestRecord(await applyFitnessTest(testRecord.id, apply));
+    } catch (error) {
+      console.error("[fitness test] apply failed:", error);
+      setTestError(error instanceof Error ? error.message : "Couldn't apply the result.");
+    } finally {
+      setTestApplying(false);
+    }
+  };
+
   const handleSave = async (): Promise<void> => {
     const summary = await saveWorkout();
     if (summary) {
       setSavedSummary(summary);
       setSummaryStage("saved");
+      if (fitnessTest) {
+        void loadTestResult(summary.sessionId);
+      }
       setTelemetryLoading(true);
       try {
         const series = await fetchSessionTelemetry(summary.sessionId);
@@ -551,6 +606,19 @@ export const RidePage = ({
             </>
           ) : (
             <>
+              {fitnessTest ? (
+                <FitnessTestResults
+                  record={testRecord}
+                  loading={testLoading}
+                  error={testRecord ? null : testError}
+                  profile={profile}
+                  applying={testApplying}
+                  onApply={(apply) => void handleApplyTest(apply)}
+                />
+              ) : null}
+              {fitnessTest && testRecord && testError ? (
+                <p className="m-0 text-sm text-destructive">{testError}</p>
+              ) : null}
               {savedSummary ? (
                 <WorkoutSummaryView
                   summary={savedSummary}

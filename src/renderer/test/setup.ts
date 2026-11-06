@@ -113,7 +113,7 @@ const createApiStub = (): KickrDesktopApi => ({
     "unassignWorkoutFromPlanDay",
     "listPlanWeeks"
   ]),
-  fitnessTest: namespace<KickrDesktopApi["fitnessTest"]>("fitnessTest", ["start", "endRamp", "keepGoing"]),
+  fitnessTest: namespace<KickrDesktopApi["fitnessTest"]>("fitnessTest", ["start", "endRamp", "keepGoing", "getResult", "apply", "list"]),
   workoutBank: namespace<KickrDesktopApi["workoutBank"]>("workoutBank", [
     "list",
     "get",

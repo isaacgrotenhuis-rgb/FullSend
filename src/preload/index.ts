@@ -79,7 +79,10 @@ const api: KickrDesktopApi = {
   fitnessTest: {
     start: async (request) => ipcRenderer.invoke(ipcChannels.fitnessTest.start, request),
     endRamp: async (request) => ipcRenderer.invoke(ipcChannels.fitnessTest.endRamp, request),
-    keepGoing: async (request) => ipcRenderer.invoke(ipcChannels.fitnessTest.keepGoing, request)
+    keepGoing: async (request) => ipcRenderer.invoke(ipcChannels.fitnessTest.keepGoing, request),
+    getResult: async (request) => ipcRenderer.invoke(ipcChannels.fitnessTest.getResult, request),
+    apply: async (request) => ipcRenderer.invoke(ipcChannels.fitnessTest.apply, request),
+    list: async (request) => ipcRenderer.invoke(ipcChannels.fitnessTest.list, request ?? {})
   },
   workoutBank: {
     list: async (request) => ipcRenderer.invoke(ipcChannels.workoutBank.list, request ?? {}),

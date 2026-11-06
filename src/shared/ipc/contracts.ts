@@ -46,7 +46,10 @@ export const ipcChannels = {
   fitnessTest: {
     start: "fitness-test:start",
     endRamp: "fitness-test:end-ramp",
-    keepGoing: "fitness-test:keep-going"
+    keepGoing: "fitness-test:keep-going",
+    getResult: "fitness-test:get-result",
+    apply: "fitness-test:apply",
+    list: "fitness-test:list"
   },
   workoutLibrary: {
     createWorkout: "workout-library:create-workout",
@@ -392,6 +395,69 @@ export const fitnessTestLiveStateSchema = z.object({
 export const startFitnessTestRequestSchema = z.object({
   deviceId: z.string().min(1),
   variant: fitnessTestVariantSchema
+});
+
+export const fitnessTestFlagSchema = z.object({
+  code: z.string(),
+  severity: z.enum(["blocking", "warning", "info"]),
+  message: z.string()
+});
+
+/** Mirrors FitnessTestResult in @shared/fitnessTest. */
+export const fitnessTestResultSchema = z.object({
+  variant: fitnessTestVariantSchema,
+  valid: z.boolean(),
+  flags: z.array(fitnessTestFlagSchema),
+  rampStepsCompleted: z.number().int().min(0),
+  mapWatts: z.number().nullable(),
+  ftpRampWatts: z.number().nullable(),
+  ftpCappedWatts: z.number().nullable(),
+  ftpWatts: z.number().nullable(),
+  ftpSource: z.enum(["capped", "ramp"]).nullable(),
+  thresholdHrBpm: z.number().nullable(),
+  maxHrBpm: z.number().nullable(),
+  hrCapBpm: z.number().nullable(),
+  ftpWattsPerKg: z.number().nullable(),
+  mapWattsPerKg: z.number().nullable(),
+  vo2maxEst: z.number().nullable(),
+  ftpToMapRatio: z.number().nullable(),
+  riderProfile: z.enum(["anaerobic", "balanced", "aerobic"]).nullable(),
+  powerZones: z.array(
+    z.object({ key: z.string(), label: z.string(), minWatts: z.number(), maxWatts: z.number().nullable() })
+  ),
+  hrZones: z
+    .array(z.object({ key: z.string(), label: z.string(), minBpm: z.number(), maxBpm: z.number().nullable() }))
+    .nullable(),
+  changes: z
+    .object({
+      mapWatts: z.number().nullable(),
+      ftpWatts: z.number().nullable(),
+      thresholdHrBpm: z.number().nullable()
+    })
+    .nullable(),
+  insights: z.array(z.string())
+});
+
+export const fitnessTestRecordSchema = z.object({
+  id: z.string().min(1),
+  sessionId: z.string().min(1),
+  takenAt: z.string(),
+  appliedAt: z.string().nullable(),
+  result: fitnessTestResultSchema
+});
+
+export const fitnessTestResultRequestSchema = z.object({ sessionId: z.string().min(1) });
+export const listFitnessTestsRequestSchema = z.object({ limit: z.number().int().min(1).max(100).optional() });
+export const fitnessTestRecordsSchema = z.array(fitnessTestRecordSchema);
+
+export const applyFitnessTestRequestSchema = z.object({
+  testId: z.string().min(1),
+  apply: z.object({
+    ftp: z.boolean(),
+    map: z.boolean(),
+    thresholdHr: z.boolean(),
+    maxHr: z.boolean()
+  })
 });
 
 export const startFitnessTestResultSchema = z.object({
@@ -853,6 +919,12 @@ export const updateProfileRequestSchema = z.object({
 
 export const completeOnboardingRequestSchema = z.object({});
 
+export const applyFitnessTestResultSchema = z.object({
+  profile: userProfileSchema,
+  record: fitnessTestRecordSchema
+});
+export type ApplyFitnessTestResult = z.infer<typeof applyFitnessTestResultSchema>;
+
 export const bleDeviceListResultSchema = z.array(bleDeviceSchema);
 export const workoutSummariesSchema = z.array(workoutSummarySchema);
 export const planWeekSummariesSchema = z.array(planWeekSummarySchema);
@@ -895,6 +967,10 @@ export type WorkoutPauseReason = z.infer<typeof workoutPauseReasonSchema>;
 export type FitnessTestLiveState = z.infer<typeof fitnessTestLiveStateSchema>;
 export type StartFitnessTestRequest = z.infer<typeof startFitnessTestRequestSchema>;
 export type StartFitnessTestResult = z.infer<typeof startFitnessTestResultSchema>;
+export type FitnessTestRecord = z.infer<typeof fitnessTestRecordSchema>;
+export type FitnessTestResultRequest = z.infer<typeof fitnessTestResultRequestSchema>;
+export type ListFitnessTestsRequest = z.infer<typeof listFitnessTestsRequestSchema>;
+export type ApplyFitnessTestRequest = z.infer<typeof applyFitnessTestRequestSchema>;
 export type WorkoutSessionLifecycle = z.infer<typeof workoutSessionLifecycleSchema>;
 export type WorkoutLiveMetrics = z.infer<typeof workoutLiveMetricsSchema>;
 export type WorkoutSessionState = z.infer<typeof workoutSessionStateSchema>;

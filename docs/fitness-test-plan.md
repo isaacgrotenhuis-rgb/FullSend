@@ -325,7 +325,10 @@ A manual stop of a test is not an abort: the session completes with reason
    - cue support
    - briefing dialog
    - capped-effort HR gauge
-4. **Results + apply**
+4. **Results + apply** — *implemented 2026-11-05. Not done: recompiling
+   already-generated plan workouts at the new FTP (bank workouts compile at
+   start with the current FTP, so they pick it up), and a Home nudge based on
+   the last test's age.*
    - results dialog
    - apply flow + `metrics_snapshots` + recompile
    - Profile "Fitness" section, Home card, onboarding hook

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { BleService } from "@main/ble/types";
 import type { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import type { FitnessTestController } from "@main/workout/FitnessTestController";
+import type { FitnessTestService } from "@main/fitness/FitnessTestService";
 import type { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
 import type { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
@@ -72,6 +73,12 @@ import {
   workoutSessionSeekRequestSchema,
   startFitnessTestRequestSchema,
   startFitnessTestResultSchema,
+  fitnessTestResultRequestSchema,
+  fitnessTestRecordSchema,
+  fitnessTestRecordsSchema,
+  listFitnessTestsRequestSchema,
+  applyFitnessTestRequestSchema,
+  applyFitnessTestResultSchema,
   workoutSessionStartResultSchema,
   workoutSessionStateSchema,
   workoutSessionSummarySchema,
@@ -96,7 +103,8 @@ export const registerIpcHandlers = (
   stravaService: StravaService,
   workoutRecapService: WorkoutRecapService,
   profileService: ProfileService,
-  fitnessTestController: FitnessTestController
+  fitnessTestController: FitnessTestController,
+  fitnessTestService: FitnessTestService
 ): (() => void) => {
   const bleSubscribers = new Set<WebContents>();
   const workoutSubscribers = new Set<WebContents>();
@@ -262,6 +270,21 @@ export const registerIpcHandlers = (
       });
       return { ok: true, sessionId, name: plan.name, intervals: plan.intervals };
     }
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.getResult,
+    fitnessTestResultRequestSchema,
+    fitnessTestRecordSchema,
+    (_event, input) => fitnessTestService.getOrScore(input.sessionId)
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.apply,
+    applyFitnessTestRequestSchema,
+    applyFitnessTestResultSchema,
+    (_event, input) => fitnessTestService.apply(input)
+  );
+  safeHandle(ipcChannels.fitnessTest.list, listFitnessTestsRequestSchema, fitnessTestRecordsSchema, (_event, input) =>
+    fitnessTestService.list(input.limit)
   );
   safeHandle(
     ipcChannels.fitnessTest.endRamp,

@@ -301,6 +301,10 @@ export class WorkoutSessionsRepository extends BaseRepository {
     return this.db.prepare(`${this.recapSelect} AND ws.id = ?`).get(sessionId) as Row | undefined;
   }
 
+  getById(id: string): Row | undefined {
+    return this.db.prepare("SELECT * FROM workout_sessions WHERE id = ?").get(id) as Row | undefined;
+  }
+
   deleteById(id: string): void {
     this.db.prepare("DELETE FROM strava_sync_events WHERE session_id = ?").run(id);
     this.db.prepare("DELETE FROM workout_sessions WHERE id = ?").run(id);
@@ -319,6 +323,15 @@ export class WorkoutSessionEventsRepository extends BaseRepository {
         "INSERT INTO workout_session_events (id, session_id, event_type, payload_json) VALUES (?, ?, ?, ?)"
       )
       .run(input.id, input.sessionId, input.eventType, input.payloadJson);
+  }
+
+  /** A session's events in the order they were written. */
+  listBySession(sessionId: string): Array<{ eventType: string; payloadJson: string }> {
+    return this.db
+      .prepare(
+        "SELECT event_type AS eventType, payload_json AS payloadJson FROM workout_session_events WHERE session_id = ? ORDER BY rowid"
+      )
+      .all(sessionId) as Array<{ eventType: string; payloadJson: string }>;
   }
 }
 
@@ -389,6 +402,38 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
       avgSpeedKmh: number | null;
       distanceMeters: number | null;
     };
+  }
+
+  /**
+   * Per-second samples with the workout position, for fitness-test scoring. A
+   * ride second can be written twice (e.g. the tick right after a resume); the
+   * caller keeps the last row per second.
+   */
+  getPositionedSamples(sessionId: string): Array<{
+    elapsedSec: number;
+    positionSec: number | null;
+    actualPowerWatts: number | null;
+    actualCadenceRpm: number | null;
+    actualHeartRateBpm: number | null;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT elapsed_seconds AS elapsedSec,
+                position_sec AS positionSec,
+                actual_power_watts AS actualPowerWatts,
+                actual_cadence_rpm AS actualCadenceRpm,
+                actual_heart_rate_bpm AS actualHeartRateBpm
+         FROM workout_session_telemetry
+         WHERE session_id = ?
+         ORDER BY elapsed_seconds ASC, rowid ASC`
+      )
+      .all(sessionId) as Array<{
+      elapsedSec: number;
+      positionSec: number | null;
+      actualPowerWatts: number | null;
+      actualCadenceRpm: number | null;
+      actualHeartRateBpm: number | null;
+    }>;
   }
 
   getSeries(sessionId: string): Array<{
@@ -537,6 +582,22 @@ export class GoalsRepository extends BaseRepository {
 export class MetricsSnapshotsRepository extends BaseRepository {
   list(): Row[] {
     return this.db.prepare("SELECT * FROM metrics_snapshots ORDER BY captured_at DESC").all() as Row[];
+  }
+
+  create(input: {
+    id: string;
+    capturedAt: string;
+    ftpWatts: number | null;
+    weightKg: number | null;
+    vo2max: number | null;
+    metadataJson: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO metrics_snapshots (id, captured_at, ftp_watts, weight_kg, vo2max, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(input.id, input.capturedAt, input.ftpWatts, input.weightKg, input.vo2max, input.metadataJson);
   }
 
   listFtpTrend(limit: number): Row[] {

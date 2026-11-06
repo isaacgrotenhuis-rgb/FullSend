@@ -6,6 +6,7 @@ import { BleService } from "@main/ble/BleService";
 import { DatabaseService } from "@main/database/DatabaseService";
 import { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
 import { FitnessTestController } from "@main/workout/FitnessTestController";
+import { FitnessTestService } from "@main/fitness/FitnessTestService";
 import { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
 import { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import { WorkoutBankService } from "@main/workout/WorkoutBankService";
@@ -64,6 +65,7 @@ const bootstrap = async (): Promise<void> => {
   const progressDashboardService = new ProgressDashboardService(databaseService.repositories);
   const stravaService = new StravaService(databaseService.repositories);
   const profileService = new ProfileService(databaseService.repositories);
+  const fitnessTestService = new FitnessTestService(databaseService.repositories, profileService);
 
   // Keep the Mac display awake while a workout is running or paused.
   const displaySleepGuard = new DisplaySleepGuard(powerSaveBlocker);
@@ -80,7 +82,8 @@ const bootstrap = async (): Promise<void> => {
     stravaService,
     workoutRecapService,
     profileService,
-    fitnessTestController
+    fitnessTestController,
+    fitnessTestService
   );
 
   await createWindow();
