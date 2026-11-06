@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Nav } from "./Nav";
+import type { BleConnectionEntry, BleRole, BleState } from "@shared/ipc/contracts";
 import { DeviceDrawer, type BleSectionProps } from "./DeviceDrawer";
 
 /* Mirrors App.tsx's real wiring: Nav owns the toggle button and DeviceDrawer
@@ -24,7 +25,10 @@ const Harness = () => {
     disconnectCadenceDevice: vi.fn(),
     getRoleConnection: vi.fn(),
     roleLabel: (role) => role,
-    connectToDevice: vi.fn()
+    connectToDevice: vi.fn(),
+    reconnectRemembered: vi.fn(),
+    forgetDevice: vi.fn(),
+    setAutoConnect: vi.fn()
   };
 
   return (
@@ -130,5 +134,73 @@ describe("DeviceDrawer", () => {
 
     await user.keyboard("{Escape}");
     await waitFor(() => expect(getCluster()).toHaveFocus());
+  });
+});
+
+const baseState: BleState = {
+  lifecycle: "idle",
+  connectedDeviceId: null,
+  lastError: null,
+  ftmsProfile: null,
+  scanning: false,
+  discoveredDevices: [],
+  liveTelemetry: null,
+  connections: {
+    heart_rate: { lifecycle: "idle", connectedDeviceId: null, lastError: null },
+    cadence: { lifecycle: "idle", connectedDeviceId: null, lastError: null }
+  },
+  heartRate: null,
+  remembered: [{ role: "power", deviceId: "trainer-1", name: "KICKR CORE", autoConnect: true }],
+  autoConnect: { status: "idle", roles: [] }
+};
+
+const makeBle = (bleState: BleState): BleSectionProps => ({
+  bleState,
+  actionError: null,
+  actionPending: false,
+  scanForDevices: vi.fn().mockResolvedValue(undefined),
+  stopScanning: vi.fn(),
+  disconnectDevice: vi.fn(),
+  disconnectHrDevice: vi.fn(),
+  disconnectCadenceDevice: vi.fn(),
+  getRoleConnection: (state: BleState, role: BleRole): BleConnectionEntry =>
+    role === "power"
+      ? { lifecycle: state.lifecycle as BleConnectionEntry["lifecycle"], connectedDeviceId: state.connectedDeviceId, lastError: state.lastError }
+      : state.connections[role],
+  roleLabel: (role) => role,
+  connectToDevice: vi.fn(),
+  reconnectRemembered: vi.fn().mockResolvedValue(undefined),
+  forgetDevice: vi.fn().mockResolvedValue(undefined),
+  setAutoConnect: vi.fn().mockResolvedValue(undefined)
+});
+
+describe("DeviceDrawer remembered devices", () => {
+  it("shows the search for a remembered trainer", () => {
+    render(
+      <DeviceDrawer
+        ble={makeBle({ ...baseState, autoConnect: { status: "searching", roles: ["power"] } })}
+        onClose={vi.fn()}
+      />
+    );
+    expect(screen.getByText("Looking for KICKR CORE…")).toBeInTheDocument();
+  });
+
+  it("offers Reconnect, Forget and the auto-connect switch when it wasn't found", async () => {
+    const user = userEvent.setup();
+    const ble = makeBle({ ...baseState, autoConnect: { status: "not-found", roles: ["power"] } });
+    render(<DeviceDrawer ble={ble} onClose={vi.fn()} />);
+
+    expect(screen.getByText(/KICKR CORE · not found/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Reconnect" }));
+    expect(ble.reconnectRemembered).toHaveBeenCalledWith("power");
+
+    await user.click(screen.getByRole("checkbox", { name: "Connect automatically" }));
+    expect(ble.setAutoConnect).toHaveBeenCalledWith("power", false);
+
+    await user.click(screen.getByRole("button", { name: "Forget" }));
+    expect(ble.forgetDevice).toHaveBeenCalledWith("power");
+
+    await user.click(screen.getByRole("button", { name: "Scan for another" }));
+    expect(ble.scanForDevices).toHaveBeenCalled();
   });
 });

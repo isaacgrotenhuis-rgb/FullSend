@@ -185,6 +185,14 @@ export const App = (): ReactElement => {
   const connectToDevice = (deviceId: string, role: BleRole): Promise<void> =>
     runBleAction(() => window.kickr.ble.connect({ deviceId, role }));
 
+  const reconnectRemembered = (role: BleRole): Promise<void> =>
+    runBleAction(() => window.kickr.ble.reconnect({ role }));
+
+  const forgetDevice = (role: BleRole): Promise<void> => runBleAction(() => window.kickr.ble.forget({ role }));
+
+  const setAutoConnect = (role: BleRole, enabled: boolean): Promise<void> =>
+    runBleAction(() => window.kickr.ble.setAutoConnect({ role, enabled }));
+
   const disconnectDevice = (): Promise<void> =>
     runBleAction(() =>
       window.kickr.ble.disconnect(
@@ -721,7 +729,10 @@ export const App = (): ReactElement => {
     disconnectCadenceDevice,
     getRoleConnection,
     roleLabel,
-    connectToDevice
+    connectToDevice,
+    reconnectRemembered,
+    forgetDevice,
+    setAutoConnect
   };
 
   const stravaSectionProps: StravaSectionProps = {

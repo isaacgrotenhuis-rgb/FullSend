@@ -18,7 +18,9 @@ const createInitialBleState = (): BleState => ({
     heart_rate: { lifecycle: "idle", connectedDeviceId: null, lastError: null },
     cadence: { lifecycle: "idle", connectedDeviceId: null, lastError: null }
   },
-  heartRate: null
+  heartRate: null,
+  remembered: [],
+  autoConnect: { status: "idle", roles: [] }
 });
 
 class FakeBleService implements BleService {
@@ -45,6 +47,10 @@ class FakeBleService implements BleService {
 
   async startScan(): Promise<void> {}
   async stopScan(): Promise<void> {}
+  async startAutoConnect(): Promise<void> {}
+  async reconnectRemembered(): Promise<void> {}
+  forgetDevice(): void {}
+  setAutoConnect(): void {}
   listDevices() {
     return [];
   }

@@ -77,7 +77,10 @@ const createApiStub = (): KickrDesktopApi => ({
       "disconnect",
       "getState",
       "getCapabilities",
-      "discoverFtms"
+      "discoverFtms",
+      "reconnect",
+      "forget",
+      "setAutoConnect"
     ]),
     subscribeState: vi.fn(() => vi.fn())
   },

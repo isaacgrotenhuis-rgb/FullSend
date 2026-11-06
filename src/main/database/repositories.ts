@@ -1,4 +1,5 @@
 import type { Database } from "better-sqlite3";
+import type { BleRememberedDevice, BleRole } from "@shared/ipc/contracts";
 
 type Row = Record<string, unknown>;
 
@@ -25,6 +26,41 @@ export class DevicesRepository extends BaseRepository {
            updated_at = excluded.updated_at`
       )
       .run(input.id, input.name);
+  }
+
+  /** The device last connected per role, most recent first. */
+  listRemembered(): BleRememberedDevice[] {
+    const rows = this.db
+      .prepare("SELECT role, device_id, name, auto_connect FROM remembered_devices ORDER BY last_connected_at DESC")
+      .all() as Array<{ role: BleRole; device_id: string; name: string | null; auto_connect: number }>;
+    return rows.map((row) => ({
+      role: row.role,
+      deviceId: row.device_id,
+      name: row.name,
+      autoConnect: row.auto_connect === 1
+    }));
+  }
+
+  remember(input: BleRememberedDevice): void {
+    this.db
+      .prepare(
+        `INSERT INTO remembered_devices (role, device_id, name, auto_connect, last_connected_at)
+         VALUES (?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(role) DO UPDATE SET
+           device_id = excluded.device_id,
+           name = excluded.name,
+           auto_connect = excluded.auto_connect,
+           last_connected_at = excluded.last_connected_at`
+      )
+      .run(input.role, input.deviceId, input.name, input.autoConnect ? 1 : 0);
+  }
+
+  forget(role: BleRole): void {
+    this.db.prepare("DELETE FROM remembered_devices WHERE role = ?").run(role);
+  }
+
+  setAutoConnect(role: BleRole, enabled: boolean): void {
+    this.db.prepare("UPDATE remembered_devices SET auto_connect = ? WHERE role = ?").run(enabled ? 1 : 0, role);
   }
 }
 

@@ -87,6 +87,8 @@ const bootstrap = async (): Promise<void> => {
   );
 
   await createWindow();
+  // Reconnect the trainer (and strap) from last time without a manual scan.
+  void bleService.startAutoConnect();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

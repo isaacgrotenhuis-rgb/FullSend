@@ -8,6 +8,8 @@ import {
   type BleState
 } from "@shared/ipc/contracts";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -23,6 +25,9 @@ export type BleSectionProps = {
   getRoleConnection: (state: BleState, role: BleRole) => BleConnectionEntry;
   roleLabel: (role: BleRole) => string;
   connectToDevice: (deviceId: string, role: BleRole) => Promise<void>;
+  reconnectRemembered: (role: BleRole) => Promise<void>;
+  forgetDevice: (role: BleRole) => Promise<void>;
+  setAutoConnect: (role: BleRole, enabled: boolean) => Promise<void>;
 };
 
 type Props = {
@@ -49,6 +54,10 @@ export const isRoleConnected = (state: BleState | null, role: BleRole): boolean 
   if (ownConnection) return true;
   return role === "cadence" && state.liveTelemetry?.cadenceRpm != null;
 };
+
+/** True while the launch-time search is still looking for this role's remembered device. */
+export const isAutoSearching = (state: BleState | null, role: BleRole): boolean =>
+  state !== null && state.autoConnect.status === "searching" && state.autoConnect.roles.includes(role);
 
 export const connectedCount = (state: BleState | null): number =>
   bleRoles.filter((role) => isRoleConnected(state, role)).length;
@@ -92,7 +101,9 @@ type CellPhase =
   | { kind: "connected" }
   | { kind: "provided-by-power" }
   | { kind: "connecting" }
+  | { kind: "auto-searching" }
   | { kind: "candidate"; device: BleDevice }
+  | { kind: "remembered" }
   | { kind: "scanning" }
   | { kind: "idle" };
 
@@ -112,7 +123,10 @@ export const DeviceDrawer = ({ ble, onClose }: Props): ReactElement => {
     disconnectCadenceDevice,
     getRoleConnection,
     roleLabel,
-    connectToDevice
+    connectToDevice,
+    reconnectRemembered,
+    forgetDevice,
+    setAutoConnect
   } = ble;
 
   const scanning = bleState?.scanning ?? false;
@@ -155,6 +169,10 @@ export const DeviceDrawer = ({ ble, onClose }: Props): ReactElement => {
             const connectedDevice = connectedDeviceId
               ? (bleState?.discoveredDevices.find((d) => d.id === connectedDeviceId) ?? null)
               : null;
+            const remembered = bleState?.remembered.find((device) => device.role === role) ?? null;
+            const rememberedName = remembered ? (remembered.name ?? "your device") : null;
+            const autoSearching = isAutoSearching(bleState, role);
+            const notFound = bleState?.autoConnect.status === "not-found" && bleState.autoConnect.roles.includes(role);
             const isConnecting = conn?.lifecycle === "connecting";
             const required = isRequiredRole(role);
             // Only ever true for cadence today (a trainer's power connection already
@@ -177,11 +195,15 @@ export const DeviceDrawer = ({ ble, onClose }: Props): ReactElement => {
                 ? { kind: "provided-by-power" }
                 : isConnecting
                   ? { kind: "connecting" }
-                  : candidate
-                    ? { kind: "candidate", device: candidate }
-                    : scanning
-                      ? { kind: "scanning" }
-                      : { kind: "idle" };
+                  : autoSearching
+                    ? { kind: "auto-searching" }
+                    : candidate
+                      ? { kind: "candidate", device: candidate }
+                      : scanning
+                        ? { kind: "scanning" }
+                        : remembered
+                          ? { kind: "remembered" }
+                          : { kind: "idle" };
 
             // Single source for the status text and the one button below, so
             // the two can't independently disagree about which state a row is
@@ -195,7 +217,13 @@ export const DeviceDrawer = ({ ble, onClose }: Props): ReactElement => {
 
             switch (phase.kind) {
               case "connected":
-                statusLabel = `${connectedDevice ? deviceLabel(connectedDevice) : connectedDeviceId}${
+                statusLabel = `${
+                  connectedDevice
+                    ? deviceLabel(connectedDevice)
+                    : remembered?.deviceId === connectedDeviceId && remembered.name
+                      ? remembered.name
+                      : connectedDeviceId
+                }${
                   role === "heart_rate" && bleState?.heartRate?.bpm != null ? ` · ${bleState.heartRate.bpm} bpm` : ""
                 }`;
                 button = (
@@ -209,11 +237,33 @@ export const DeviceDrawer = ({ ble, onClose }: Props): ReactElement => {
                 button = null;
                 break;
               case "connecting":
-                statusLabel = "Connecting…";
+                statusLabel = remembered && autoSearching ? `Connecting to ${rememberedName}…` : "Connecting…";
                 button = (
                   <Button variant={actionVariant} size="sm" disabled>
                     <Spinner />
                     Connecting…
+                  </Button>
+                );
+                break;
+              case "auto-searching":
+                statusLabel = `Looking for ${rememberedName}…`;
+                button = (
+                  <Button variant={actionVariant} size="sm" disabled>
+                    <Spinner />
+                    Searching…
+                  </Button>
+                );
+                break;
+              case "remembered":
+                statusLabel = `${rememberedName} · ${notFound ? "not found · check it's awake" : "not connected"}`;
+                button = (
+                  <Button
+                    variant={actionVariant}
+                    size="sm"
+                    disabled={actionPending}
+                    onClick={() => void reconnectRemembered(role)}
+                  >
+                    Reconnect
                   </Button>
                 );
                 break;
@@ -256,6 +306,39 @@ export const DeviceDrawer = ({ ble, onClose }: Props): ReactElement => {
                   <div className="text-sm font-semibold">{roleLabel(role)}</div>
                   <div className="truncate text-xs text-[var(--color-neutral-700)]">{statusLabel}</div>
                   {rowError ? <div className="text-xs text-[var(--color-accent-700)]">{rowError}</div> : null}
+                  {remembered ? (
+                    <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                      <div className="flex items-center gap-1.5">
+                        <Checkbox
+                          id={`auto-connect-${role}`}
+                          checked={remembered.autoConnect}
+                          disabled={actionPending}
+                          onCheckedChange={(checked) => void setAutoConnect(role, checked === true)}
+                        />
+                        <Label htmlFor={`auto-connect-${role}`} className="text-xs font-normal">
+                          Connect automatically
+                        </Label>
+                      </div>
+                      {phase.kind === "remembered" ? (
+                        <button
+                          type="button"
+                          className="cursor-pointer text-[var(--color-neutral-700)] underline-offset-2 hover:underline"
+                          disabled={actionPending}
+                          onClick={() => void scanForDevices()}
+                        >
+                          Scan for another
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        className="cursor-pointer text-[var(--color-neutral-700)] underline-offset-2 hover:underline"
+                        disabled={actionPending}
+                        onClick={() => void forgetDevice(role)}
+                      >
+                        Forget
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 {button}
               </div>

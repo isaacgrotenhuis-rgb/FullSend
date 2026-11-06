@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { BleState } from "@shared/ipc/contracts";
 import type { Page } from "../App";
 import { Nav } from "./Nav";
 
@@ -69,5 +70,48 @@ describe("Nav", () => {
 
     await user.click(screen.getByRole("button", { name: "FULLSEND" }));
     expect(onNavigate).toHaveBeenCalledWith("home");
+  });
+});
+
+describe("Nav device cluster", () => {
+  const state = (autoConnect: BleState["autoConnect"]): BleState => ({
+    lifecycle: "idle",
+    connectedDeviceId: null,
+    lastError: null,
+    ftmsProfile: null,
+    scanning: false,
+    discoveredDevices: [],
+    liveTelemetry: null,
+    connections: {
+      heart_rate: { lifecycle: "idle", connectedDeviceId: null, lastError: null },
+      cadence: { lifecycle: "idle", connectedDeviceId: null, lastError: null }
+    },
+    heartRate: null,
+    remembered: [{ role: "power", deviceId: "trainer-1", name: "KICKR CORE", autoConnect: true }],
+    autoConnect
+  });
+
+  it("says it's looking for the trainer instead of flagging it missing", () => {
+    const { rerender } = render(
+      <Nav
+        page="home"
+        onNavigate={vi.fn()}
+        bleState={state({ status: "searching", roles: ["power"] })}
+        drawerOpen={false}
+        onToggleDrawer={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Devices: 0 of 3 connected, looking for your trainer" })).toBeInTheDocument();
+
+    rerender(
+      <Nav
+        page="home"
+        onNavigate={vi.fn()}
+        bleState={state({ status: "not-found", roles: ["power"] })}
+        drawerOpen={false}
+        onToggleDrawer={vi.fn()}
+      />
+    );
+    expect(screen.getByRole("button", { name: "Devices: 0 of 3 connected, trainer not connected" })).toBeInTheDocument();
   });
 });
