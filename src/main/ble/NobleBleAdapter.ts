@@ -35,6 +35,7 @@ type NoblePeripheralLike = {
     serviceUuids?: string[];
   };
   connectAsync?: () => Promise<void>;
+  cancelConnect?: () => void;
   disconnectAsync?: () => Promise<void>;
   discoverSomeServicesAndCharacteristicsAsync?: (
     serviceUuids: string[],
@@ -48,6 +49,12 @@ type NoblePeripheralLike = {
 const normalizeUuid = (value: string): string => value.toLowerCase().replace(/-/g, "");
 
 const FTMS_CONTROL_POINT_WRITE_TIMEOUT_MS = 5000;
+const POWERED_ON_TIMEOUT_MS = 10000;
+
+// CoreBluetooth never fails a connect to a peripheral that isn't there (asleep,
+// out of range, or a stale handle from before the Mac slept); it just waits.
+// Unbounded, that leaves the role "connecting" forever and blocks every retry.
+const CONNECT_TIMEOUT_MS = 15000;
 
 // A GATT write that never gets an ATT-level ack (seen intermittently with some
 // trainers' FTMS control point) leaves noble's writeAsync promise pending forever.
@@ -88,6 +95,8 @@ export class NobleBleAdapter implements BleAdapter {
   private onDeviceDiscoveredListener: ((device: BleDevice) => void) | null = null;
   private onDisconnectedListener: ((deviceId: string) => void) | null = null;
   private onErrorListener: ((error: Error) => void) | null = null;
+  private onAdapterStateChangeListener: ((poweredOn: boolean, state: string) => void) | null = null;
+  private poweredOnWaiters = new Set<() => void>();
   private onLiveTelemetryListener: ((deviceId: string, sample: BleLiveTelemetry) => void) | null = null;
   private onHeartRateTelemetryListener: ((deviceId: string, sample: BleHeartRateSample) => void) | null = null;
   private disconnectSubscribed = new Set<string>();
@@ -105,15 +114,26 @@ export class NobleBleAdapter implements BleAdapter {
     this.noble = noble;
 
     this.noble.on("stateChange", (...args: unknown[]) => {
-      const state = args[0] as string | undefined;
-      if (state && state !== "poweredOn") {
-        this.onErrorListener?.(new Error(`Bluetooth adapter state: ${state}`));
+      const state = (args[0] as string | undefined) ?? "unknown";
+      const poweredOn = state === "poweredOn";
+      if (poweredOn) {
+        for (const resolve of this.poweredOnWaiters) resolve();
+        this.poweredOnWaiters.clear();
+      } else {
+        // Every link and subscription dies with the radio, and noble doesn't
+        // reliably emit per-peripheral "disconnect" for it.
+        this.ftmsControlPoints.clear();
+        this.indoorBikeDataSubscribed.clear();
+        this.controlPointResponseSubscribed.clear();
+        this.heartRateMeasurementSubscribed.clear();
       }
+      this.onAdapterStateChangeListener?.(poweredOn, state);
     });
 
+    // Warnings are informational (e.g. RSSI updates for unknown peripherals);
+    // treating them as errors tore down healthy connection state.
     this.noble.on("warning", (...args: unknown[]) => {
-      const message = args[0] as string | undefined;
-      this.onErrorListener?.(new Error(message ?? "Unknown BLE adapter warning"));
+      console.warn("[NobleBleAdapter] warning:", args[0]);
     });
 
     this.noble.on("error", (...args: unknown[]) => {
@@ -151,21 +171,19 @@ export class NobleBleAdapter implements BleAdapter {
       return;
     }
     await new Promise<void>((resolve, reject) => {
-      const timeoutMs = 10000;
+      const waiter = (): void => {
+        clearTimeout(timeout);
+        resolve();
+      };
       const timeout = setTimeout(() => {
+        this.poweredOnWaiters.delete(waiter);
         reject(
           new Error(
-            `Bluetooth adapter did not power on within ${timeoutMs}ms (state: ${this.noble?.state ?? "unknown"}); check macOS Bluetooth permission for this app`
+            `Bluetooth is off or unavailable (state: ${this.noble?.state ?? "unknown"}); turn Bluetooth on and check macOS Bluetooth permission for this app`
           )
         );
-      }, timeoutMs);
-      this.noble?.on("stateChange", (...args: unknown[]) => {
-        const state = args[0] as string | undefined;
-        if (state === "poweredOn") {
-          clearTimeout(timeout);
-          resolve();
-        }
-      });
+      }, POWERED_ON_TIMEOUT_MS);
+      this.poweredOnWaiters.add(waiter);
     });
   }
 
@@ -173,6 +191,7 @@ export class NobleBleAdapter implements BleAdapter {
     if (!this.noble) {
       throw new Error("BLE adapter is not initialized");
     }
+    await this.waitForPoweredOn();
     await this.noble.startScanningAsync?.([FTMS_SERVICE_UUID, HR_SERVICE_UUID, CSC_SERVICE_UUID], true);
   }
 
@@ -188,7 +207,25 @@ export class NobleBleAdapter implements BleAdapter {
     if (peripheral.state === "connected") {
       return;
     }
-    await peripheral.connectAsync?.();
+    await this.waitForPoweredOn();
+    if (!peripheral.connectAsync) {
+      return;
+    }
+    try {
+      await withTimeout(
+        peripheral.connectAsync(),
+        CONNECT_TIMEOUT_MS,
+        `Timed out connecting to ${peripheral.advertisement?.localName ?? deviceId}; make sure it's awake and nearby, then try again`
+      );
+    } catch (error) {
+      // Drop the pending CoreBluetooth request so a later attempt starts clean.
+      try {
+        peripheral.cancelConnect?.();
+      } catch {
+        // best effort
+      }
+      throw error;
+    }
   }
 
   listDiscoveredDevices(): BleDevice[] {
@@ -448,6 +485,10 @@ export class NobleBleAdapter implements BleAdapter {
 
   onError(listener: (error: Error) => void): void {
     this.onErrorListener = listener;
+  }
+
+  onAdapterStateChange(listener: (poweredOn: boolean, state: string) => void): void {
+    this.onAdapterStateChangeListener = listener;
   }
 
   onLiveTelemetry(listener: (deviceId: string, sample: BleLiveTelemetry) => void): void {
