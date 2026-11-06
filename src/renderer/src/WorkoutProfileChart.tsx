@@ -14,6 +14,8 @@ export type LiveSeek = {
   /** Ask before jumping (used while riding, so a stray drag can't skip a block). */
   confirm: boolean;
   disabled?: boolean;
+  /** Earliest position a jump may land on (e.g. no going back into a fitness-test ramp). */
+  minSec?: number | null;
 };
 
 type Props = {
@@ -150,7 +152,7 @@ export const WorkoutProfileChart = ({
         bestDistance = distance;
       }
     }
-    return Math.min(lastSec, Math.max(0, Math.round(best)));
+    return Math.min(lastSec, Math.max(seek?.minSec ?? 0, Math.round(best)));
   };
   const secAt = (event: PointerEvent<HTMLDivElement>): number => {
     const rect = event.currentTarget.getBoundingClientRect();
@@ -189,7 +191,9 @@ export const WorkoutProfileChart = ({
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (canSeek && event.key === "Enter" && activeIndex !== null) {
       event.preventDefault();
-      commitSeek(Math.min(lastSec, blocks[activeIndex].startSec));
+      const target = blocks[activeIndex].startSec;
+      if (seek?.minSec != null && target < seek.minSec) return;
+      commitSeek(Math.min(lastSec, target));
       return;
     }
     const moves: Record<string, number> = {

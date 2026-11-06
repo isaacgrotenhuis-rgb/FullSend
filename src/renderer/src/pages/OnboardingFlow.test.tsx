@@ -62,6 +62,9 @@ const blankProfile: UserProfile = {
   email: null,
   ftpWatts: null,
   weightKg: null,
+  mapWatts: null,
+  thresholdHrBpm: null,
+  maxHrBpm: null,
   onboardingCompletedAt: null
 };
 

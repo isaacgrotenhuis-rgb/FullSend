@@ -6,6 +6,9 @@ type ProfileRow = {
   email: string | null;
   ftp_watts: number | null;
   weight_kg: number | null;
+  map_watts: number | null;
+  threshold_hr_bpm: number | null;
+  max_hr_bpm: number | null;
   onboarding_completed_at: string | null;
 };
 
@@ -17,6 +20,9 @@ const emptyProfile: UserProfile = {
   email: null,
   ftpWatts: null,
   weightKg: null,
+  mapWatts: null,
+  thresholdHrBpm: null,
+  maxHrBpm: null,
   onboardingCompletedAt: null
 };
 
@@ -27,6 +33,9 @@ const toProfile = (row: ProfileRow | undefined): UserProfile => {
     email: row.email,
     ftpWatts: row.ftp_watts,
     weightKg: row.weight_kg,
+    mapWatts: row.map_watts ?? null,
+    thresholdHrBpm: row.threshold_hr_bpm ?? null,
+    maxHrBpm: row.max_hr_bpm ?? null,
     onboardingCompletedAt: row.onboarding_completed_at
   };
 };

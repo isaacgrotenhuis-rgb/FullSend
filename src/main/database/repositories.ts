@@ -301,6 +301,10 @@ export class WorkoutSessionsRepository extends BaseRepository {
     return this.db.prepare(`${this.recapSelect} AND ws.id = ?`).get(sessionId) as Row | undefined;
   }
 
+  getById(id: string): Row | undefined {
+    return this.db.prepare("SELECT * FROM workout_sessions WHERE id = ?").get(id) as Row | undefined;
+  }
+
   deleteById(id: string): void {
     this.db.prepare("DELETE FROM strava_sync_events WHERE session_id = ?").run(id);
     this.db.prepare("DELETE FROM workout_sessions WHERE id = ?").run(id);
@@ -319,6 +323,15 @@ export class WorkoutSessionEventsRepository extends BaseRepository {
         "INSERT INTO workout_session_events (id, session_id, event_type, payload_json) VALUES (?, ?, ?, ?)"
       )
       .run(input.id, input.sessionId, input.eventType, input.payloadJson);
+  }
+
+  /** A session's events in the order they were written. */
+  listBySession(sessionId: string): Array<{ eventType: string; payloadJson: string }> {
+    return this.db
+      .prepare(
+        "SELECT event_type AS eventType, payload_json AS payloadJson FROM workout_session_events WHERE session_id = ? ORDER BY rowid"
+      )
+      .all(sessionId) as Array<{ eventType: string; payloadJson: string }>;
   }
 }
 
@@ -389,6 +402,38 @@ export class WorkoutSessionTelemetryRepository extends BaseRepository {
       avgSpeedKmh: number | null;
       distanceMeters: number | null;
     };
+  }
+
+  /**
+   * Per-second samples with the workout position, for fitness-test scoring. A
+   * ride second can be written twice (e.g. the tick right after a resume); the
+   * caller keeps the last row per second.
+   */
+  getPositionedSamples(sessionId: string): Array<{
+    elapsedSec: number;
+    positionSec: number | null;
+    actualPowerWatts: number | null;
+    actualCadenceRpm: number | null;
+    actualHeartRateBpm: number | null;
+  }> {
+    return this.db
+      .prepare(
+        `SELECT elapsed_seconds AS elapsedSec,
+                position_sec AS positionSec,
+                actual_power_watts AS actualPowerWatts,
+                actual_cadence_rpm AS actualCadenceRpm,
+                actual_heart_rate_bpm AS actualHeartRateBpm
+         FROM workout_session_telemetry
+         WHERE session_id = ?
+         ORDER BY elapsed_seconds ASC, rowid ASC`
+      )
+      .all(sessionId) as Array<{
+      elapsedSec: number;
+      positionSec: number | null;
+      actualPowerWatts: number | null;
+      actualCadenceRpm: number | null;
+      actualHeartRateBpm: number | null;
+    }>;
   }
 
   getSeries(sessionId: string): Array<{
@@ -539,6 +584,22 @@ export class MetricsSnapshotsRepository extends BaseRepository {
     return this.db.prepare("SELECT * FROM metrics_snapshots ORDER BY captured_at DESC").all() as Row[];
   }
 
+  create(input: {
+    id: string;
+    capturedAt: string;
+    ftpWatts: number | null;
+    weightKg: number | null;
+    vo2max: number | null;
+    metadataJson: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO metrics_snapshots (id, captured_at, ftp_watts, weight_kg, vo2max, metadata_json)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      )
+      .run(input.id, input.capturedAt, input.ftpWatts, input.weightKg, input.vo2max, input.metadataJson);
+  }
+
   listFtpTrend(limit: number): Row[] {
     return this.db
       .prepare(
@@ -548,6 +609,113 @@ export class MetricsSnapshotsRepository extends BaseRepository {
          LIMIT ?`
       )
       .all(limit) as Row[];
+  }
+}
+
+export type FitnessTestRow = {
+  id: string;
+  session_id: string;
+  variant: string;
+  taken_at: string;
+  map_seed_watts: number | null;
+  map_watts: number | null;
+  ftp_ramp_watts: number | null;
+  ftp_capped_watts: number | null;
+  ftp_watts: number | null;
+  threshold_hr_bpm: number | null;
+  max_hr_bpm: number | null;
+  hr_cap_bpm: number | null;
+  weight_kg: number | null;
+  vo2max_est: number | null;
+  valid: number;
+  flags_json: string;
+  result_json: string;
+  applied_at: string | null;
+};
+
+/**
+ * One row per fitness-test session. The headline numbers get their own columns
+ * for listing and trends; result_json keeps the whole analysis so the rules can
+ * change later without losing what a rider was shown.
+ */
+export class FitnessTestsRepository extends BaseRepository {
+  create(input: {
+    id: string;
+    sessionId: string;
+    variant: string;
+    takenAt: string;
+    mapSeedWatts: number | null;
+    mapWatts: number | null;
+    ftpRampWatts: number | null;
+    ftpCappedWatts: number | null;
+    ftpWatts: number | null;
+    thresholdHrBpm: number | null;
+    maxHrBpm: number | null;
+    hrCapBpm: number | null;
+    weightKg: number | null;
+    vo2maxEst: number | null;
+    valid: boolean;
+    flagsJson: string;
+    resultJson: string;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO fitness_tests
+         (id, session_id, variant, taken_at, map_seed_watts, map_watts, ftp_ramp_watts, ftp_capped_watts, ftp_watts,
+          threshold_hr_bpm, max_hr_bpm, hr_cap_bpm, weight_kg, vo2max_est, valid, flags_json, result_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        input.id,
+        input.sessionId,
+        input.variant,
+        input.takenAt,
+        input.mapSeedWatts,
+        input.mapWatts,
+        input.ftpRampWatts,
+        input.ftpCappedWatts,
+        input.ftpWatts,
+        input.thresholdHrBpm,
+        input.maxHrBpm,
+        input.hrCapBpm,
+        input.weightKg,
+        input.vo2maxEst,
+        input.valid ? 1 : 0,
+        input.flagsJson,
+        input.resultJson
+      );
+  }
+
+  getById(id: string): FitnessTestRow | undefined {
+    return this.db.prepare("SELECT * FROM fitness_tests WHERE id = ?").get(id) as FitnessTestRow | undefined;
+  }
+
+  getBySessionId(sessionId: string): FitnessTestRow | undefined {
+    return this.db.prepare("SELECT * FROM fitness_tests WHERE session_id = ?").get(sessionId) as FitnessTestRow | undefined;
+  }
+
+  /** Newest first. */
+  list(limit: number): FitnessTestRow[] {
+    return this.db
+      .prepare("SELECT * FROM fitness_tests ORDER BY taken_at DESC, rowid DESC LIMIT ?")
+      .all(limit) as FitnessTestRow[];
+  }
+
+  /** The most recent valid test taken before `beforeTakenAt` (or ever, when omitted): the baseline for trends. */
+  getLatestValid(beforeTakenAt?: string): FitnessTestRow | undefined {
+    return (
+      beforeTakenAt
+        ? this.db
+            .prepare("SELECT * FROM fitness_tests WHERE valid = 1 AND taken_at < ? ORDER BY taken_at DESC, rowid DESC LIMIT 1")
+            .get(beforeTakenAt)
+        : this.db.prepare("SELECT * FROM fitness_tests WHERE valid = 1 ORDER BY taken_at DESC, rowid DESC LIMIT 1").get()
+    ) as FitnessTestRow | undefined;
+  }
+
+  markApplied(id: string, appliedAt: string): void {
+    this.db
+      .prepare("UPDATE fitness_tests SET applied_at = ?, updated_at = datetime('now') WHERE id = ?")
+      .run(appliedAt, id);
   }
 }
 
@@ -676,28 +844,30 @@ export class ProfileRepository extends BaseRepository {
     email?: string | null;
     ftpWatts?: number | null;
     weightKg?: number | null;
+    mapWatts?: number | null;
+    thresholdHrBpm?: number | null;
+    maxHrBpm?: number | null;
   }): void {
     const columnByField: Array<[keyof typeof input, string]> = [
       ["name", "name"],
       ["email", "email"],
       ["ftpWatts", "ftp_watts"],
-      ["weightKg", "weight_kg"]
+      ["weightKg", "weight_kg"],
+      ["mapWatts", "map_watts"],
+      ["thresholdHrBpm", "threshold_hr_bpm"],
+      ["maxHrBpm", "max_hr_bpm"]
     ];
     const provided = columnByField.filter(([field]) => field in input);
 
     if (!this.get()) {
       const values = new Map(provided.map(([field, column]) => [column, input[field] ?? null]));
+      const columns = columnByField.map(([, column]) => column);
       this.db
         .prepare(
-          `INSERT INTO user_profile (id, name, email, ftp_watts, weight_kg, created_at, updated_at)
-           VALUES ('default', ?, ?, ?, ?, datetime('now'), datetime('now'))`
+          `INSERT INTO user_profile (id, ${columns.join(", ")}, created_at, updated_at)
+           VALUES ('default', ${columns.map(() => "?").join(", ")}, datetime('now'), datetime('now'))`
         )
-        .run(
-          values.get("name") ?? null,
-          values.get("email") ?? null,
-          values.get("ftp_watts") ?? null,
-          values.get("weight_kg") ?? null
-        );
+        .run(...columns.map((column) => values.get(column) ?? null));
       return;
     }
 
@@ -992,6 +1162,7 @@ export class Repositories {
   public readonly planVersions: PlanVersionsRepository;
   public readonly planAuditEntries: PlanAuditEntriesRepository;
   public readonly workoutBank: WorkoutBankRepository;
+  public readonly fitnessTests: FitnessTestsRepository;
 
   constructor(db: Database) {
     this.db = db;
@@ -1013,6 +1184,7 @@ export class Repositories {
     this.planVersions = new PlanVersionsRepository(db);
     this.planAuditEntries = new PlanAuditEntriesRepository(db);
     this.workoutBank = new WorkoutBankRepository(db);
+    this.fitnessTests = new FitnessTestsRepository(db);
   }
 
   transaction<T>(fn: () => T): T {

@@ -1,5 +1,7 @@
 import type { ReactElement } from "react";
-import type { StravaStatus, StravaSyncEventSummary, UserProfile } from "@shared/ipc/contracts";
+import { Gauge } from "lucide-react";
+import type { FitnessTestRecord, StravaStatus, StravaSyncEventSummary, UserProfile } from "@shared/ipc/contracts";
+import { hrZonesFor, powerZonesFor } from "@shared/fitnessTest";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -42,26 +44,33 @@ export type ProfileSectionProps = {
   setWeightUnit: (unit: WeightUnit) => void;
   ftpDraft: string;
   setFtpDraft: (value: string) => void;
+  mapDraft: string;
+  setMapDraft: (value: string) => void;
+  thresholdHrDraft: string;
+  setThresholdHrDraft: (value: string) => void;
+  maxHrDraft: string;
+  setMaxHrDraft: (value: string) => void;
   startEdit: () => void;
   cancelEdit: () => void;
   save: () => Promise<void>;
+};
+
+export type FitnessSectionProps = {
+  /** Newest first. */
+  tests: FitnessTestRecord[];
+  onTakeTest: () => void;
 };
 
 type Props = {
   currentFtp: number;
   profile: ProfileSectionProps;
   strava: StravaSectionProps;
+  /** Fitness-test history and entry point; the section is hidden when omitted. */
+  fitness?: FitnessSectionProps;
 };
 
-const trainingZoneNames = [
-  "Recovery",
-  "Endurance",
-  "Tempo",
-  "Threshold",
-  "VO2 max",
-  "Anaerobic",
-  "Neuromuscular"
-];
+const formatTestDate = (iso: string): string =>
+  new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
 
 /** Legacy `.card-meta`: small flex row of muted 11px text. */
 const cardMetaClass = "flex items-center gap-1.5 text-[11px] text-[color-mix(in_srgb,var(--color-text)_50%,transparent)]";
@@ -225,11 +234,47 @@ export const StravaCard = ({
   );
 };
 
-export const ProfilePage = ({ currentFtp, profile, strava }: Props): ReactElement => {
+/** One numeric profile field: read-only shows the stored value, editing shows the draft. */
+const NumberField = ({
+  id,
+  label,
+  editing,
+  draft,
+  setDraft,
+  stored
+}: {
+  id: string;
+  label: string;
+  editing: boolean;
+  draft: string;
+  setDraft: (value: string) => void;
+  stored: number | null | undefined;
+}): ReactElement => (
+  <div className="flex flex-col gap-[5px]">
+    <Label htmlFor={id} className={fieldLabelClass}>
+      {label}
+    </Label>
+    <Input
+      id={id}
+      type="number"
+      value={editing ? draft : (stored?.toString() ?? "")}
+      onChange={(event) => setDraft(event.target.value)}
+      disabled={!editing}
+      placeholder="Not yet set"
+      className={inputClass}
+    />
+  </div>
+);
+
+export const ProfilePage = ({ currentFtp, profile, strava, fitness }: Props): ReactElement => {
   const stravaConnected = strava.stravaStatus?.connected ?? false;
   const { editing } = profile;
   const weightKg = profile.profile?.weightKg ?? null;
   const powerToWeight = weightKg != null && weightKg > 0 ? currentFtp / weightKg : null;
+  const thresholdHr = profile.profile?.thresholdHrBpm ?? null;
+  const powerZones = powerZonesFor(currentFtp);
+  const hrZones = thresholdHr !== null ? hrZonesFor(thresholdHr) : null;
+  const latestTest = fitness?.tests.find((test) => test.result.valid) ?? null;
 
   return (
     <main className="mx-auto max-w-[960px] p-6">
@@ -327,6 +372,30 @@ export const ProfilePage = ({ currentFtp, profile, strava }: Props): ReactElemen
             className={inputClass}
           />
         </div>
+        <NumberField
+          id="profile-map"
+          label="MAP (watts)"
+          editing={editing}
+          draft={profile.mapDraft}
+          setDraft={profile.setMapDraft}
+          stored={profile.profile?.mapWatts}
+        />
+        <NumberField
+          id="profile-threshold-hr"
+          label="Threshold heart rate (bpm)"
+          editing={editing}
+          draft={profile.thresholdHrDraft}
+          setDraft={profile.setThresholdHrDraft}
+          stored={profile.profile?.thresholdHrBpm}
+        />
+        <NumberField
+          id="profile-max-hr"
+          label="Max heart rate (bpm)"
+          editing={editing}
+          draft={profile.maxHrDraft}
+          setDraft={profile.setMaxHrDraft}
+          stored={profile.profile?.maxHrBpm}
+        />
         <div className="flex flex-col gap-[5px]">
           <Label htmlFor="profile-goal-event" className={fieldLabelClass}>
             Goal event
@@ -367,9 +436,68 @@ export const ProfilePage = ({ currentFtp, profile, strava }: Props): ReactElemen
         </Card>
       </div>
 
+      {fitness ? (
+        <>
+          <div className="flex items-end justify-between gap-4">
+            <h2 className="m-0">Fitness tests</h2>
+            <Button variant="outline" onClick={fitness.onTakeTest}>
+              <Gauge />
+              Take a fitness test
+            </Button>
+          </div>
+          <Separator className="my-4 h-[2px] bg-[var(--color-divider)]" />
+          {fitness.tests.length === 0 ? (
+            <p className="mb-8 text-sm text-muted-foreground">
+              No tests yet. A fitness test measures your FTP, MAP and threshold heart rate and sets your zones from them.
+            </p>
+          ) : (
+            <>
+              {latestTest ? (
+                <p className="mb-3 text-sm text-muted-foreground">
+                  Last valid test {formatTestDate(latestTest.takenAt)}
+                  {latestTest.result.riderProfile ? ` · ${latestTest.result.riderProfile} profile` : ""}
+                  {latestTest.result.vo2maxEst !== null ? ` · VO₂max ≈ ${Math.round(latestTest.result.vo2maxEst)}` : ""}
+                </p>
+              ) : null}
+              <Table className="mb-8">
+                <TableHeader>
+                  <TableRow className={cn(zoneRowClass, "border-b-2 hover:bg-transparent")}>
+                    {["Date", "Test", "FTP", "MAP", "Threshold HR", "Status"].map((heading) => (
+                      <TableHead key={heading} className={zoneHeadClass}>
+                        {heading}
+                      </TableHead>
+                    ))}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {fitness.tests.map((test) => (
+                    <TableRow key={test.id} className={zoneRowClass}>
+                      <TableCell className={zoneCellClass}>{formatTestDate(test.takenAt)}</TableCell>
+                      <TableCell className={zoneCellClass}>{test.result.variant === "full" ? "Full" : "Quick ramp"}</TableCell>
+                      <TableCell className={cn(zoneCellClass, "tabular-nums")}>
+                        {test.result.ftpWatts !== null ? `${test.result.ftpWatts} W` : "—"}
+                      </TableCell>
+                      <TableCell className={cn(zoneCellClass, "tabular-nums")}>
+                        {test.result.mapWatts !== null ? `${test.result.mapWatts} W` : "—"}
+                      </TableCell>
+                      <TableCell className={cn(zoneCellClass, "tabular-nums")}>
+                        {test.result.thresholdHrBpm !== null ? `${test.result.thresholdHrBpm} bpm` : "—"}
+                      </TableCell>
+                      <TableCell className={cn(zoneCellClass, zoneMutedCellClass)}>
+                        {!test.result.valid ? "Not valid" : test.appliedAt ? "Applied" : "Not applied"}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </>
+          )}
+        </>
+      ) : null}
+
       <h2>Training zones</h2>
       <Separator className="my-4 h-[2px] bg-[var(--color-divider)]" />
-      <Table className="mb-8">
+      <Table className="mb-8" aria-label="Power zones">
         <TableHeader>
           <TableRow className={cn(zoneRowClass, "border-b-2 hover:bg-transparent")}>
             {["Zone", "Name", "Range", "Power"].map((heading) => (
@@ -380,16 +508,50 @@ export const ProfilePage = ({ currentFtp, profile, strava }: Props): ReactElemen
           </TableRow>
         </TableHeader>
         <TableBody>
-          {trainingZoneNames.map((name, index) => (
-            <TableRow key={name} className={zoneRowClass}>
+          {powerZones.map((zone, index) => (
+            <TableRow key={zone.key} className={zoneRowClass}>
               <TableCell className={zoneCellClass}>{index + 1}</TableCell>
-              <TableCell className={zoneCellClass}>{name}</TableCell>
-              <TableCell className={cn(zoneCellClass, zoneMutedCellClass)}>—</TableCell>
-              <TableCell className={cn(zoneCellClass, zoneMutedCellClass)}>—</TableCell>
+              <TableCell className={zoneCellClass}>{zone.label}</TableCell>
+              <TableCell className={cn(zoneCellClass, zoneMutedCellClass, "tabular-nums")}>
+                {zone.maxWatts === null
+                  ? `${Math.round((zone.minWatts / currentFtp) * 100)}%+`
+                  : `${Math.round((zone.minWatts / currentFtp) * 100)}–${Math.round((zone.maxWatts / currentFtp) * 100)}%`}
+              </TableCell>
+              <TableCell className={cn(zoneCellClass, "tabular-nums")}>
+                {zone.maxWatts === null ? `${zone.minWatts}+ W` : `${zone.minWatts}–${zone.maxWatts} W`}
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>
       </Table>
+      {hrZones ? (
+        <Table className="mb-8" aria-label="Heart-rate zones">
+          <TableHeader>
+            <TableRow className={cn(zoneRowClass, "border-b-2 hover:bg-transparent")}>
+              {["Zone", "Name", "Heart rate"].map((heading) => (
+                <TableHead key={heading} className={zoneHeadClass}>
+                  {heading}
+                </TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {hrZones.map((zone) => (
+              <TableRow key={zone.key} className={zoneRowClass}>
+                <TableCell className={zoneCellClass}>{zone.key.toUpperCase()}</TableCell>
+                <TableCell className={zoneCellClass}>{zone.label}</TableCell>
+                <TableCell className={cn(zoneCellClass, "tabular-nums")}>
+                  {zone.maxBpm === null ? `${zone.minBpm}+ bpm` : `${zone.minBpm}–${zone.maxBpm} bpm`}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      ) : (
+        <p className="mb-8 text-sm text-muted-foreground">
+          Heart-rate zones appear once you have a threshold heart rate — from a fitness test or entered above.
+        </p>
+      )}
     </main>
   );
 };

@@ -2,6 +2,8 @@ import { ipcMain, type WebContents } from "electron";
 import { z } from "zod";
 import type { BleService } from "@main/ble/types";
 import type { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
+import type { FitnessTestController } from "@main/workout/FitnessTestController";
+import type { FitnessTestService } from "@main/fitness/FitnessTestService";
 import type { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
 import type { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
@@ -69,6 +71,14 @@ import {
   workoutSessionSetIntensityRequestSchema,
   workoutSessionSetRampDurationRequestSchema,
   workoutSessionSeekRequestSchema,
+  startFitnessTestRequestSchema,
+  startFitnessTestResultSchema,
+  fitnessTestResultRequestSchema,
+  fitnessTestRecordSchema,
+  fitnessTestRecordsSchema,
+  listFitnessTestsRequestSchema,
+  applyFitnessTestRequestSchema,
+  applyFitnessTestResultSchema,
   workoutSessionStartResultSchema,
   workoutSessionStateSchema,
   workoutSessionSummarySchema,
@@ -92,7 +102,9 @@ export const registerIpcHandlers = (
   progressDashboardService: ProgressDashboardService,
   stravaService: StravaService,
   workoutRecapService: WorkoutRecapService,
-  profileService: ProfileService
+  profileService: ProfileService,
+  fitnessTestController: FitnessTestController,
+  fitnessTestService: FitnessTestService
 ): (() => void) => {
   const bleSubscribers = new Set<WebContents>();
   const workoutSubscribers = new Set<WebContents>();
@@ -242,6 +254,53 @@ export const registerIpcHandlers = (
     okResultSchema,
     async (_event, input) => {
       workoutEngine.setRampDuration(input.sessionId, input.rampDurationSec);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.start,
+    startFitnessTestRequestSchema,
+    startFitnessTestResultSchema,
+    async (_event, input) => {
+      const profile = profileService.getProfile();
+      const { sessionId, plan } = await fitnessTestController.start({
+        deviceId: input.deviceId,
+        variant: input.variant,
+        profile: { mapWatts: profile.mapWatts, ftpWatts: profile.ftpWatts, weightKg: profile.weightKg }
+      });
+      return { ok: true, sessionId, name: plan.name, intervals: plan.intervals };
+    }
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.getResult,
+    fitnessTestResultRequestSchema,
+    fitnessTestRecordSchema,
+    (_event, input) => fitnessTestService.getOrScore(input.sessionId)
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.apply,
+    applyFitnessTestRequestSchema,
+    applyFitnessTestResultSchema,
+    (_event, input) => fitnessTestService.apply(input)
+  );
+  safeHandle(ipcChannels.fitnessTest.list, listFitnessTestsRequestSchema, fitnessTestRecordsSchema, (_event, input) =>
+    fitnessTestService.list(input.limit)
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.endRamp,
+    workoutSessionControlRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      fitnessTestController.endRamp(input.sessionId);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.keepGoing,
+    workoutSessionControlRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      fitnessTestController.keepGoing(input.sessionId);
       return { ok: true };
     }
   );

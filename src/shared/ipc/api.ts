@@ -43,6 +43,13 @@ import type {
   WorkoutSessionSetIntensityRequest,
   WorkoutSessionSetRampDurationRequest,
   WorkoutSessionSeekRequest,
+  StartFitnessTestRequest,
+  StartFitnessTestResult,
+  FitnessTestRecord,
+  FitnessTestResultRequest,
+  ApplyFitnessTestRequest,
+  ApplyFitnessTestResult,
+  ListFitnessTestsRequest,
   WorkoutSessionStartResult,
   WorkoutSessionState,
   WorkoutSessionSummary,
@@ -110,6 +117,14 @@ export interface KickrDesktopApi {
     assignWorkoutToPlanDay: (request: AssignWorkoutToPlanDayRequest) => Promise<OkResult>;
     unassignWorkoutFromPlanDay: (request: UnassignWorkoutFromPlanDayRequest) => Promise<OkResult>;
     listPlanWeeks: () => Promise<PlanWeekSummary[]>;
+  };
+  fitnessTest: {
+    start: (request: StartFitnessTestRequest) => Promise<StartFitnessTestResult>;
+    endRamp: (request: WorkoutSessionControlRequest) => Promise<OkResult>;
+    keepGoing: (request: WorkoutSessionControlRequest) => Promise<OkResult>;
+    getResult: (request: FitnessTestResultRequest) => Promise<FitnessTestRecord>;
+    apply: (request: ApplyFitnessTestRequest) => Promise<ApplyFitnessTestResult>;
+    list: (request?: ListFitnessTestsRequest) => Promise<FitnessTestRecord[]>;
   };
   workoutBank: {
     list: (request?: ListBankWorkoutsRequest) => Promise<BankWorkoutSummary[]>;

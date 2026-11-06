@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState, type ReactElement } from "react";
 import type {
+  ApplyFitnessTestRequest,
+  FitnessTestRecord,
+  UserProfile,
   WorkoutInterval,
   WorkoutSessionState,
   WorkoutSessionSummary,
@@ -24,6 +27,7 @@ import { cn } from "@/lib/utils";
 import {
   CircleCheck,
   Flag,
+  Megaphone,
   Minus,
   Pause,
   Play,
@@ -41,6 +45,9 @@ import { formatClock } from "../WorkoutTimelineChart";
 import { WorkoutProfileChart, type PowerSample } from "../WorkoutProfileChart";
 import { KMH_TO_MPH, useSpeedUnit, type SpeedUnit } from "../speedUnit";
 import { WorkoutSummaryView } from "../WorkoutSummaryView";
+import { activeCueAt, fillCue } from "../cues";
+import { FitnessTestPanel } from "./FitnessTestPanel";
+import { FitnessTestResults } from "./FitnessTestResults";
 import { BigValue, CardLabel, IntervalCard, PowerCard, RideCard } from "./RideMetricCards";
 
 type Props = {
@@ -62,6 +69,14 @@ type Props = {
   discardWorkout: () => Promise<void>;
   finishRide: (postToStrava: boolean) => Promise<void>;
   adjustIntensity: (deltaFraction: number) => Promise<void>;
+  /** Fitness test only: end the ramp now / cancel the ramp-complete countdown. */
+  endFitnessTestRamp?: () => Promise<void>;
+  keepGoingFitnessTest?: () => Promise<void>;
+  /** Fitness test only: score the saved test, and apply its result to the profile. */
+  fetchFitnessTestResult?: (sessionId: string) => Promise<FitnessTestRecord>;
+  applyFitnessTest?: (testId: string, apply: ApplyFitnessTestRequest["apply"]) => Promise<FitnessTestRecord>;
+  /** Current profile, for the results' "from → to". */
+  profile?: UserProfile | null;
   rampDurationInput: string;
   setRampDurationInput: (value: string) => void;
   applyRampDuration: () => Promise<void>;
@@ -84,6 +99,11 @@ export const RidePage = ({
   discardWorkout,
   finishRide,
   adjustIntensity,
+  endFitnessTestRamp = async () => {},
+  keepGoingFitnessTest = async () => {},
+  fetchFitnessTestResult,
+  applyFitnessTest,
+  profile = null,
   rampDurationInput,
   setRampDurationInput,
   applyRampDuration
@@ -97,6 +117,10 @@ export const RidePage = ({
   const [speedUnit, setSpeedUnit] = useSpeedUnit();
   const [telemetrySeries, setTelemetrySeries] = useState<WorkoutSessionTelemetrySamples | null>(null);
   const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [testRecord, setTestRecord] = useState<FitnessTestRecord | null>(null);
+  const [testLoading, setTestLoading] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [testApplying, setTestApplying] = useState(false);
 
   const totalDurationSec = activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0);
   // Ride clock (moving time) vs. where the rider is in the workout: they differ
@@ -141,6 +165,8 @@ export const RidePage = ({
   }, [sampleClockSec, samplePositionSec, sampleWatts]);
 
   const isPaused = workoutSessionState?.lifecycle === "paused";
+  const fitnessTest = workoutSessionState?.fitnessTest ?? null;
+  const cue = isWorkoutSessionActive ? activeCueAt(activeIntervals, positionSec) : null;
   const isAutoPaused = isPaused && workoutSessionState?.pauseReason === "auto";
   const intervalStarts = activeIntervals.reduce<number[]>(
     (starts, interval, index) => [...starts, index === 0 ? 0 : starts[index - 1] + activeIntervals[index - 1].durationSec],
@@ -165,7 +191,15 @@ export const RidePage = ({
   // the saved summary doesn't exist until the rider chooses Save.
   const lifecycle = workoutSessionState?.lifecycle;
   const endTone = lifecycle === "completed" ? "done" : lifecycle === "degraded" || lifecycle === "error" ? "warn" : "stopped";
-  const endEyebrow = endTone === "done" ? "Workout complete" : endTone === "warn" ? "Ride interrupted" : "Ride ended early";
+  const testDone = fitnessTest?.rampEnded === true;
+  const endEyebrow =
+    endTone === "warn"
+      ? "Ride interrupted"
+      : testDone
+        ? "Test complete"
+        : endTone === "done"
+          ? "Workout complete"
+          : "Ride ended early";
   const completionPct = totalDurationSec > 0 ? Math.min(100, Math.round((positionSec / totalDurationSec) * 100)) : 0;
   const completedIntervals = lifecycle === "completed" ? activeIntervals.length : (currentIndex ?? 0);
   const avgPowerWatts =
@@ -175,11 +209,42 @@ export const RidePage = ({
     await discardWorkout();
   };
 
+  const loadTestResult = async (savedSessionId: string): Promise<void> => {
+    if (!fetchFitnessTestResult) return;
+    setTestLoading(true);
+    setTestError(null);
+    try {
+      setTestRecord(await fetchFitnessTestResult(savedSessionId));
+    } catch (error) {
+      console.error("[fitness test] scoring failed:", error);
+      setTestError(error instanceof Error ? error.message : "Couldn't score this test.");
+    } finally {
+      setTestLoading(false);
+    }
+  };
+
+  const handleApplyTest = async (apply: ApplyFitnessTestRequest["apply"]): Promise<void> => {
+    if (!testRecord || !applyFitnessTest) return;
+    setTestApplying(true);
+    setTestError(null);
+    try {
+      setTestRecord(await applyFitnessTest(testRecord.id, apply));
+    } catch (error) {
+      console.error("[fitness test] apply failed:", error);
+      setTestError(error instanceof Error ? error.message : "Couldn't apply the result.");
+    } finally {
+      setTestApplying(false);
+    }
+  };
+
   const handleSave = async (): Promise<void> => {
     const summary = await saveWorkout();
     if (summary) {
       setSavedSummary(summary);
       setSummaryStage("saved");
+      if (fitnessTest) {
+        void loadTestResult(summary.sessionId);
+      }
       setTelemetryLoading(true);
       try {
         const series = await fetchSessionTelemetry(summary.sessionId);
@@ -243,6 +308,29 @@ export const RidePage = ({
             the workout bar below to jump to another part of the workout first.
           </span>
         </div>
+      ) : null}
+
+      {cue ? (
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-start gap-2 rounded-lg border border-foreground/15 bg-background px-3 py-2.5 text-[15px] font-medium"
+        >
+          <Megaphone className="mt-0.5 size-4 shrink-0 text-primary" />
+          {fillCue(cue, fitnessTest?.hrCapBpm ?? null)}
+        </div>
+      ) : null}
+
+      {fitnessTest && isWorkoutSessionActive ? (
+        <FitnessTestPanel
+          test={fitnessTest}
+          positionSec={positionSec}
+          targetWatts={liveMetrics?.targetPowerWatts ?? null}
+          heartRateBpm={liveMetrics?.actualHeartRateBpm ?? null}
+          busy={liveWorkoutBusy}
+          onEndRamp={() => void endFitnessTestRamp()}
+          onKeepGoing={() => void keepGoingFitnessTest()}
+        />
       ) : null}
 
       {/* Related readouts share a card: actual beside target for power and
@@ -345,7 +433,8 @@ export const RidePage = ({
             // Paused: drop to jump (the "stop pedaling, drag, pedal" flow).
             // Riding: confirm first, so a stray drag can't skip a block.
             confirm: !isPaused,
-            disabled: liveWorkoutBusy || !isWorkoutSessionActive
+            disabled: liveWorkoutBusy || !isWorkoutSessionActive,
+            minSec: fitnessTest?.minSeekPositionSec ?? null
           }
         }}
         headerExtra={
@@ -382,35 +471,42 @@ export const RidePage = ({
           Skip interval
         </Button>
 
-        <div className="flex items-center gap-3">
+        {fitnessTest ? (
           <div className="text-right">
-            <div className="text-sm font-semibold">Intensity</div>
-            <div className="text-xs text-muted-foreground">Scales every target</div>
+            <div className="text-sm font-semibold">Intensity 100%</div>
+            <div className="text-xs text-muted-foreground">Locked during the test</div>
           </div>
-          <div className="flex items-center gap-1 rounded-lg border border-foreground/15 bg-background p-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Decrease intensity"
-              disabled={liveWorkoutBusy || !isWorkoutSessionActive}
-              onClick={() => void adjustIntensity(-0.05)}
-            >
-              <Minus />
-            </Button>
-            <div className="min-w-14 text-center text-lg font-extrabold tabular-nums">
-              {Math.round((workoutSessionState?.intensityMultiplier ?? 1) * 100)}%
+        ) : (
+          <div className="flex items-center gap-3">
+            <div className="text-right">
+              <div className="text-sm font-semibold">Intensity</div>
+              <div className="text-xs text-muted-foreground">Scales every target</div>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="Increase intensity"
-              disabled={liveWorkoutBusy || !isWorkoutSessionActive}
-              onClick={() => void adjustIntensity(0.05)}
-            >
-              <Plus />
-            </Button>
+            <div className="flex items-center gap-1 rounded-lg border border-foreground/15 bg-background p-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Decrease intensity"
+                disabled={liveWorkoutBusy || !isWorkoutSessionActive}
+                onClick={() => void adjustIntensity(-0.05)}
+              >
+                <Minus />
+              </Button>
+              <div className="min-w-14 text-center text-lg font-extrabold tabular-nums">
+                {Math.round((workoutSessionState?.intensityMultiplier ?? 1) * 100)}%
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label="Increase intensity"
+                disabled={liveWorkoutBusy || !isWorkoutSessionActive}
+                onClick={() => void adjustIntensity(0.05)}
+              >
+                <Plus />
+              </Button>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="flex items-center gap-2">
           <label htmlFor="ramp-in" className="text-right">
@@ -510,6 +606,19 @@ export const RidePage = ({
             </>
           ) : (
             <>
+              {fitnessTest ? (
+                <FitnessTestResults
+                  record={testRecord}
+                  loading={testLoading}
+                  error={testRecord ? null : testError}
+                  profile={profile}
+                  applying={testApplying}
+                  onApply={(apply) => void handleApplyTest(apply)}
+                />
+              ) : null}
+              {fitnessTest && testRecord && testError ? (
+                <p className="m-0 text-sm text-destructive">{testError}</p>
+              ) : null}
               {savedSummary ? (
                 <WorkoutSummaryView
                   summary={savedSummary}

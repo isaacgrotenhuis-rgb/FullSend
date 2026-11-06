@@ -255,6 +255,9 @@ export const OnboardingFlow = ({ ble, currentFtp, onSaveProfile, onComplete }: O
           <Button variant="ghost" className="w-full" onClick={useEstimatedFtp} disabled={stepSaving}>
             I don&rsquo;t know it yet &mdash; use an estimate (200W)
           </Button>
+          <p className="m-0 text-center text-xs text-[color-mix(in_srgb,var(--color-text)_60%,transparent)]">
+            You can measure it later with the fitness test on Home.
+          </p>
         </div>
       ) : null}
 

@@ -55,6 +55,12 @@ const makeProfile = (overrides: Partial<ProfileSectionProps> = {}): ProfileSecti
   setWeightUnit: vi.fn(),
   ftpDraft: "",
   setFtpDraft: vi.fn(),
+  mapDraft: "",
+  setMapDraft: vi.fn(),
+  thresholdHrDraft: "",
+  setThresholdHrDraft: vi.fn(),
+  maxHrDraft: "",
+  setMaxHrDraft: vi.fn(),
   startEdit: vi.fn(),
   cancelEdit: vi.fn(),
   save: vi.fn().mockResolvedValue(undefined),
@@ -72,7 +78,7 @@ describe("ProfilePage account details", () => {
       <ProfilePage
         currentFtp={250}
         profile={makeProfile({
-          profile: { name: "Isaac", email: "isaac@example.com", ftpWatts: 250, weightKg: 70, onboardingCompletedAt: null }
+          profile: { name: "Isaac", email: "isaac@example.com", ftpWatts: 250, weightKg: 70, mapWatts: null, thresholdHrBpm: null, maxHrBpm: null, onboardingCompletedAt: null }
         })}
         strava={makeStrava()}
       />
