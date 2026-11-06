@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import type {
   WorkoutInterval,
   WorkoutSessionState,
@@ -29,6 +29,7 @@ import {
   Play,
   Plus,
   Save,
+  SkipForward,
   Square,
   Trash2,
   TriangleAlert,
@@ -53,6 +54,8 @@ type Props = {
   isWorkoutSessionActive: boolean;
   pauseWorkout: () => Promise<void>;
   resumeWorkout: () => Promise<void>;
+  /** Jump the workout cursor to a position (seconds into the planned workout). */
+  seekWorkout: (positionSec: number) => Promise<void>;
   stopWorkout: () => Promise<void>;
   saveWorkout: () => Promise<WorkoutSessionSummary | null>;
   fetchSessionTelemetry: (sessionId: string) => Promise<WorkoutSessionTelemetrySamples>;
@@ -74,6 +77,7 @@ export const RidePage = ({
   isWorkoutSessionActive,
   pauseWorkout,
   resumeWorkout,
+  seekWorkout,
   stopWorkout,
   saveWorkout,
   fetchSessionTelemetry,
@@ -95,7 +99,10 @@ export const RidePage = ({
   const [telemetryLoading, setTelemetryLoading] = useState(false);
 
   const totalDurationSec = activeIntervals.reduce((sum, interval) => sum + interval.durationSec, 0);
+  // Ride clock (moving time) vs. where the rider is in the workout: they differ
+  // once the rider drags the workout bar to skip ahead or go back.
   const elapsedSec = workoutSessionState?.elapsedSec ?? 0;
+  const positionSec = workoutSessionState?.positionSec ?? elapsedSec;
   const currentIndex = workoutSessionState?.currentIntervalIndex ?? null;
   const liveMetrics = workoutSessionState?.liveMetrics ?? null;
   const sessionId = workoutSessionState?.sessionId ?? null;
@@ -112,25 +119,34 @@ export const RidePage = ({
         : (liveDistanceMeters / 1000).toFixed(2)
       : null;
 
-  // Actual power per elapsed second, for the trace over the workout chart.
+  // Actual power per ride second, for the trace over the workout chart. Each
+  // sample is placed at its workout position (so it lines up with the targets
+  // after a seek) but de-duplicated by the ride clock, which only moves forward.
   // Kept here because the engine only streams the current sample; reset when
   // a new session starts.
   const [powerTrace, setPowerTrace] = useState<PowerSample[]>([]);
+  const lastSampleClockRef = useRef<number>(-1);
   useEffect(() => {
     setPowerTrace([]);
+    lastSampleClockRef.current = -1;
   }, [sessionId]);
-  const sampleSec = liveMetrics?.elapsedSec;
+  const sampleClockSec = liveMetrics?.elapsedSec;
+  const samplePositionSec = liveMetrics?.positionSec ?? sampleClockSec;
   const sampleWatts = liveMetrics?.actualPowerWatts ?? null;
   useEffect(() => {
-    if (sampleSec === undefined || sampleWatts === null) return;
-    setPowerTrace((trace) =>
-      trace.length > 0 && trace[trace.length - 1].elapsedSec >= sampleSec
-        ? trace
-        : [...trace, { elapsedSec: sampleSec, watts: sampleWatts }]
-    );
-  }, [sampleSec, sampleWatts]);
+    if (sampleClockSec === undefined || samplePositionSec === undefined || sampleWatts === null) return;
+    if (sampleClockSec <= lastSampleClockRef.current) return;
+    lastSampleClockRef.current = sampleClockSec;
+    setPowerTrace((trace) => [...trace, { positionSec: samplePositionSec, watts: sampleWatts }]);
+  }, [sampleClockSec, samplePositionSec, sampleWatts]);
 
   const isPaused = workoutSessionState?.lifecycle === "paused";
+  const isAutoPaused = isPaused && workoutSessionState?.pauseReason === "auto";
+  const intervalStarts = activeIntervals.reduce<number[]>(
+    (starts, interval, index) => [...starts, index === 0 ? 0 : starts[index - 1] + activeIntervals[index - 1].durationSec],
+    []
+  );
+  const nextIntervalStartSec = currentIndex !== null ? intervalStarts[currentIndex + 1] : undefined;
   const hasEndedLifecycle =
     workoutSessionState?.lifecycle === "stopped" ||
     workoutSessionState?.lifecycle === "completed" ||
@@ -150,7 +166,7 @@ export const RidePage = ({
   const lifecycle = workoutSessionState?.lifecycle;
   const endTone = lifecycle === "completed" ? "done" : lifecycle === "degraded" || lifecycle === "error" ? "warn" : "stopped";
   const endEyebrow = endTone === "done" ? "Workout complete" : endTone === "warn" ? "Ride interrupted" : "Ride ended early";
-  const completionPct = totalDurationSec > 0 ? Math.min(100, Math.round((elapsedSec / totalDurationSec) * 100)) : 0;
+  const completionPct = totalDurationSec > 0 ? Math.min(100, Math.round((positionSec / totalDurationSec) * 100)) : 0;
   const completedIntervals = lifecycle === "completed" ? activeIntervals.length : (currentIndex ?? 0);
   const avgPowerWatts =
     powerTrace.length > 0 ? Math.round(powerTrace.reduce((sum, sample) => sum + sample.watts, 0) / powerTrace.length) : null;
@@ -186,7 +202,7 @@ export const RidePage = ({
             {isPaused ? (
               <Badge className="gap-1 font-extrabold tracking-[0.08em] uppercase">
                 <Pause />
-                Paused
+                {isAutoPaused ? "Auto-paused" : "Paused"}
               </Badge>
             ) : null}
           </h2>
@@ -194,10 +210,7 @@ export const RidePage = ({
         <div className="flex shrink-0 items-center gap-5">
           <div className="text-right">
             <div className="text-xs font-semibold text-muted-foreground">Elapsed</div>
-            <div className="text-2xl leading-tight font-extrabold tabular-nums">
-              {formatClock(elapsedSec)}
-              <span className="text-base font-semibold text-muted-foreground"> / {formatClock(totalDurationSec)}</span>
-            </div>
+            <div className="text-2xl leading-tight font-extrabold tabular-nums">{formatClock(elapsedSec)}</div>
           </div>
           {isWorkoutSessionActive ? (
             <Button variant="outline" disabled={liveWorkoutBusy} onClick={() => void stopWorkout()}>
@@ -219,6 +232,19 @@ export const RidePage = ({
         </div>
       ))}
 
+      {isAutoPaused ? (
+        <div
+          role="status"
+          className="flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-sm"
+        >
+          <Pause className="size-4 shrink-0 text-primary" />
+          <span>
+            <span className="font-semibold">Paused because you stopped pedaling.</span> Start pedaling to resume, or drag
+            the workout bar below to jump to another part of the workout first.
+          </span>
+        </div>
+      ) : null}
+
       {/* Related readouts share a card: actual beside target for power and
           cadence; speed with distance. The interval card answers "how long
           until this ends, and what's next". */}
@@ -232,7 +258,7 @@ export const RidePage = ({
           />
         </div>
         <div className="col-span-12 lg:col-span-5">
-          <IntervalCard intervals={activeIntervals} currentIndex={currentIndex} elapsedSec={elapsedSec} />
+          <IntervalCard intervals={activeIntervals} currentIndex={currentIndex} elapsedSec={positionSec} />
         </div>
 
         <RideCard className="col-span-4">
@@ -310,14 +336,25 @@ export const RidePage = ({
         ftpWatts={ftpWatts}
         title="Workout"
         heightClass="h-[140px]"
-        live={{ elapsedSec, currentIndex, actualTrace: powerTrace }}
+        live={{
+          positionSec,
+          currentIndex,
+          actualTrace: powerTrace,
+          seek: {
+            onSeek: (target) => void seekWorkout(target),
+            // Paused: drop to jump (the "stop pedaling, drag, pedal" flow).
+            // Riding: confirm first, so a stray drag can't skip a block.
+            confirm: !isPaused,
+            disabled: liveWorkoutBusy || !isWorkoutSessionActive
+          }
+        }}
         headerExtra={
           <span className="flex items-center gap-3 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span aria-hidden className="h-0.5 w-3 rounded-full bg-foreground" />
               Your power
             </span>
-            <span className="tabular-nums">{formatClock(Math.max(0, totalDurationSec - elapsedSec))} to go</span>
+            <span className="tabular-nums">{formatClock(Math.max(0, totalDurationSec - positionSec))} to go</span>
           </span>
         }
       />
@@ -331,6 +368,18 @@ export const RidePage = ({
         >
           {isPaused ? <Play /> : <Pause />}
           {isPaused ? "Resume" : "Pause"}
+        </Button>
+
+        <Button
+          variant="outline"
+          size="lg"
+          disabled={liveWorkoutBusy || !isWorkoutSessionActive || nextIntervalStartSec === undefined}
+          onClick={() => {
+            if (nextIntervalStartSec !== undefined) void seekWorkout(nextIntervalStartSec);
+          }}
+        >
+          <SkipForward />
+          Skip interval
         </Button>
 
         <div className="flex items-center gap-3">
@@ -422,7 +471,7 @@ export const RidePage = ({
                 {activeWorkoutName ?? "Workout"}
               </DialogTitle>
               <DialogDescription className="tabular-nums">
-                {formatClock(elapsedSec)} of {formatClock(totalDurationSec)} planned
+                {formatClock(elapsedSec)} ridden · {formatClock(totalDurationSec)} planned
               </DialogDescription>
             </div>
           </DialogHeader>

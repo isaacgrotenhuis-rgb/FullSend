@@ -91,6 +91,7 @@ const createApiStub = (): KickrDesktopApi => ({
       "discardSession",
       "setIntensity",
       "setRampDuration",
+      "seek",
       "getSessionState",
       "getSessionTelemetry",
       "listCompletedSessions",
