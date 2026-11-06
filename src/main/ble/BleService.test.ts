@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BleService } from "@main/ble/BleService";
-import { BleRoleServiceNotFoundError, type BleAdapter } from "@main/ble/types";
-import type { BleDevice, BleFtmsProfile, BleHeartRateSample, BleLiveTelemetry, BleRole } from "@shared/ipc/contracts";
+import { BleRoleServiceNotFoundError, type BleAdapter, type BleDeviceStore } from "@main/ble/types";
+import type {
+  BleDevice,
+  BleFtmsProfile,
+  BleHeartRateSample,
+  BleLiveTelemetry,
+  BleRememberedDevice,
+  BleRole
+} from "@shared/ipc/contracts";
 
 const createDeferred = <T>(): { promise: Promise<T>; resolve: (value: T) => void } => {
   let resolve!: (value: T) => void;
@@ -24,9 +31,20 @@ class FakeBleAdapter implements BleAdapter {
   private liveTelemetryListener: ((deviceId: string, sample: BleLiveTelemetry) => void) | null = null;
   private heartRateTelemetryListener: ((deviceId: string, sample: BleHeartRateSample) => void) | null = null;
 
-  async initialize(): Promise<void> {}
-  async startScan(): Promise<void> {}
-  async stopScan(): Promise<void> {}
+  scanCalls = { start: 0, stop: 0 };
+  initializeCalls = 0;
+  startScanError: Error | null = null;
+
+  async initialize(): Promise<void> {
+    this.initializeCalls += 1;
+  }
+  async startScan(): Promise<void> {
+    this.scanCalls.start += 1;
+    if (this.startScanError) throw this.startScanError;
+  }
+  async stopScan(): Promise<void> {
+    this.scanCalls.stop += 1;
+  }
   listDiscoveredDevices(): BleDevice[] {
     return [];
   }
@@ -427,5 +445,199 @@ describe("BleService adapter power transitions and stuck connects", () => {
     hung.resolve();
     await firstAttempt;
     expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+  });
+});
+
+class MemoryDeviceStore implements BleDeviceStore {
+  constructor(public remembered: BleRememberedDevice[] = []) {}
+  upsert(): void {}
+  listRemembered(): BleRememberedDevice[] {
+    return [...this.remembered];
+  }
+  remember(input: BleRememberedDevice): void {
+    this.remembered = [input, ...this.remembered.filter((device) => device.role !== input.role)];
+  }
+  forget(role: BleRole): void {
+    this.remembered = this.remembered.filter((device) => device.role !== role);
+  }
+  setAutoConnect(role: BleRole, enabled: boolean): void {
+    this.remembered = this.remembered.map((device) => (device.role === role ? { ...device, autoConnect: enabled } : device));
+  }
+}
+
+const rememberedTrainer: BleRememberedDevice = { role: "power", deviceId: TRAINER_ID, name: "KICKR CORE", autoConnect: true };
+const rememberedStrap: BleRememberedDevice = { role: "heart_rate", deviceId: HR_ID, name: "HRM-Pro", autoConnect: true };
+
+// Lets the fire-and-forget connects started from discovery events settle.
+const flush = async (): Promise<void> => {
+  for (let i = 0; i < 10; i += 1) await Promise.resolve();
+};
+
+describe("BleService remembered devices and auto-connect", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("remembers the device connected for each role", async () => {
+    const adapter = new FakeBleAdapter();
+    const store = new MemoryDeviceStore();
+    const service = new BleService({ adapter, deviceStore: store });
+    adapter.emitDiscovered({ id: TRAINER_ID, name: "KICKR CORE", roles: ["power"] });
+    adapter.emitDiscovered({ id: HR_ID, name: "HRM-Pro", roles: ["heart_rate"] });
+
+    await service.connect(TRAINER_ID, "power");
+    await service.connect(HR_ID, "heart_rate");
+
+    expect(store.remembered).toEqual([rememberedStrap, rememberedTrainer]);
+    expect(service.getState().remembered).toEqual(store.remembered);
+  });
+
+  it("doesn't touch the radio at launch when nothing is remembered", async () => {
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter, deviceStore: new MemoryDeviceStore() });
+    await service.startAutoConnect();
+    expect(adapter.initializeCalls).toBe(0);
+    expect(adapter.scanCalls.start).toBe(0);
+    expect(service.getState().autoConnect).toEqual({ status: "idle", roles: [] });
+  });
+
+  it("connects remembered devices as they show up, then stops scanning", async () => {
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter, deviceStore: new MemoryDeviceStore([rememberedTrainer, rememberedStrap]) });
+
+    await service.startAutoConnect();
+    expect(service.getState().autoConnect).toEqual({ status: "searching", roles: ["power", "heart_rate"] });
+    expect(adapter.scanCalls.start).toBe(1);
+
+    adapter.emitDiscovered({ id: "someone-elses-trainer", roles: ["power"] });
+    adapter.emitDiscovered({ id: TRAINER_ID, name: "KICKR CORE", roles: ["power"] });
+    await flush();
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+    expect(service.getState().autoConnect).toEqual({ status: "searching", roles: ["heart_rate"] });
+    expect(adapter.scanCalls.stop).toBe(0);
+
+    adapter.emitDiscovered({ id: HR_ID, name: "HRM-Pro", roles: ["heart_rate"] });
+    await flush();
+    expect(service.getState().connections.heart_rate.connectedDeviceId).toBe(HR_ID);
+    expect(service.getState().autoConnect).toEqual({ status: "idle", roles: [] });
+    expect(adapter.scanCalls.stop).toBe(1);
+  });
+
+  it("gives up after the search window and reports what wasn't found; Reconnect searches again", async () => {
+    vi.useFakeTimers();
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({
+      adapter,
+      deviceStore: new MemoryDeviceStore([rememberedTrainer]),
+      autoConnectWindowMs: 60_000
+    });
+
+    await service.startAutoConnect();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(service.getState().autoConnect).toEqual({ status: "not-found", roles: ["power"] });
+    expect(adapter.scanCalls.stop).toBe(1);
+
+    await service.reconnectRemembered("power");
+    expect(service.getState().autoConnect.status).toBe("searching");
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+    expect(service.getState().autoConnect.status).toBe("idle");
+  });
+
+  it("doesn't auto-connect a role the rider disconnected until they ask", async () => {
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter, deviceStore: new MemoryDeviceStore([rememberedTrainer, rememberedStrap]) });
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    adapter.emitDiscovered({ id: HR_ID, roles: ["heart_rate"] });
+    await service.connect(HR_ID, "heart_rate");
+    await service.disconnect(HR_ID);
+
+    await service.startAutoConnect();
+    await flush();
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+    expect(service.getState().connections.heart_rate.connectedDeviceId).toBeNull();
+    expect(service.getState().autoConnect.status).toBe("idle");
+
+    await service.reconnectRemembered("heart_rate");
+    await flush();
+    expect(service.getState().connections.heart_rate.connectedDeviceId).toBe(HR_ID);
+  });
+
+  it("skips a device with auto-connect off, and keeps that choice when it's paired again", async () => {
+    const adapter = new FakeBleAdapter();
+    const store = new MemoryDeviceStore([rememberedTrainer, rememberedStrap]);
+    const service = new BleService({ adapter, deviceStore: store });
+    service.setAutoConnect("heart_rate", false);
+
+    await service.startAutoConnect();
+    expect(service.getState().autoConnect.roles).toEqual(["power"]);
+
+    adapter.emitDiscovered({ id: HR_ID, roles: ["heart_rate"] });
+    await flush();
+    expect(service.getState().connections.heart_rate.connectedDeviceId).toBeNull();
+
+    await service.connect(HR_ID, "heart_rate");
+    expect(store.remembered.find((device) => device.role === "heart_rate")?.autoConnect).toBe(false);
+  });
+
+  it("forgets a device", async () => {
+    const adapter = new FakeBleAdapter();
+    const store = new MemoryDeviceStore([rememberedTrainer]);
+    const service = new BleService({ adapter, deviceStore: store });
+    await service.startAutoConnect();
+
+    service.forgetDevice("power");
+    expect(store.remembered).toEqual([]);
+    expect(service.getState().remembered).toEqual([]);
+    expect(service.getState().autoConnect).toEqual({ status: "idle", roles: [] });
+    expect(adapter.scanCalls.stop).toBe(1);
+  });
+
+  it("keeps searching when a manual scan ends", async () => {
+    vi.useFakeTimers();
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter, deviceStore: new MemoryDeviceStore([rememberedTrainer]) });
+    await service.startAutoConnect();
+
+    await service.startScan(8000);
+    await vi.advanceTimersByTimeAsync(8000);
+    expect(service.getState().scanning).toBe(false);
+    expect(adapter.scanCalls.stop).toBe(0);
+
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+  });
+
+  it("waits for Bluetooth to come on when it's off at launch", async () => {
+    const adapter = new FakeBleAdapter();
+    adapter.startScanError = new Error("Bluetooth is off");
+    const service = new BleService({ adapter, deviceStore: new MemoryDeviceStore([rememberedTrainer]) });
+
+    await service.startAutoConnect();
+    expect(service.getState().autoConnect).toEqual({ status: "not-found", roles: ["power"] });
+
+    adapter.startScanError = null;
+    adapter.emitAdapterState("poweredOn");
+    await flush();
+    expect(service.getState().autoConnect.status).toBe("searching");
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    await flush();
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+  });
+
+  it("doesn't retry a device that just refused, on every advertisement", async () => {
+    const adapter = new FakeBleAdapter();
+    const connect = vi.spyOn(adapter, "connect").mockRejectedValue(new Error("busy"));
+    const service = new BleService({ adapter, deviceStore: new MemoryDeviceStore([rememberedTrainer]) });
+    await service.startAutoConnect();
+
+    for (let i = 0; i < 5; i += 1) {
+      adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+      await flush();
+    }
+    expect(connect).toHaveBeenCalledTimes(1);
+    expect(service.getState().autoConnect.status).toBe("searching");
   });
 });

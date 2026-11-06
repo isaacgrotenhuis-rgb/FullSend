@@ -261,12 +261,32 @@ const migrations = [
   `,
   `
   CREATE INDEX IF NOT EXISTS idx_fitness_tests_taken_at ON fitness_tests(taken_at);
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS remembered_devices (
+    role TEXT PRIMARY KEY,
+    device_id TEXT NOT NULL,
+    name TEXT,
+    auto_connect INTEGER NOT NULL DEFAULT 1,
+    last_connected_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   `
 ];
 
 export const applySchema = (db: Database): void => {
+  const hadRememberedDevices =
+    db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'remembered_devices'").get() !== undefined;
   for (const migration of migrations) {
     db.exec(migration);
+  }
+
+  if (!hadRememberedDevices) {
+    // Before auto-connect existed the app already saved every trainer it
+    // connected to, so remember the most recent one for its first launch.
+    db.exec(`
+      INSERT OR IGNORE INTO remembered_devices (role, device_id, name)
+      SELECT 'power', id, name FROM devices ORDER BY last_seen_at DESC LIMIT 1;
+    `);
   }
 
   const intervalColumns = db

@@ -1,7 +1,7 @@
 import type { ReactElement } from "react";
 import type { Page } from "../App";
 import { bleRoles, type BleState } from "@shared/ipc/contracts";
-import { connectedCount, isRoleConnected, requiredMissing, roleIcons } from "./DeviceDrawer";
+import { connectedCount, isAutoSearching, isRoleConnected, requiredMissing, roleIcons } from "./DeviceDrawer";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -20,9 +20,14 @@ type Props = {
 const focusRing = "outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: Props): ReactElement => {
-  const attention = requiredMissing(bleState);
+  // While the remembered trainer is being looked for, show that rather than the
+  // "trainer missing" alarm; it flips to the alarm if the search comes up empty.
+  const searchingTrainer = requiredMissing(bleState) && isAutoSearching(bleState, "power");
+  const attention = requiredMissing(bleState) && !searchingTrainer;
   const count = connectedCount(bleState);
-  const ariaLabel = `Devices: ${count} of 3 connected${attention ? ", trainer not connected" : ""}`;
+  const ariaLabel = `Devices: ${count} of 3 connected${
+    searchingTrainer ? ", looking for your trainer" : attention ? ", trainer not connected" : ""
+  }`;
 
   return (
     // Sticky with a frosted backdrop; nav-scroll-elevate (index.css) fades in
@@ -91,7 +96,9 @@ export const Nav = ({ page, onNavigate, bleState, drawerOpen, onToggleDrawer }: 
                 size={16}
                 strokeWidth={2.5}
                 className={
-                  attention
+                  !connected && isAutoSearching(bleState, role)
+                    ? "animate-pulse text-[var(--color-text)]"
+                    : attention
                     ? connected
                       ? "text-[var(--color-bg)]"
                       : "text-[var(--color-bg)] opacity-45"

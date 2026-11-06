@@ -21,7 +21,9 @@ class FakeBle implements BleService {
       heart_rate: { lifecycle: "idle", connectedDeviceId: null, lastError: null },
       cadence: { lifecycle: "idle", connectedDeviceId: null, lastError: null }
     },
-    heartRate: null
+    heartRate: null,
+    remembered: [],
+    autoConnect: { status: "idle", roles: [] }
   };
   private listener: ((state: BleState) => void) | null = null;
 
@@ -36,6 +38,10 @@ class FakeBle implements BleService {
 
   async startScan(): Promise<void> {}
   async stopScan(): Promise<void> {}
+  async startAutoConnect(): Promise<void> {}
+  async reconnectRemembered(): Promise<void> {}
+  forgetDevice(): void {}
+  setAutoConnect(): void {}
   listDevices() {
     return [];
   }

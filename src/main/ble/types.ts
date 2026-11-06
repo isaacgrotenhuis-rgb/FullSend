@@ -6,6 +6,7 @@ import type {
   BleHeartRateSample,
   BleLifecycle,
   BleLiveTelemetry,
+  BleRememberedDevice,
   BleRole,
   BleState
 } from "@shared/ipc/contracts";
@@ -60,6 +61,10 @@ export interface BleTransitionStore {
 
 export interface BleDeviceStore {
   upsert: (input: { id: string; name: string | null }) => void;
+  listRemembered: () => BleRememberedDevice[];
+  remember: (input: BleRememberedDevice) => void;
+  forget: (role: BleRole) => void;
+  setAutoConnect: (role: BleRole, enabled: boolean) => void;
 }
 
 export interface BleService {
@@ -79,6 +84,12 @@ export interface BleService {
   startOrResume: (deviceId: string) => Promise<void>;
   stopOrPause: (deviceId: string, mode: "stop" | "pause") => Promise<void>;
   subscribeState: (listener: (state: BleState) => void) => () => void;
+  /** Look for remembered devices and connect each one as it shows up. */
+  startAutoConnect: () => Promise<void>;
+  /** "Reconnect" for one role: lift a manual disconnect and search again. */
+  reconnectRemembered: (role: BleRole) => Promise<void>;
+  forgetDevice: (role: BleRole) => void;
+  setAutoConnect: (role: BleRole, enabled: boolean) => void;
 }
 
 const createIdleConnectionEntry = (): BleConnections["heart_rate"] => ({
@@ -99,5 +110,7 @@ export const createInitialBleState = (): BleState => ({
     heart_rate: createIdleConnectionEntry(),
     cadence: createIdleConnectionEntry()
   },
-  heartRate: null
+  heartRate: null,
+  remembered: [],
+  autoConnect: { status: "idle", roles: [] }
 });

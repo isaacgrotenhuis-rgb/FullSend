@@ -23,7 +23,10 @@ export const ipcChannels = {
     discoverFtms: "ble:discover-ftms",
     subscribeState: "ble:subscribe-state",
     unsubscribeState: "ble:unsubscribe-state",
-    stateChangedEvent: "ble:state-changed"
+    stateChangedEvent: "ble:state-changed",
+    reconnect: "ble:reconnect",
+    forget: "ble:forget",
+    setAutoConnect: "ble:set-auto-connect"
   },
   workout: {
     startSession: "workout:start-session",
@@ -183,6 +186,21 @@ export const bleLiveTelemetrySchema = z.object({
   timestamp: z.string()
 });
 
+// The device last connected for a role, connected automatically at launch.
+export const bleRememberedDeviceSchema = z.object({
+  role: bleRoleSchema,
+  deviceId: z.string(),
+  name: z.string().nullable(),
+  autoConnect: z.boolean()
+});
+
+// The launch-time search for remembered devices. `roles` are the ones still
+// being looked for ("searching") or that didn't turn up ("not-found").
+export const bleAutoConnectSchema = z.object({
+  status: z.enum(["idle", "searching", "not-found"]),
+  roles: z.array(bleRoleSchema)
+});
+
 export const bleStateSchema = z.object({
   // These four fields double as the "power" role's connection status (see
   // bleConnectionsSchema above for why power isn't folded into `connections`).
@@ -194,7 +212,9 @@ export const bleStateSchema = z.object({
   discoveredDevices: z.array(bleDeviceSchema),
   liveTelemetry: bleLiveTelemetrySchema.nullable(),
   connections: bleConnectionsSchema,
-  heartRate: bleHeartRateSampleSchema.nullable()
+  heartRate: bleHeartRateSampleSchema.nullable(),
+  remembered: z.array(bleRememberedDeviceSchema),
+  autoConnect: bleAutoConnectSchema
 });
 
 export const bleScanRequestSchema = z.object({
@@ -208,6 +228,15 @@ export const bleConnectRequestSchema = z.object({
 
 export const bleDisconnectRequestSchema = z.object({
   deviceId: z.string().min(1).optional()
+});
+
+export const bleRoleRequestSchema = z.object({
+  role: bleRoleSchema
+});
+
+export const bleSetAutoConnectRequestSchema = z.object({
+  role: bleRoleSchema,
+  enabled: z.boolean()
 });
 
 export const bleDeviceRequestSchema = z.object({
@@ -948,6 +977,10 @@ export type BleFtmsCharacteristic = z.infer<typeof bleFtmsCharacteristicSchema>;
 export type BleFtmsProfile = z.infer<typeof bleFtmsProfileSchema>;
 export type BleLiveTelemetry = z.infer<typeof bleLiveTelemetrySchema>;
 export type BleState = z.infer<typeof bleStateSchema>;
+export type BleRememberedDevice = z.infer<typeof bleRememberedDeviceSchema>;
+export type BleAutoConnect = z.infer<typeof bleAutoConnectSchema>;
+export type BleRoleRequest = z.infer<typeof bleRoleRequestSchema>;
+export type BleSetAutoConnectRequest = z.infer<typeof bleSetAutoConnectRequestSchema>;
 export type BleScanRequest = z.infer<typeof bleScanRequestSchema>;
 export type BleConnectRequest = z.infer<typeof bleConnectRequestSchema>;
 export type BleDisconnectRequest = z.infer<typeof bleDisconnectRequestSchema>;

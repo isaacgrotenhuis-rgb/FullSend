@@ -13,6 +13,7 @@ import {
   type BleConnectionEntry,
   type BleDevice,
   type BleFtmsProfile,
+  type BleRememberedDevice,
   type BleRole,
   type BleState
 } from "@shared/ipc/contracts";
@@ -38,20 +39,39 @@ export class BleService implements BleServicePort {
   private resumeDeviceIdOnPowerOn: string | null = null;
   private adapterOffMessage: string | null = null;
 
+  // Auto-connect: at launch (and on "Reconnect") scan quietly and connect each
+  // remembered device as it shows up, for up to autoConnectWindowMs.
+  private readonly autoConnectWindowMs: number;
+  private readonly autoConnectRetryMs = 5000;
+  private autoConnectTimer: NodeJS.Timeout | null = null;
+  private autoConnectRun = 0;
+  // True while the adapter scan was started by auto-connect, so a manual
+  // scan's timeout doesn't stop it out from under the search.
+  private autoScanActive = false;
+  private autoConnectAttemptAt = new Map<BleRole, number>();
+  // Roles the rider disconnected this session: not auto-connected again until
+  // they press Reconnect or pair something for that role.
+  private autoConnectSuppressed = new Set<BleRole>();
+  private resumeAutoConnectOnPowerOn = false;
+
   constructor(options?: {
     adapter?: BleAdapter;
     transitionStore?: BleTransitionStore;
     deviceStore?: BleDeviceStore;
+    autoConnectWindowMs?: number;
   }) {
     this.adapter = options?.adapter ?? new NobleBleAdapter();
     this.transitionStore = options?.transitionStore;
     this.deviceStore = options?.deviceStore;
+    this.autoConnectWindowMs = options?.autoConnectWindowMs ?? 120_000;
+    this.state = { ...this.state, remembered: this.deviceStore?.listRemembered() ?? [] };
     this.bindAdapterEvents();
   }
 
   private bindAdapterEvents(): void {
     this.adapter.onDeviceDiscovered((device) => {
       this.upsertDevice(device);
+      this.maybeAutoConnect(device.id);
     });
 
     this.adapter.onDisconnected((deviceId) => {
@@ -126,6 +146,11 @@ export class BleService implements BleServicePort {
     const message = `Bluetooth is ${state === "poweredOff" ? "off" : `unavailable (${state})`}`;
     this.adapterOffMessage = message;
     this.clearReconnectTimeout();
+    if (this.state.autoConnect.status === "searching") {
+      // The scan died with the radio; pick the search back up when it returns.
+      this.resumeAutoConnectOnPowerOn = true;
+      this.endAutoConnectSearch("not-found", false);
+    }
     if (this.scanTimeout) {
       clearTimeout(this.scanTimeout);
       this.scanTimeout = null;
@@ -172,6 +197,157 @@ export class BleService implements BleServicePort {
       this.reconnectAttempts = 0;
       this.scheduleReconnect(resumeDeviceId);
     }
+    if (this.resumeAutoConnectOnPowerOn) {
+      this.resumeAutoConnectOnPowerOn = false;
+      void this.startAutoConnect();
+    }
+  }
+
+  /** Remembered devices that should be connected automatically right now. */
+  private autoConnectTargets(): BleRememberedDevice[] {
+    return this.state.remembered.filter(
+      (device) =>
+        device.autoConnect &&
+        !this.autoConnectSuppressed.has(device.role) &&
+        this.getConnection(device.role).connectedDeviceId === null
+    );
+  }
+
+  async startAutoConnect(): Promise<void> {
+    const targets = this.autoConnectTargets();
+    if (targets.length === 0) {
+      // Nothing remembered: don't touch the radio (or trigger the macOS
+      // Bluetooth prompt) for a rider who hasn't paired anything yet.
+      this.refreshAutoConnect();
+      return;
+    }
+    const run = ++this.autoConnectRun;
+    this.autoConnectAttemptAt.clear();
+    this.setState({ autoConnect: { status: "searching", roles: targets.map((device) => device.role) } }, "auto-connect-started");
+    try {
+      await this.ensureInitialized();
+      if (run !== this.autoConnectRun) return;
+      await this.adapter.startScan();
+      this.autoScanActive = true;
+    } catch (error) {
+      if (run !== this.autoConnectRun) return;
+      // Usually Bluetooth being off at launch: search once it comes on.
+      console.warn("[BleService] auto-connect couldn't start scanning:", error);
+      this.resumeAutoConnectOnPowerOn = true;
+      this.endAutoConnectSearch("not-found", false);
+      return;
+    }
+    if (run !== this.autoConnectRun) return;
+    this.clearAutoConnectTimer();
+    this.autoConnectTimer = setTimeout(() => {
+      this.endAutoConnectSearch("not-found");
+    }, this.autoConnectWindowMs);
+    // Already seen this session (a manual scan, or the scan that just started).
+    for (const device of this.state.discoveredDevices) {
+      this.maybeAutoConnect(device.id);
+    }
+  }
+
+  async reconnectRemembered(role: BleRole): Promise<void> {
+    this.autoConnectSuppressed.delete(role);
+    await this.startAutoConnect();
+  }
+
+  forgetDevice(role: BleRole): void {
+    this.deviceStore?.forget(role);
+    this.autoConnectSuppressed.delete(role);
+    this.setState({ remembered: this.state.remembered.filter((device) => device.role !== role) }, `${role}-forgotten`);
+    this.refreshAutoConnect();
+  }
+
+  setAutoConnect(role: BleRole, enabled: boolean): void {
+    if (!this.state.remembered.some((device) => device.role === role)) {
+      throw new Error("No remembered device for that role");
+    }
+    this.deviceStore?.setAutoConnect(role, enabled);
+    this.setState(
+      {
+        remembered: this.state.remembered.map((device) =>
+          device.role === role ? { ...device, autoConnect: enabled } : device
+        )
+      },
+      `${role}-auto-connect-${enabled ? "on" : "off"}`
+    );
+    this.refreshAutoConnect();
+  }
+
+  private maybeAutoConnect(deviceId: string): void {
+    if (this.state.autoConnect.status !== "searching") return;
+    for (const target of this.autoConnectTargets()) {
+      if (target.deviceId !== deviceId || this.getConnection(target.role).lifecycle === "connecting") continue;
+      // Advertisements repeat several times a second; don't hammer a device
+      // that just refused a connect.
+      const lastAttempt = this.autoConnectAttemptAt.get(target.role);
+      if (lastAttempt !== undefined && Date.now() - lastAttempt < this.autoConnectRetryMs) continue;
+      this.autoConnectAttemptAt.set(target.role, Date.now());
+      void this.connectInternal(deviceId, target.role, "auto-connect").catch((error: unknown) => {
+        // The row shows the error; keep searching and retry on a later advertisement.
+        console.warn(`[BleService] auto-connect to ${deviceId} as ${target.role} failed:`, error);
+      });
+    }
+  }
+
+  /** Re-derive the search's roles after a connect, disconnect, forget or toggle; finish it once none are left. */
+  private refreshAutoConnect(): void {
+    const { status, roles: currentRoles } = this.state.autoConnect;
+    if (status === "idle") return;
+    const roles = this.autoConnectTargets()
+      .map((device) => device.role)
+      .filter((role) => status === "searching" || currentRoles.includes(role));
+    if (roles.length === 0) {
+      this.endAutoConnectSearch("idle");
+      return;
+    }
+    if (roles.join() !== currentRoles.join()) {
+      this.setState({ autoConnect: { status, roles } }, "auto-connect-updated");
+    }
+  }
+
+  private endAutoConnectSearch(status: "idle" | "not-found", stopScan = true): void {
+    this.autoConnectRun += 1;
+    this.clearAutoConnectTimer();
+    if (this.autoScanActive) {
+      this.autoScanActive = false;
+      // Leave a manual scan the rider started running.
+      if (stopScan && !this.state.scanning) {
+        void this.adapter.stopScan().catch(() => {});
+      }
+    }
+    const roles = status === "not-found" ? this.autoConnectTargets().map((device) => device.role) : [];
+    this.setState(
+      { autoConnect: { status: roles.length > 0 ? status : "idle", roles } },
+      `auto-connect-${roles.length > 0 ? status : "done"}`
+    );
+  }
+
+  private clearAutoConnectTimer(): void {
+    if (this.autoConnectTimer) {
+      clearTimeout(this.autoConnectTimer);
+      this.autoConnectTimer = null;
+    }
+  }
+
+  private rememberDevice(deviceId: string, role: BleRole): void {
+    const discovered = this.state.discoveredDevices.find((item) => item.id === deviceId);
+    const existing = this.state.remembered.find((device) => device.role === role);
+    const sameDevice = existing?.deviceId === deviceId;
+    const remembered: BleRememberedDevice = {
+      role,
+      deviceId,
+      name: discovered?.name ?? discovered?.localName ?? (sameDevice ? existing.name : null),
+      // Keep the rider's auto-connect choice for a device they've paired before.
+      autoConnect: sameDevice ? existing.autoConnect : true
+    };
+    this.deviceStore?.remember(remembered);
+    this.setState(
+      { remembered: [remembered, ...this.state.remembered.filter((device) => device.role !== role)] },
+      `${role}-remembered`
+    );
   }
 
   private clearReconnectTimeout(): void {
@@ -317,7 +493,9 @@ export class BleService implements BleServicePort {
 
   async stopScan(): Promise<void> {
     const opId = ++this.scanOperationSeq;
-    await this.adapter.stopScan();
+    if (!this.autoScanActive) {
+      await this.adapter.stopScan();
+    }
     if (opId !== this.scanOperationSeq) {
       return;
     }
@@ -474,9 +652,12 @@ export class BleService implements BleServicePort {
       `${role}-connected`,
       resetExtra
     );
+    this.rememberDevice(deviceId, role);
+    this.refreshAutoConnect();
   }
 
   async connect(deviceId: string, role: BleRole): Promise<void> {
+    this.autoConnectSuppressed.delete(role);
     await this.connectInternal(deviceId, role, "connect-requested");
   }
 
@@ -528,6 +709,7 @@ export class BleService implements BleServicePort {
   private async disconnectInternal(deviceId: string, role: BleRole): Promise<void> {
     const opId = ++this.connectionOpSeq[role];
     this.manualDisconnectDeviceIds.add(deviceId);
+    this.autoConnectSuppressed.add(role);
     if (role === "power") {
       this.clearReconnectTimeout();
     }
@@ -580,7 +762,7 @@ export class BleService implements BleServicePort {
         "ERG execution is intentionally out of scope in this scaffold.",
         "BLE behavior may vary by macOS version and device firmware.",
         "Reconnect policy is conservative (bounded retries) and does not guarantee recovery on all adapters.",
-        "Heart rate reconnection is manual only; a Whoop device can broadcast to a single BLE central at a time."
+        "Remembered devices connect automatically at launch. A Whoop can only connect to one app at a time, so turn auto-connect off for it if another app needs it."
       ]
     };
   }

@@ -27,7 +27,9 @@ const idleBleState: BleState = {
     heart_rate: { lifecycle: "idle", connectedDeviceId: null, lastError: null },
     cadence: { lifecycle: "idle", connectedDeviceId: null, lastError: null }
   },
-  heartRate: null
+  heartRate: null,
+  remembered: [],
+  autoConnect: { status: "idle", roles: [] }
 };
 
 const connectedTrainerState: BleState = {
@@ -54,6 +56,9 @@ const makeBle = (overrides: Partial<BleSectionProps> = {}): BleSectionProps => (
   getRoleConnection,
   roleLabel: (role) => role,
   connectToDevice: vi.fn().mockResolvedValue(undefined),
+  reconnectRemembered: vi.fn().mockResolvedValue(undefined),
+  forgetDevice: vi.fn().mockResolvedValue(undefined),
+  setAutoConnect: vi.fn().mockResolvedValue(undefined),
   ...overrides
 });
 

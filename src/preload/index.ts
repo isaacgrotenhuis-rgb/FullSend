@@ -19,6 +19,9 @@ const api: KickrDesktopApi = {
     getState: async () => ipcRenderer.invoke(ipcChannels.ble.getState, {}),
     getCapabilities: async () => ipcRenderer.invoke(ipcChannels.ble.getCapabilities, {}),
     discoverFtms: async (request) => ipcRenderer.invoke(ipcChannels.ble.discoverFtms, request),
+    reconnect: async (request) => ipcRenderer.invoke(ipcChannels.ble.reconnect, request),
+    forget: async (request) => ipcRenderer.invoke(ipcChannels.ble.forget, request),
+    setAutoConnect: async (request) => ipcRenderer.invoke(ipcChannels.ble.setAutoConnect, request),
     subscribeState: (listener) => {
       const wrapped = (_event: Electron.IpcRendererEvent, rawState: BleState) => {
         listener(bleStateSchema.parse(rawState));

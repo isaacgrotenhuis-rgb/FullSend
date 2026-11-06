@@ -24,7 +24,9 @@ import {
   bleConnectRequestSchema,
   bleDisconnectRequestSchema,
   bleFtmsProfileSchema,
+  bleRoleRequestSchema,
   bleScanRequestSchema,
+  bleSetAutoConnectRequestSchema,
   bleStateSchema,
   createIntervalRequestSchema,
   dashboardMetricsRequestSchema,
@@ -170,6 +172,21 @@ export const registerIpcHandlers = (
       return { ok: true };
     }
   );
+
+  safeHandle(ipcChannels.ble.reconnect, bleRoleRequestSchema, okResultSchema, async (_event, input) => {
+    await bleService.reconnectRemembered(input.role);
+    return { ok: true };
+  });
+
+  safeHandle(ipcChannels.ble.forget, bleRoleRequestSchema, okResultSchema, (_event, input) => {
+    bleService.forgetDevice(input.role);
+    return { ok: true };
+  });
+
+  safeHandle(ipcChannels.ble.setAutoConnect, bleSetAutoConnectRequestSchema, okResultSchema, (_event, input) => {
+    bleService.setAutoConnect(input.role, input.enabled);
+    return { ok: true };
+  });
 
   safeHandle(ipcChannels.ble.getState, emptySchema, bleStateSchema, () => bleService.getState());
   safeHandle(ipcChannels.ble.getCapabilities, emptySchema, bleCapabilitiesSchema, () =>

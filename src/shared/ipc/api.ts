@@ -70,7 +70,9 @@ import type {
   ArchiveBankWorkoutRequest,
   CompileBankWorkoutRequest,
   CompileBankWorkoutResult,
-  StartAdhocBankWorkoutRequest
+  StartAdhocBankWorkoutRequest,
+  BleRoleRequest,
+  BleSetAutoConnectRequest
 } from "@shared/ipc/contracts";
 
 export interface KickrDesktopApi {
@@ -84,6 +86,9 @@ export interface KickrDesktopApi {
     getState: () => Promise<BleState>;
     getCapabilities: () => Promise<BleCapabilities>;
     discoverFtms: (request: BleDeviceRequest) => Promise<BleFtmsProfile>;
+    reconnect: (request: BleRoleRequest) => Promise<OkResult>;
+    forget: (request: BleRoleRequest) => Promise<OkResult>;
+    setAutoConnect: (request: BleSetAutoConnectRequest) => Promise<OkResult>;
     subscribeState: (listener: (state: BleState) => void) => () => void;
   };
   workout: {
