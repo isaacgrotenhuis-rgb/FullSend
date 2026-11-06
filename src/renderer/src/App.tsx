@@ -25,6 +25,8 @@ import { HomePage } from "./pages/HomePage";
 import { PlanPage } from "./pages/PlanPage";
 import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
+import { FitnessTestBriefingDialog } from "./pages/FitnessTestBriefingDialog";
+import type { FitnessTestVariant } from "@shared/fitnessTest";
 import { ProfilePage, type StravaSectionProps } from "./pages/ProfilePage";
 import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
 import { OnboardingFlow } from "./pages/OnboardingFlow";
@@ -99,6 +101,7 @@ export const App = (): ReactElement => {
   >(null);
   const [previewDetail, setPreviewDetail] = useState<WorkoutDetail | null>(null);
   const [bankBrowserOpen, setBankBrowserOpen] = useState(false);
+  const [fitnessBriefingOpen, setFitnessBriefingOpen] = useState(false);
   const [liveWorkoutBusy, setLiveWorkoutBusy] = useState(false);
   const [liveWorkoutError, setLiveWorkoutError] = useState<string | null>(null);
   const [rampDurationInput, setRampDurationInput] = useState("15");
@@ -305,6 +308,37 @@ export const App = (): ReactElement => {
       return;
     }
     await runWorkoutAction(() => window.kickr.workout.resumeSession({ sessionId }));
+  };
+
+  const startFitnessTest = async (variant: FitnessTestVariant): Promise<void> => {
+    if (!bleState?.connectedDeviceId) {
+      setLiveWorkoutError("Connect a trainer before starting a workout.");
+      return;
+    }
+    const deviceId = bleState.connectedDeviceId;
+    await runWorkoutAction(async () => {
+      const result = await window.kickr.fitnessTest.start({ deviceId, variant });
+      setActiveIntervals(result.intervals);
+      setActiveWorkoutName(result.name);
+      setFitnessBriefingOpen(false);
+      setPage("home");
+    });
+  };
+
+  const endFitnessTestRamp = async (): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    await runWorkoutAction(() => window.kickr.fitnessTest.endRamp({ sessionId }));
+  };
+
+  const keepGoingFitnessTest = async (): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    await runWorkoutAction(() => window.kickr.fitnessTest.keepGoing({ sessionId }));
   };
 
   const seekWorkout = async (positionSec: number): Promise<void> => {
@@ -699,6 +733,8 @@ export const App = (): ReactElement => {
           discardWorkout={discardWorkout}
           finishRide={finishRide}
           adjustIntensity={adjustIntensity}
+          endFitnessTestRamp={endFitnessTestRamp}
+          keepGoingFitnessTest={keepGoingFitnessTest}
           rampDurationInput={rampDurationInput}
           setRampDurationInput={setRampDurationInput}
           applyRampDuration={applyRampDuration}
@@ -782,8 +818,29 @@ export const App = (): ReactElement => {
           weeks={weeks}
           previewWorkoutForDay={previewWorkoutForDay}
           onNavigateToPlan={() => setPage("plan")}
+          onStartFitnessTest={() => {
+            setLiveWorkoutError(null);
+            setFitnessBriefingOpen(true);
+          }}
         />
       )}
+
+      {activeIntervals === null ? (
+        <FitnessTestBriefingDialog
+          open={fitnessBriefingOpen}
+          onOpenChange={setFitnessBriefingOpen}
+          profile={{
+            mapWatts: profile?.mapWatts ?? null,
+            ftpWatts: profile?.ftpWatts ?? null,
+            weightKg: profile?.weightKg ?? null
+          }}
+          trainerConnected={Boolean(bleState?.connectedDeviceId)}
+          heartRateConnected={bleState?.connections.heart_rate.lifecycle === "connected"}
+          busy={liveWorkoutBusy}
+          error={liveWorkoutError}
+          onStart={(variant) => void startFitnessTest(variant)}
+        />
+      ) : null}
 
       {activeIntervals === null && previewWorkout !== null && previewDetail !== null ? (
         <WorkoutPreviewDialog

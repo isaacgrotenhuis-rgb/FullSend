@@ -43,6 +43,8 @@ import type {
   WorkoutSessionSetIntensityRequest,
   WorkoutSessionSetRampDurationRequest,
   WorkoutSessionSeekRequest,
+  StartFitnessTestRequest,
+  StartFitnessTestResult,
   WorkoutSessionStartResult,
   WorkoutSessionState,
   WorkoutSessionSummary,
@@ -110,6 +112,11 @@ export interface KickrDesktopApi {
     assignWorkoutToPlanDay: (request: AssignWorkoutToPlanDayRequest) => Promise<OkResult>;
     unassignWorkoutFromPlanDay: (request: UnassignWorkoutFromPlanDayRequest) => Promise<OkResult>;
     listPlanWeeks: () => Promise<PlanWeekSummary[]>;
+  };
+  fitnessTest: {
+    start: (request: StartFitnessTestRequest) => Promise<StartFitnessTestResult>;
+    endRamp: (request: WorkoutSessionControlRequest) => Promise<OkResult>;
+    keepGoing: (request: WorkoutSessionControlRequest) => Promise<OkResult>;
   };
   workoutBank: {
     list: (request?: ListBankWorkoutsRequest) => Promise<BankWorkoutSummary[]>;

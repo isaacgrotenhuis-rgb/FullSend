@@ -4,6 +4,7 @@ import type { BleService } from "@main/ble/types";
 import type { IntervalCursor } from "@main/workout/intervalScheduler";
 import type {
   BleState,
+  FitnessTestLiveState,
   StartWorkoutSessionRequest,
   WorkoutPauseReason,
   WorkoutLiveMetrics,
@@ -84,6 +85,7 @@ const createIdleState = (): WorkoutSessionState => ({
   elapsedSec: 0,
   positionSec: 0,
   pauseReason: null,
+  fitnessTest: null,
   currentIntervalIndex: null,
   intervalsTotal: 0,
   lastError: null,
@@ -700,6 +702,7 @@ export class ErgWorkoutEngine {
       elapsedSec: 0,
       positionSec: 0,
       pauseReason: null,
+      fitnessTest: null,
       currentIntervalIndex: 0,
       intervalsTotal: request.intervals.length,
       lastError: null,
@@ -788,6 +791,10 @@ export class ErgWorkoutEngine {
     }
     const totalSec = this.scheduler.getTotalDurationSec();
     const target = Math.min(Math.max(0, Math.round(positionSec)), Math.max(0, totalSec - 1));
+    const minSeekPositionSec = this.state.fitnessTest?.minSeekPositionSec ?? null;
+    if (minSeekPositionSec !== null && target < minSeekPositionSec) {
+      throw new Error("You can't go back into the ramp during a fitness test.");
+    }
     const cursor = this.scheduler.locate(target);
     if (!cursor) {
       throw new Error("Seek target is outside the workout");
@@ -822,6 +829,9 @@ export class ErgWorkoutEngine {
     this.requireActiveSession(sessionId);
     if (this.state.lifecycle !== "running" && this.state.lifecycle !== "paused") {
       throw new Error("Session must be running or paused to adjust intensity");
+    }
+    if (this.state.fitnessTest) {
+      throw new Error("Intensity is locked during a fitness test, since scaling the targets would skew the result.");
     }
     const clamped = Math.min(this.maxIntensityMultiplier, Math.max(this.minIntensityMultiplier, multiplier));
     this.persistEvent("intensity-changed", { intensityMultiplier: clamped });
@@ -911,6 +921,22 @@ export class ErgWorkoutEngine {
     this.persistence.workoutSessions.deleteById(sessionId);
     this.lastEndReason = null;
     this.emitState(createIdleState());
+  }
+
+  /** Fitness-test coaching state, owned by FitnessTestController. Ignored once the session has ended or gone idle. */
+  setFitnessTestState(sessionId: string, fitnessTest: FitnessTestLiveState | null): void {
+    if (this.state.sessionId !== sessionId) {
+      return;
+    }
+    this.patchState({ fitnessTest });
+  }
+
+  /** Append a session event on behalf of a collaborator (e.g. the fitness-test controller). */
+  recordEvent(sessionId: string, eventType: string, payload: Record<string, unknown>): void {
+    if (this.state.sessionId !== sessionId) {
+      return;
+    }
+    this.persistEvent(eventType, payload);
   }
 
   getState(): WorkoutSessionState {

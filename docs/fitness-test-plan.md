@@ -314,7 +314,11 @@ A manual stop of a test is not an abort: the session completes with reason
    - `fitness_tests` table and repository
    - pure `analyzeFitnessTest()` with fixtures: synthetic punchy, balanced and
      diesel riders; no HR; too few steps; seeked out early
-3. **Test workout + runtime**
+3. **Test workout + runtime** — *implemented 2026-11-05. The test's plan
+   (phases, ramp numbers) is saved as a `fitness-test-started` session event
+   and the HR cap as `fitness-test-ramp-ended`, so slice 4 scores from
+   telemetry `position_sec` + events with no extra schema. Entry point for now
+   is a Home card; the Profile and onboarding entry points are still slice 4.*
    - `buildFitnessTest()`
    - `FitnessTestController` (failure detection, HR cap, downgrade, intensity
      lock)

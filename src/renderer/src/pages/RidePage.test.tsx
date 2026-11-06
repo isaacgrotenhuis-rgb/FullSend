@@ -29,6 +29,7 @@ const endedSessionState: WorkoutSessionState = {
   elapsedSec: 120,
   positionSec: 120,
   pauseReason: null,
+  fitnessTest: null,
   currentIntervalIndex: null,
   intervalsTotal: 1,
   lastError: null,
@@ -248,7 +249,9 @@ describe("RidePage seeking", () => {
     );
 
     expect(screen.getByText("Auto-paused")).toBeInTheDocument();
-    expect(screen.getByRole("status")).toHaveTextContent("Start pedaling to resume");
+    expect(screen.getByText(/Paused because you stopped pedaling/).closest('[role="status"]')).toHaveTextContent(
+      "Start pedaling to resume"
+    );
 
     const chart = screen.getByRole("group", { name: /Workout power profile/ });
     chart.focus();

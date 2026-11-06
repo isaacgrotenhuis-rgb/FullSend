@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactElement } from "react";
+import { Gauge } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import type { DashboardMetrics, EventPlanWeek, SessionType } from "@shared/ipc/contracts";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
@@ -18,6 +20,8 @@ type Props = {
     sessionType: SessionType | null
   ) => Promise<void>;
   onNavigateToPlan: () => void;
+  /** Opens the fitness test briefing; the card is hidden when omitted. */
+  onStartFitnessTest?: () => void;
 };
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -65,7 +69,8 @@ export const HomePage = ({
   eventDate,
   weeks,
   previewWorkoutForDay,
-  onNavigateToPlan
+  onNavigateToPlan,
+  onStartFitnessTest
 }: Props): ReactElement => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -117,6 +122,28 @@ export const HomePage = ({
       <section aria-label="Training status" className="mb-10">
         <TrainingStatusCards {...statusProps} />
       </section>
+
+      {onStartFitnessTest ? (
+        <section
+          aria-label="Fitness test"
+          className="mb-10 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-foreground/15 bg-muted p-4 shadow-xs"
+        >
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+              <Gauge className="size-5" />
+            </span>
+            <div className="min-w-0">
+              <div className="font-semibold">Fitness test</div>
+              <p className="m-0 text-sm text-muted-foreground">
+                A ramp test plus a heart-rate-capped effort that measures your FTP, MAP and threshold heart rate.
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" onClick={onStartFitnessTest}>
+            Take the test
+          </Button>
+        </section>
+      ) : null}
 
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="m-0">This week</h2>

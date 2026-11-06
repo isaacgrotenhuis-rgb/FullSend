@@ -5,6 +5,7 @@ import { DisplaySleepGuard } from "@main/power/DisplaySleepGuard";
 import { BleService } from "@main/ble/BleService";
 import { DatabaseService } from "@main/database/DatabaseService";
 import { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
+import { FitnessTestController } from "@main/workout/FitnessTestController";
 import { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
 import { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import { WorkoutBankService } from "@main/workout/WorkoutBankService";
@@ -49,6 +50,7 @@ const bootstrap = async (): Promise<void> => {
     workoutSessionEvents: databaseService.repositories.workoutSessionEvents,
     workoutSessionTelemetry: databaseService.repositories.workoutSessionTelemetry
   });
+  const fitnessTestController = new FitnessTestController(workoutEngine);
   const workoutLibraryService = new WorkoutLibraryService(databaseService.repositories);
   const workoutRecapService = new WorkoutRecapService(databaseService.repositories);
   const workoutBankService = new WorkoutBankService(databaseService.repositories);
@@ -77,7 +79,8 @@ const bootstrap = async (): Promise<void> => {
     progressDashboardService,
     stravaService,
     workoutRecapService,
-    profileService
+    profileService,
+    fitnessTestController
   );
 
   await createWindow();

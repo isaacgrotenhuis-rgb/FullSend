@@ -2,6 +2,7 @@ import { ipcMain, type WebContents } from "electron";
 import { z } from "zod";
 import type { BleService } from "@main/ble/types";
 import type { ErgWorkoutEngine } from "@main/workout/ErgWorkoutEngine";
+import type { FitnessTestController } from "@main/workout/FitnessTestController";
 import type { WorkoutLibraryService } from "@main/workout/WorkoutLibraryService";
 import type { WorkoutRecapService } from "@main/workout/WorkoutRecapService";
 import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
@@ -69,6 +70,8 @@ import {
   workoutSessionSetIntensityRequestSchema,
   workoutSessionSetRampDurationRequestSchema,
   workoutSessionSeekRequestSchema,
+  startFitnessTestRequestSchema,
+  startFitnessTestResultSchema,
   workoutSessionStartResultSchema,
   workoutSessionStateSchema,
   workoutSessionSummarySchema,
@@ -92,7 +95,8 @@ export const registerIpcHandlers = (
   progressDashboardService: ProgressDashboardService,
   stravaService: StravaService,
   workoutRecapService: WorkoutRecapService,
-  profileService: ProfileService
+  profileService: ProfileService,
+  fitnessTestController: FitnessTestController
 ): (() => void) => {
   const bleSubscribers = new Set<WebContents>();
   const workoutSubscribers = new Set<WebContents>();
@@ -242,6 +246,38 @@ export const registerIpcHandlers = (
     okResultSchema,
     async (_event, input) => {
       workoutEngine.setRampDuration(input.sessionId, input.rampDurationSec);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.start,
+    startFitnessTestRequestSchema,
+    startFitnessTestResultSchema,
+    async (_event, input) => {
+      const profile = profileService.getProfile();
+      const { sessionId, plan } = await fitnessTestController.start({
+        deviceId: input.deviceId,
+        variant: input.variant,
+        profile: { mapWatts: profile.mapWatts, ftpWatts: profile.ftpWatts, weightKg: profile.weightKg }
+      });
+      return { ok: true, sessionId, name: plan.name, intervals: plan.intervals };
+    }
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.endRamp,
+    workoutSessionControlRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      fitnessTestController.endRamp(input.sessionId);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.fitnessTest.keepGoing,
+    workoutSessionControlRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      fitnessTestController.keepGoing(input.sessionId);
       return { ok: true };
     }
   );
