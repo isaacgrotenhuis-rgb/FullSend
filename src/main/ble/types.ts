@@ -43,6 +43,8 @@ export interface BleAdapter {
   onDeviceDiscovered: (listener: (device: BleDevice) => void) => void;
   onDisconnected: (listener: (deviceId: string) => void) => void;
   onError: (listener: (error: Error) => void) => void;
+  /** Fires on every adapter power transition (e.g. off on sleep, back on at wake). */
+  onAdapterStateChange: (listener: (poweredOn: boolean, state: string) => void) => void;
   onLiveTelemetry: (listener: (deviceId: string, sample: BleLiveTelemetry) => void) => void;
   onHeartRateTelemetry: (listener: (deviceId: string, sample: BleHeartRateSample) => void) => void;
 }

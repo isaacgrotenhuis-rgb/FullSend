@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { BleService } from "@main/ble/BleService";
 import { BleRoleServiceNotFoundError, type BleAdapter } from "@main/ble/types";
 import type { BleDevice, BleFtmsProfile, BleHeartRateSample, BleLiveTelemetry, BleRole } from "@shared/ipc/contracts";
@@ -20,6 +20,7 @@ class FakeBleAdapter implements BleAdapter {
   private deviceDiscoveredListener: ((device: BleDevice) => void) | null = null;
   private disconnectedListener: ((deviceId: string) => void) | null = null;
   private errorListener: ((error: Error) => void) | null = null;
+  private adapterStateListener: ((poweredOn: boolean, state: string) => void) | null = null;
   private liveTelemetryListener: ((deviceId: string, sample: BleLiveTelemetry) => void) | null = null;
   private heartRateTelemetryListener: ((deviceId: string, sample: BleHeartRateSample) => void) | null = null;
 
@@ -84,6 +85,10 @@ class FakeBleAdapter implements BleAdapter {
     this.errorListener = listener;
   }
 
+  onAdapterStateChange(listener: (poweredOn: boolean, state: string) => void): void {
+    this.adapterStateListener = listener;
+  }
+
   onLiveTelemetry(listener: (deviceId: string, sample: BleLiveTelemetry) => void): void {
     this.liveTelemetryListener = listener;
   }
@@ -102,6 +107,10 @@ class FakeBleAdapter implements BleAdapter {
 
   emitError(error: Error): void {
     this.errorListener?.(error);
+  }
+
+  emitAdapterState(state: string): void {
+    this.adapterStateListener?.(state === "poweredOn", state);
   }
 
   emitLiveTelemetry(deviceId: string, sample: BleLiveTelemetry): void {
@@ -327,5 +336,96 @@ describe("BleService cadence role", () => {
     disconnectDeferred.resolve();
     await disconnectPromise;
     expect(service.getState().connections.heart_rate.lifecycle).toBe("disconnected");
+  });
+});
+
+describe("BleService adapter power transitions and stuck connects", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("surfaces a failed connect as an error and lets the next attempt through", async () => {
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter });
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    adapter.connect = async () => {
+      throw new Error("Timed out connecting to trainer");
+    };
+
+    await expect(service.connect(TRAINER_ID, "power")).rejects.toThrow("Timed out");
+    expect(service.getState().lifecycle).toBe("error");
+    expect(service.getState().lastError).toBe("Timed out connecting to trainer");
+
+    adapter.connect = async () => {};
+    await service.connect(TRAINER_ID, "power");
+    expect(service.getState().lifecycle).toBe("connected");
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+  });
+
+  it("disconnects every active role when the adapter powers off", async () => {
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter });
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    adapter.emitDiscovered({ id: HR_ID, roles: ["heart_rate"] });
+    await service.connect(TRAINER_ID, "power");
+    await service.connect(HR_ID, "heart_rate");
+
+    adapter.emitAdapterState("poweredOff");
+
+    const state = service.getState();
+    expect(state.lifecycle).toBe("disconnected");
+    expect(state.connectedDeviceId).toBeNull();
+    expect(state.lastError).toBe("Bluetooth is off");
+    expect(state.connections.heart_rate).toEqual({
+      lifecycle: "disconnected",
+      connectedDeviceId: null,
+      lastError: "Bluetooth is off"
+    });
+  });
+
+  it("clears the power-off message and reconnects the trainer once the adapter is back on", async () => {
+    vi.useFakeTimers();
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter });
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    adapter.emitDiscovered({ id: HR_ID, roles: ["heart_rate"] });
+    await service.connect(TRAINER_ID, "power");
+    await service.connect(HR_ID, "heart_rate");
+
+    adapter.emitAdapterState("poweredOff");
+    adapter.emitAdapterState("poweredOn");
+
+    expect(service.getState().lastError).toBeNull();
+    expect(service.getState().connections.heart_rate.lastError).toBeNull();
+
+    await vi.runOnlyPendingTimersAsync();
+    expect(service.getState().lifecycle).toBe("connected");
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
+    // Heart rate reconnection stays manual.
+    expect(service.getState().connections.heart_rate.connectedDeviceId).toBeNull();
+  });
+
+  it("does not leave a connect that was in flight at power-off blocking the next attempt", async () => {
+    const adapter = new FakeBleAdapter();
+    const service = new BleService({ adapter });
+    adapter.emitDiscovered({ id: TRAINER_ID, roles: ["power"] });
+    const hung = createDeferred<void>();
+    adapter.connectDelays.set(TRAINER_ID, hung.promise);
+
+    const firstAttempt = service.connect(TRAINER_ID, "power");
+    await vi.waitFor(() => expect(service.getState().lifecycle).toBe("connecting"));
+
+    adapter.emitAdapterState("poweredOff");
+    expect(service.getState().lifecycle).toBe("disconnected");
+
+    adapter.emitAdapterState("poweredOn");
+    adapter.connectDelays.delete(TRAINER_ID);
+    await service.connect(TRAINER_ID, "power");
+    expect(service.getState().lifecycle).toBe("connected");
+
+    // The stale attempt settling late must not clobber the new connection.
+    hung.resolve();
+    await firstAttempt;
+    expect(service.getState().connectedDeviceId).toBe(TRAINER_ID);
   });
 });

@@ -33,6 +33,10 @@ export class BleService implements BleServicePort {
   private readonly maxReconnectAttempts = 2;
   private readonly reconnectDelayMs = 1800;
   private lastConnectedDeviceId: string | null = null;
+  // Trainer that was connected when the adapter powered off (e.g. the Mac
+  // slept), reconnected automatically once it's back on.
+  private resumeDeviceIdOnPowerOn: string | null = null;
+  private adapterOffMessage: string | null = null;
 
   constructor(options?: {
     adapter?: BleAdapter;
@@ -92,6 +96,14 @@ export class BleService implements BleServicePort {
       }
     });
 
+    this.adapter.onAdapterStateChange((poweredOn, state) => {
+      if (poweredOn) {
+        this.handleAdapterPoweredOn();
+      } else {
+        this.handleAdapterPoweredOff(state);
+      }
+    });
+
     this.adapter.onLiveTelemetry((deviceId, sample) => {
       if (this.state.connectedDeviceId !== deviceId) {
         return;
@@ -105,6 +117,61 @@ export class BleService implements BleServicePort {
       }
       this.setState({ heartRate: sample });
     });
+  }
+
+  // The radio going away drops every link, so settle each role into a plain
+  // disconnected state (aborting any in-flight connect) instead of leaving it
+  // "connected" or "connecting" against peripherals that no longer exist.
+  private handleAdapterPoweredOff(state: string): void {
+    const message = `Bluetooth is ${state === "poweredOff" ? "off" : `unavailable (${state})`}`;
+    this.adapterOffMessage = message;
+    this.clearReconnectTimeout();
+    if (this.scanTimeout) {
+      clearTimeout(this.scanTimeout);
+      this.scanTimeout = null;
+    }
+    const powerDeviceId = this.state.connectedDeviceId;
+    if (powerDeviceId && !this.manualDisconnectDeviceIds.has(powerDeviceId)) {
+      this.resumeDeviceIdOnPowerOn = powerDeviceId;
+    }
+    for (const role of bleRoles) {
+      const current = this.getConnection(role);
+      const wasActive = current.connectedDeviceId !== null || current.lifecycle === "connecting";
+      if (role !== "power" && !wasActive) {
+        continue;
+      }
+      this.connectionOpSeq[role] += 1;
+      const resetExtra: Partial<BleState> | undefined =
+        role === "power"
+          ? { ftmsProfile: null, liveTelemetry: null, scanning: false }
+          : role === "heart_rate"
+            ? { heartRate: null }
+            : undefined;
+      this.patchConnection(
+        role,
+        { lifecycle: "disconnected", connectedDeviceId: null, lastError: message },
+        `${role}-adapter-powered-off`,
+        resetExtra
+      );
+    }
+  }
+
+  private handleAdapterPoweredOn(): void {
+    const offMessage = this.adapterOffMessage;
+    this.adapterOffMessage = null;
+    if (offMessage) {
+      for (const role of bleRoles) {
+        if (this.getConnection(role).lastError === offMessage) {
+          this.patchConnection(role, { lastError: null }, `${role}-adapter-powered-on`);
+        }
+      }
+    }
+    const resumeDeviceId = this.resumeDeviceIdOnPowerOn;
+    this.resumeDeviceIdOnPowerOn = null;
+    if (resumeDeviceId && !this.state.connectedDeviceId) {
+      this.reconnectAttempts = 0;
+      this.scheduleReconnect(resumeDeviceId);
+    }
   }
 
   private clearReconnectTimeout(): void {
@@ -139,7 +206,13 @@ export class BleService implements BleServicePort {
       return;
     }
     this.setState({ lifecycle: "initializing" }, "initializing-adapter");
-    await this.adapter.initialize();
+    try {
+      await this.adapter.initialize();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Bluetooth adapter failed to initialize";
+      this.setState({ lifecycle: "error", lastError: message }, "adapter-init-failed");
+      throw error;
+    }
     this.initialized = true;
     this.setState({ lifecycle: "idle", lastError: null }, "adapter-ready");
   }
@@ -219,7 +292,18 @@ export class BleService implements BleServicePort {
       lastError: null,
       discoveredDevices: []
     }, "scan-started");
-    await this.adapter.startScan();
+    try {
+      await this.adapter.startScan();
+    } catch (error) {
+      if (opId === this.scanOperationSeq) {
+        const message = error instanceof Error ? error.message : "Unknown scan error";
+        this.setState(
+          { scanning: false, lifecycle: this.state.connectedDeviceId ? "connected" : "error", lastError: message },
+          "scan-failed"
+        );
+      }
+      throw error;
+    }
     if (opId !== this.scanOperationSeq) {
       return;
     }
@@ -315,7 +399,17 @@ export class BleService implements BleServicePort {
     }
     this.patchConnection(role, { lifecycle: "connecting", lastError: null }, reason);
 
-    await this.adapter.connect(deviceId);
+    try {
+      await this.adapter.connect(deviceId);
+    } catch (error) {
+      // Without this the role stays "connecting" and every later attempt
+      // bails at the guard above, so the user can never retry.
+      if (opId === this.connectionOpSeq[role]) {
+        const message = error instanceof Error ? error.message : "Unknown connect error";
+        this.patchConnection(role, { lifecycle: "error", connectedDeviceId: null, lastError: message }, `${role}-connect-failed`);
+      }
+      throw error;
+    }
     if (opId !== this.connectionOpSeq[role]) {
       return;
     }
