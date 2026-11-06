@@ -72,7 +72,7 @@ describe("ProfilePage account details", () => {
       <ProfilePage
         currentFtp={250}
         profile={makeProfile({
-          profile: { name: "Isaac", email: "isaac@example.com", ftpWatts: 250, weightKg: 70, onboardingCompletedAt: null }
+          profile: { name: "Isaac", email: "isaac@example.com", ftpWatts: 250, weightKg: 70, mapWatts: null, thresholdHrBpm: null, maxHrBpm: null, onboardingCompletedAt: null }
         })}
         strava={makeStrava()}
       />

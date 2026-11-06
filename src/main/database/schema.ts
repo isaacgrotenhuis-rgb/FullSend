@@ -234,6 +234,33 @@ const migrations = [
     created_at               TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at               TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  `,
+  `
+  CREATE TABLE IF NOT EXISTS fitness_tests (
+    id                TEXT PRIMARY KEY,
+    session_id        TEXT NOT NULL UNIQUE REFERENCES workout_sessions(id) ON DELETE CASCADE,
+    variant           TEXT NOT NULL,
+    taken_at          TEXT NOT NULL,
+    map_seed_watts    INTEGER,
+    map_watts         INTEGER,
+    ftp_ramp_watts    INTEGER,
+    ftp_capped_watts  INTEGER,
+    ftp_watts         INTEGER,
+    threshold_hr_bpm  INTEGER,
+    max_hr_bpm        INTEGER,
+    hr_cap_bpm        INTEGER,
+    weight_kg         REAL,
+    vo2max_est        REAL,
+    valid             INTEGER NOT NULL,
+    flags_json        TEXT NOT NULL DEFAULT '[]',
+    result_json       TEXT NOT NULL,
+    applied_at        TEXT,
+    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  `,
+  `
+  CREATE INDEX IF NOT EXISTS idx_fitness_tests_taken_at ON fitness_tests(taken_at);
   `
 ];
 
@@ -265,6 +292,21 @@ export const applySchema = (db: Database): void => {
   }
   if (!workoutColumnNames.has("compiled_at_ftp")) {
     db.exec("ALTER TABLE workouts ADD COLUMN compiled_at_ftp INTEGER;");
+  }
+
+  const profileColumnNames = new Set(
+    (db.prepare("SELECT name FROM pragma_table_info('user_profile')").all() as Array<{ name: string }>).map(
+      (column) => column.name
+    )
+  );
+  for (const [column, type] of [
+    ["map_watts", "INTEGER"],
+    ["threshold_hr_bpm", "INTEGER"],
+    ["max_hr_bpm", "INTEGER"]
+  ] as const) {
+    if (!profileColumnNames.has(column)) {
+      db.exec(`ALTER TABLE user_profile ADD COLUMN ${column} ${type};`);
+    }
   }
 
   const telemetryColumnsForCadence = db

@@ -759,6 +759,11 @@ export const userProfileSchema = z.object({
   email: z.string().nullable(),
   ftpWatts: z.number().int().min(100).max(600).nullable(),
   weightKg: z.number().min(20).max(300).nullable(),
+  /** Maximal aerobic power (best 1-min power in a ramp test). */
+  mapWatts: z.number().int().min(100).max(1000).nullable(),
+  /** Threshold heart rate (cTHR) from a fitness test, drives HR zones. */
+  thresholdHrBpm: z.number().int().min(80).max(220).nullable(),
+  maxHrBpm: z.number().int().min(100).max(230).nullable(),
   onboardingCompletedAt: z.string().nullable()
 });
 
@@ -769,7 +774,10 @@ export const updateProfileRequestSchema = z.object({
   name: z.string().trim().min(1).max(120).nullable().optional(),
   email: z.string().trim().min(1).max(160).nullable().optional(),
   ftpWatts: z.number().int().min(100).max(600).nullable().optional(),
-  weightKg: z.number().min(20).max(300).nullable().optional()
+  weightKg: z.number().min(20).max(300).nullable().optional(),
+  mapWatts: z.number().int().min(100).max(1000).nullable().optional(),
+  thresholdHrBpm: z.number().int().min(80).max(220).nullable().optional(),
+  maxHrBpm: z.number().int().min(100).max(230).nullable().optional()
 });
 
 export const completeOnboardingRequestSchema = z.object({});
