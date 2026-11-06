@@ -315,6 +315,11 @@ export const applySchema = (db: Database): void => {
   if (!new Set(telemetryColumnsForCadence.map((column) => column.name)).has("target_cadence_rpm")) {
     db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN target_cadence_rpm REAL;");
   }
+  if (!new Set(telemetryColumnsForCadence.map((column) => column.name)).has("position_sec")) {
+    // Workout cursor, separate from elapsed_seconds (the ride clock) once a rider can
+    // seek. NULL on rows from before seeking existed, where position == elapsed.
+    db.exec("ALTER TABLE workout_session_telemetry ADD COLUMN position_sec REAL;");
+  }
 
   const stravaSyncColumns = db
     .prepare("SELECT name FROM pragma_table_info('strava_sync_events')")

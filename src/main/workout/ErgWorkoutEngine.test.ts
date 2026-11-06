@@ -275,6 +275,17 @@ describe("ErgWorkoutEngine finalize/discard", () => {
   });
 
   it("interpolates targetPowerWatts across a ramp interval and passes cadence through", async () => {
+    // A single sample then 49 s of silence would trip auto-pause; this test is about
+    // target interpolation, so run it with auto-pause off.
+    engine = new ErgWorkoutEngine(
+      ble,
+      {
+        workoutSessions: repos.workoutSessions,
+        workoutSessionEvents: repos.workoutSessionEvents,
+        workoutSessionTelemetry: repos.workoutSessionTelemetry
+      },
+      { autoPause: false }
+    );
     ble.setTelemetry(120, 85);
     const sessionId = await engine.start({
       workoutId: null,
@@ -455,5 +466,216 @@ describe("ErgWorkoutEngine pause freezes targets, not live metrics", () => {
     await vi.advanceTimersByTimeAsync(4000);
     expect(engine.getState().liveMetrics?.actualPowerWatts).toBeNull();
     expect(engine.getState().liveMetrics?.actualCadenceRpm).toBeNull();
+  });
+});
+
+describe("ErgWorkoutEngine seeking and auto-pause", () => {
+  let db: Database.Database;
+  let repos: Repositories;
+  let ble: FakeBleService;
+  let engine: ErgWorkoutEngine;
+
+  // 0-60 warm-up @100 W, 60-120 work @200 W, 120-180 cool-down @80 W.
+  const threeBlocks = [
+    { kind: "warmup" as const, durationSec: 60, targetPowerWatts: 100, targetResistancePercent: null },
+    { kind: "work" as const, durationSec: 60, targetPowerWatts: 200, targetResistancePercent: null },
+    { kind: "cooldown" as const, durationSec: 60, targetPowerWatts: 80, targetResistancePercent: null }
+  ];
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    applySchema(db);
+    db.prepare("INSERT INTO devices (id, name) VALUES ('dev1', 'Test Trainer')").run();
+    repos = new Repositories(db);
+    ble = new FakeBleService();
+    engine = new ErgWorkoutEngine(ble, {
+      workoutSessions: repos.workoutSessions,
+      workoutSessionEvents: repos.workoutSessionEvents,
+      workoutSessionTelemetry: repos.workoutSessionTelemetry
+    });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    db.close();
+  });
+
+  const start = async (): Promise<string> => {
+    ble.setTelemetry(100, 85);
+    const sessionId = await engine.start({ workoutId: null, deviceId: "dev1", intervals: threeBlocks });
+    engine.setRampDuration(sessionId, 0);
+    return sessionId;
+  };
+
+  // Keep fresh samples arriving once a second, like a rider pedaling.
+  const pedal = async (seconds: number, watts = 150, cadence = 88): Promise<void> => {
+    for (let i = 0; i < seconds; i += 1) {
+      ble.setTelemetry(watts, cadence);
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+  };
+
+  const coast = async (seconds: number): Promise<void> => {
+    for (let i = 0; i < seconds; i += 1) {
+      ble.setTelemetry(0, 0);
+      await vi.advanceTimersByTimeAsync(1000);
+    }
+  };
+
+  const eventTypes = (sessionId: string): string[] =>
+    (
+      db
+        .prepare("SELECT event_type FROM workout_session_events WHERE session_id = ? ORDER BY rowid")
+        .all(sessionId) as Array<{ event_type: string }>
+    ).map((row) => row.event_type);
+
+  it("moves the workout cursor on seek while the ride clock keeps counting moving time", async () => {
+    const sessionId = await start();
+    await pedal(5);
+    expect(engine.getState().positionSec).toBe(5);
+
+    engine.seek(sessionId, 125);
+    expect(engine.getState().positionSec).toBe(125);
+    expect(engine.getState().currentIntervalIndex).toBe(2);
+
+    await pedal(3);
+    const state = engine.getState();
+    expect(state.elapsedSec).toBe(8); // clock untouched by the jump
+    expect(state.positionSec).toBe(128);
+    expect(state.liveMetrics?.blockKind).toBe("cooldown");
+    expect(state.liveMetrics?.targetPowerWatts).toBe(80);
+
+    const row = db
+      .prepare(
+        "SELECT elapsed_seconds AS e, position_sec AS p FROM workout_session_telemetry WHERE session_id = ? ORDER BY rowid DESC LIMIT 1"
+      )
+      .get(sessionId) as { e: number; p: number };
+    expect(row).toEqual({ e: 8, p: 128 });
+    expect(eventTypes(sessionId)).toContain("seek");
+  });
+
+  it("can seek backwards too", async () => {
+    const sessionId = await start();
+    await pedal(3);
+    engine.seek(sessionId, 90);
+    await pedal(2);
+    engine.seek(sessionId, 10);
+    await pedal(2);
+    expect(engine.getState().positionSec).toBe(12);
+    expect(engine.getState().elapsedSec).toBe(7);
+    expect(engine.getState().liveMetrics?.targetPowerWatts).toBe(100);
+  });
+
+  it("previews the new block while paused and continues from it on resume", async () => {
+    const sessionId = await start();
+    await pedal(4);
+    await engine.pause(sessionId);
+    const ergWrites = ble.applyErgTarget.mock.calls.length;
+
+    engine.seek(sessionId, 60);
+    expect(engine.getState().lifecycle).toBe("paused");
+    expect(engine.getState().liveMetrics?.targetPowerWatts).toBe(200); // target tile previews the jump
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(engine.getState().positionSec).toBe(60); // cursor held while paused
+    expect(ble.applyErgTarget.mock.calls.length).toBe(ergWrites); // nothing sent until resume
+
+    await engine.resume(sessionId);
+    await pedal(2);
+    expect(engine.getState().positionSec).toBeGreaterThanOrEqual(61);
+    expect(engine.getState().positionSec).toBeLessThanOrEqual(62);
+    expect(engine.getState().liveMetrics?.blockKind).toBe("work");
+  });
+
+  it("clamps a seek to the workout's last second, then completes with the real ride time", async () => {
+    const sessionId = await start();
+    await pedal(5);
+    engine.seek(sessionId, 10_000);
+    expect(engine.getState().positionSec).toBe(179);
+
+    await pedal(2);
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("completed");
+    expect(state.positionSec).toBe(180);
+    // 5 s before the jump + 1 s to reach the end: not the 3:00 the workout is planned for.
+    expect(state.elapsedSec).toBe(6);
+    expect(engine.finalizeSession(sessionId).durationSec).toBe(6);
+  });
+
+  it("rejects a seek when no session is running or paused", async () => {
+    const sessionId = await start();
+    await engine.stop(sessionId);
+    expect(() => engine.seek(sessionId, 30)).toThrow();
+    expect(() => engine.seek("nope", 30)).toThrow();
+  });
+
+  it("auto-pauses after the rider stops pedaling for the idle window, holding clock and cursor", async () => {
+    const sessionId = await start();
+    await pedal(5);
+    await coast(9);
+    expect(engine.getState().lifecycle).toBe("running");
+
+    await coast(1);
+    const state = engine.getState();
+    expect(state.lifecycle).toBe("paused");
+    expect(state.pauseReason).toBe("auto");
+    expect(ble.stopOrPause).toHaveBeenCalledWith("dev1", "pause");
+
+    const clockAtPause = state.elapsedSec;
+    await vi.advanceTimersByTimeAsync(20_000); // sensors silent
+    expect(engine.getState().elapsedSec).toBe(clockAtPause);
+    expect(engine.getState().lifecycle).toBe("paused");
+  });
+
+  it("does not auto-pause before the rider has pedaled at all", async () => {
+    ble.setTelemetry(null, null);
+    const sessionId = await engine.start({ workoutId: null, deviceId: "dev1", intervals: threeBlocks });
+    await coast(15);
+    expect(engine.getState().lifecycle).toBe("running");
+    await engine.stop(sessionId);
+  });
+
+  it("supports the stop-pedaling, drag, start-pedaling flow", async () => {
+    const sessionId = await start();
+    await pedal(30);
+    await coast(10);
+    expect(engine.getState().pauseReason).toBe("auto");
+
+    engine.seek(sessionId, 120); // drag to the cool-down
+    await pedal(1);
+    expect(engine.getState().lifecycle).toBe("paused"); // one stroke isn't enough
+    await pedal(1);
+    expect(engine.getState().lifecycle).toBe("running");
+    expect(engine.getState().pauseReason).toBeNull();
+
+    await pedal(2);
+    expect(engine.getState().liveMetrics?.blockKind).toBe("cooldown");
+    expect(eventTypes(sessionId)).toEqual(expect.arrayContaining(["seek", "auto-resume", "session-resumed"]));
+  });
+
+  it("never auto-resumes a manual pause", async () => {
+    const sessionId = await start();
+    await pedal(3);
+    await engine.pause(sessionId);
+    await pedal(5);
+    expect(engine.getState().lifecycle).toBe("paused");
+    expect(engine.getState().pauseReason).toBe("manual");
+  });
+
+  it("can be turned off", async () => {
+    engine = new ErgWorkoutEngine(
+      ble,
+      {
+        workoutSessions: repos.workoutSessions,
+        workoutSessionEvents: repos.workoutSessionEvents,
+        workoutSessionTelemetry: repos.workoutSessionTelemetry
+      },
+      { autoPause: false }
+    );
+    await start();
+    await pedal(3);
+    await coast(20);
+    expect(engine.getState().lifecycle).toBe("running");
   });
 });

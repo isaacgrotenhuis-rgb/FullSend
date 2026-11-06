@@ -40,6 +40,7 @@ const api: KickrDesktopApi = {
     discardSession: async (request) => ipcRenderer.invoke(ipcChannels.workout.discardSession, request),
     setIntensity: async (request) => ipcRenderer.invoke(ipcChannels.workout.setIntensity, request),
     setRampDuration: async (request) => ipcRenderer.invoke(ipcChannels.workout.setRampDuration, request),
+    seek: async (request) => ipcRenderer.invoke(ipcChannels.workout.seek, request),
     getSessionState: async () => ipcRenderer.invoke(ipcChannels.workout.getSessionState, {}),
     getSessionTelemetry: async (request) => ipcRenderer.invoke(ipcChannels.workout.getSessionTelemetry, request),
     listCompletedSessions: async (request) =>

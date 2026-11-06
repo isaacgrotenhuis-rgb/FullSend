@@ -307,6 +307,14 @@ export const App = (): ReactElement => {
     await runWorkoutAction(() => window.kickr.workout.resumeSession({ sessionId }));
   };
 
+  const seekWorkout = async (positionSec: number): Promise<void> => {
+    const sessionId = workoutSessionState?.sessionId;
+    if (!sessionId) {
+      return;
+    }
+    await runWorkoutAction(() => window.kickr.workout.seek({ sessionId, positionSec }));
+  };
+
   const stopWorkout = async (): Promise<void> => {
     const sessionId = workoutSessionState?.sessionId;
     if (!sessionId) {
@@ -684,6 +692,7 @@ export const App = (): ReactElement => {
           isWorkoutSessionActive={isWorkoutSessionActive}
           pauseWorkout={pauseWorkout}
           resumeWorkout={resumeWorkout}
+          seekWorkout={seekWorkout}
           stopWorkout={stopWorkout}
           saveWorkout={saveWorkout}
           fetchSessionTelemetry={fetchSessionTelemetry}

@@ -34,6 +34,7 @@ export const ipcChannels = {
     discardSession: "workout:discard-session",
     setIntensity: "workout:set-intensity",
     setRampDuration: "workout:set-ramp-duration",
+    seek: "workout:seek",
     getSessionState: "workout:get-session-state",
     getSessionTelemetry: "workout:get-session-telemetry",
     listCompletedSessions: "workout:list-completed-sessions",
@@ -339,6 +340,13 @@ export const workoutSessionSetRampDurationRequestSchema = z.object({
   rampDurationSec: rampDurationSecSchema
 });
 
+export const workoutSessionSeekRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  positionSec: z.number().int().min(0)
+});
+
+export const workoutPauseReasonSchema = z.enum(["manual", "auto"]);
+
 export const workoutSessionLifecycleSchema = z.enum([
   "idle",
   "running",
@@ -351,7 +359,11 @@ export const workoutSessionLifecycleSchema = z.enum([
 
 export const workoutLiveMetricsSchema = z.object({
   timestamp: z.string(),
+  /** Ride clock: moving time, monotonic. Feeds duration, Strava and averages. */
   elapsedSec: z.number().int().min(0),
+  /** Workout cursor: where in the planned workout the rider is. Moves with the
+   *  clock while running and jumps when the rider seeks. */
+  positionSec: z.number().int().min(0),
   blockIndex: z.number().int().min(0),
   blockKind: workoutIntervalKindSchema,
   targetPowerWatts: z.number().nullable(),
@@ -373,6 +385,9 @@ export const workoutSessionStateSchema = z.object({
   pausedAt: z.string().nullable(),
   endedAt: z.string().nullable(),
   elapsedSec: z.number().int().min(0),
+  positionSec: z.number().int().min(0),
+  /** Why the session is paused; null while not paused. Only an "auto" pause resumes on pedaling. */
+  pauseReason: workoutPauseReasonSchema.nullable(),
   currentIntervalIndex: z.number().int().min(0).nullable(),
   intervalsTotal: z.number().int().min(0),
   lastError: z.string().nullable(),
@@ -819,6 +834,8 @@ export type IntensityMultiplier = z.infer<typeof intensityMultiplierSchema>;
 export type WorkoutSessionSetIntensityRequest = z.infer<typeof workoutSessionSetIntensityRequestSchema>;
 export type RampDurationSec = z.infer<typeof rampDurationSecSchema>;
 export type WorkoutSessionSetRampDurationRequest = z.infer<typeof workoutSessionSetRampDurationRequestSchema>;
+export type WorkoutSessionSeekRequest = z.infer<typeof workoutSessionSeekRequestSchema>;
+export type WorkoutPauseReason = z.infer<typeof workoutPauseReasonSchema>;
 export type WorkoutSessionLifecycle = z.infer<typeof workoutSessionLifecycleSchema>;
 export type WorkoutLiveMetrics = z.infer<typeof workoutLiveMetricsSchema>;
 export type WorkoutSessionState = z.infer<typeof workoutSessionStateSchema>;

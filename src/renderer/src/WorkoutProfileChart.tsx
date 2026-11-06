@@ -1,11 +1,20 @@
 import { useMemo, useState, type KeyboardEvent, type PointerEvent, type ReactElement, type ReactNode } from "react";
 import type { WorkoutInterval, WorkoutIntervalKind } from "@shared/ipc/contracts";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { formatTick, timeTicks } from "./chartTime";
 import { formatClock } from "./WorkoutTimelineChart";
 import { powerZones, zoneFor, type PowerZone } from "./zones";
 
-export type PowerSample = { elapsedSec: number; watts: number };
+/** One actual-power reading, placed at its workout position (not the ride clock). */
+export type PowerSample = { positionSec: number; watts: number };
+
+export type LiveSeek = {
+  onSeek: (positionSec: number) => void;
+  /** Ask before jumping (used while riding, so a stray drag can't skip a block). */
+  confirm: boolean;
+  disabled?: boolean;
+};
 
 type Props = {
   intervals: WorkoutInterval[];
@@ -20,12 +29,20 @@ type Props = {
    * emphasises the current block and draws the rider's actual power over the
    * targets. Also hides the time-in-zone breakdown, which is a planning aid.
    */
-  live?: { elapsedSec: number; currentIndex: number | null; actualTrace: PowerSample[] };
+  live?: {
+    positionSec: number;
+    currentIndex: number | null;
+    actualTrace: PowerSample[];
+    /** When set, the rider can drag along the chart (or press Enter on a block) to jump there. */
+    seek?: LiveSeek;
+  };
   /** Plot height class; defaults to h-[200px]. */
   heightClass?: string;
 };
 
 const maxTracePoints = 300;
+/** A drop this close to a block's start snaps to it (at least this many seconds, or 1% of the workout). */
+const snapMinSec = 10;
 
 type Block = {
   index: number;
@@ -71,6 +88,10 @@ export const WorkoutProfileChart = ({
   heightClass = "h-[200px]"
 }: Props): ReactElement => {
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  // Seek gesture: dragSec while the pointer is down, pendingSec while a running
+  // ride waits for the rider to confirm the jump.
+  const [dragSec, setDragSec] = useState<number | null>(null);
+  const [pendingSec, setPendingSec] = useState<number | null>(null);
 
   const model = useMemo(() => {
     let cursor = 0;
@@ -115,12 +136,62 @@ export const WorkoutProfileChart = ({
     const found = blocks.findIndex((block) => sec < block.startSec + block.durationSec);
     return found === -1 ? blocks.length - 1 : found;
   };
-  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+  const seek = live?.seek;
+  const canSeek = seek !== undefined && !seek.disabled;
+  const lastSec = Math.max(0, durationSec - 1);
+  const snap = (sec: number): number => {
+    const threshold = Math.max(snapMinSec, durationSec * 0.01);
+    let best = sec;
+    let bestDistance = threshold;
+    for (const block of blocks) {
+      const distance = Math.abs(block.startSec - sec);
+      if (distance <= bestDistance) {
+        best = block.startSec;
+        bestDistance = distance;
+      }
+    }
+    return Math.min(lastSec, Math.max(0, Math.round(best)));
+  };
+  const secAt = (event: PointerEvent<HTMLDivElement>): number => {
     const rect = event.currentTarget.getBoundingClientRect();
     const fraction = Math.min(1, Math.max(0, (event.clientX - rect.left) / Math.max(1, rect.width)));
-    setActiveIndex(blockAt(fraction * durationSec));
+    return fraction * durationSec;
+  };
+  const commitSeek = (sec: number) => {
+    if (!seek || seek.disabled) return;
+    if (seek.confirm) setPendingSec(sec);
+    else seek.onSeek(sec);
+  };
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!canSeek || event.button !== 0) return;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setPendingSec(null);
+    const sec = snap(secAt(event));
+    setDragSec(sec);
+    setActiveIndex(blockAt(sec));
+  };
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const sec = secAt(event);
+    if (dragSec !== null) {
+      const snapped = snap(sec);
+      setDragSec(snapped);
+      setActiveIndex(blockAt(snapped));
+      return;
+    }
+    setActiveIndex(blockAt(sec));
+  };
+  const handlePointerUp = () => {
+    if (dragSec === null) return;
+    commitSeek(dragSec);
+    setDragSec(null);
   };
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (canSeek && event.key === "Enter" && activeIndex !== null) {
+      event.preventDefault();
+      commitSeek(Math.min(lastSec, blocks[activeIndex].startSec));
+      return;
+    }
     const moves: Record<string, number> = {
       ArrowLeft: (activeIndex ?? 0) - 1,
       ArrowRight: activeIndex === null ? 0 : activeIndex + 1,
@@ -142,7 +213,9 @@ export const WorkoutProfileChart = ({
   const ftpPct = ftpWatts ? heightPct(ftpWatts) : null;
   const zonesUsed = live ? [] : powerZones.filter((zone) => zoneSeconds.has(zone.key));
 
-  const elapsedPct = live ? Math.min(100, pct(live.elapsedSec)) : 0;
+  const elapsedPct = live ? Math.min(100, pct(live.positionSec)) : 0;
+  const ghostSec = dragSec ?? pendingSec;
+  const ghostBlock = ghostSec !== null ? blocks[blockAt(ghostSec)] : null;
   // Actual power, averaged into at most maxTracePoints buckets so a long ride
   // stays a smooth, cheap path. Clamped to the plot rather than rescaling it,
   // so the target blocks never jump while riding.
@@ -151,7 +224,7 @@ export const WorkoutProfileChart = ({
     const bucketSec = Math.max(1, durationSec / maxTracePoints);
     const buckets = new Map<number, { sum: number; count: number }>();
     for (const sample of live.actualTrace) {
-      const key = Math.floor(sample.elapsedSec / bucketSec);
+      const key = Math.floor(sample.positionSec / bucketSec);
       const bucket = buckets.get(key) ?? { sum: 0, count: 0 };
       bucket.sum += sample.watts;
       bucket.count += 1;
@@ -177,14 +250,24 @@ export const WorkoutProfileChart = ({
 
       <div
         className={cn(
-          "relative cursor-crosshair touch-none rounded-lg bg-background outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          "relative touch-none rounded-lg bg-background outline-none select-none focus-visible:ring-[3px] focus-visible:ring-ring/50",
+          canSeek ? "cursor-ew-resize" : "cursor-crosshair",
           heightClass
         )}
         tabIndex={0}
         role="group"
-        aria-label="Workout power profile. Use the arrow keys to step through the intervals."
+        aria-label={
+          canSeek
+            ? "Workout power profile. Drag to jump to another part of the workout, or use the arrow keys to pick an interval and Enter to jump to it."
+            : "Workout power profile. Use the arrow keys to step through the intervals."
+        }
+        onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
-        onPointerLeave={() => setActiveIndex(null)}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={() => setDragSec(null)}
+        onPointerLeave={() => {
+          if (dragSec === null) setActiveIndex(null);
+        }}
         onKeyDown={handleKeyDown}
         onBlur={() => setActiveIndex(null)}
       >
@@ -274,6 +357,15 @@ export const WorkoutProfileChart = ({
               <span className="absolute inset-y-0 w-0.5 -translate-x-1/2 bg-foreground" style={{ left: `${elapsedPct}%` }}>
                 <span className="absolute -top-1.5 left-1/2 size-2.5 -translate-x-1/2 rounded-full bg-foreground ring-2 ring-background" />
               </span>
+              {ghostSec !== null ? (
+                // Where a drag would land: a dashed line in the brand colour.
+                <span
+                  className="absolute inset-y-0 w-0 -translate-x-1/2 border-l-2 border-dashed border-primary"
+                  style={{ left: `${Math.min(100, pct(ghostSec))}%` }}
+                >
+                  <span className="absolute -top-1.5 left-1/2 size-2.5 -translate-x-1/2 rounded-full bg-primary ring-2 ring-background" />
+                </span>
+              ) : null}
             </>
           ) : null}
 
@@ -319,6 +411,9 @@ export const WorkoutProfileChart = ({
             <div className={cn("mt-0.5 tabular-nums", mutedText)}>
               {formatClock(active.durationSec)} · from {formatClock(active.startSec)}
             </div>
+            {dragSec !== null ? (
+              <div className="mt-1 font-bold text-primary tabular-nums">Jump to {formatClock(dragSec)}</div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -334,6 +429,35 @@ export const WorkoutProfileChart = ({
           </span>
         ))}
       </div>
+
+      {pendingSec !== null && ghostBlock && seek ? (
+        <div
+          role="alertdialog"
+          aria-label="Confirm jump"
+          className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-primary/30 bg-background px-3 py-2 text-sm"
+        >
+          <span>
+            Jump to <span className="font-bold tabular-nums">{formatClock(pendingSec)}</span>
+            {" — "}
+            {kindLabels[ghostBlock.kind]}?
+          </span>
+          <span className="flex gap-2">
+            <Button size="sm" variant="ghost" onClick={() => setPendingSec(null)}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              autoFocus
+              onClick={() => {
+                seek.onSeek(pendingSec);
+                setPendingSec(null);
+              }}
+            >
+              Jump
+            </Button>
+          </span>
+        </div>
+      ) : null}
 
       {zonesUsed.length > 0 ? (
         <div className="mt-3 flex flex-col gap-2">

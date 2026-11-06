@@ -68,6 +68,7 @@ import {
   workoutSessionControlRequestSchema,
   workoutSessionSetIntensityRequestSchema,
   workoutSessionSetRampDurationRequestSchema,
+  workoutSessionSeekRequestSchema,
   workoutSessionStartResultSchema,
   workoutSessionStateSchema,
   workoutSessionSummarySchema,
@@ -241,6 +242,15 @@ export const registerIpcHandlers = (
     okResultSchema,
     async (_event, input) => {
       workoutEngine.setRampDuration(input.sessionId, input.rampDurationSec);
+      return { ok: true };
+    }
+  );
+  safeHandle(
+    ipcChannels.workout.seek,
+    workoutSessionSeekRequestSchema,
+    okResultSchema,
+    async (_event, input) => {
+      workoutEngine.seek(input.sessionId, input.positionSec);
       return { ok: true };
     }
   );

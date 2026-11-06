@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { IntervalScheduler } from "@main/workout/intervalScheduler";
 import type { BleService } from "@main/ble/types";
+import type { IntervalCursor } from "@main/workout/intervalScheduler";
 import type {
   BleState,
   StartWorkoutSessionRequest,
+  WorkoutPauseReason,
   WorkoutLiveMetrics,
   WorkoutSessionLifecycle,
   WorkoutSessionState,
@@ -41,6 +43,7 @@ type WorkoutPersistence = {
       id: string;
       sessionId: string;
       elapsedSeconds: number;
+      positionSec?: number | null;
       blockType: string;
       blockIndex: number;
       targetPowerWatts: number | null;
@@ -79,6 +82,8 @@ const createIdleState = (): WorkoutSessionState => ({
   pausedAt: null,
   endedAt: null,
   elapsedSec: 0,
+  positionSec: 0,
+  pauseReason: null,
   currentIntervalIndex: null,
   intervalsTotal: 0,
   lastError: null,
@@ -86,6 +91,20 @@ const createIdleState = (): WorkoutSessionState => ({
   intensityMultiplier: 1,
   rampDurationSec: 10
 });
+
+export type AutoPauseOptions = {
+  /** Consecutive running seconds with no pedaling before the ride auto-pauses. */
+  idleSec: number;
+  /** Consecutive paused seconds of pedaling before an auto-pause resumes. */
+  resumeSec: number;
+};
+
+export type ErgWorkoutEngineOptions = {
+  /** false disables auto-pause/resume entirely. */
+  autoPause?: AutoPauseOptions | false;
+};
+
+export const defaultAutoPause: AutoPauseOptions = { idleSec: 10, resumeSec: 2 };
 
 export class ErgWorkoutEngine {
   private readonly bleService: BleService;
@@ -136,12 +155,24 @@ export class ErgWorkoutEngine {
   private sessionDistanceMeters = 0;
   private hasDistanceReading = false;
   private lastEndReason: string | null = null;
+  // Workout cursor = ride clock + this offset. Zero until the rider seeks; a seek
+  // rewrites it so the cursor jumps while the clock (moving time) stays honest.
+  private positionOffsetSec = 0;
+  private readonly autoPause: AutoPauseOptions | false;
+  // Auto-pause arms only once the rider has pedaled since the session started or
+  // last resumed, so climbing onto the bike after pressing Start doesn't pause it.
+  private pedalingSeenSinceRun = false;
+  private idleRunningSec = 0;
+  private pedalingPausedSec = 0;
+  private readonly autoResumeMinCadenceRpm = 30;
+  private readonly autoResumeMinPowerWatts = 30;
   private readonly terminalLifecycles = new Set<WorkoutSessionLifecycle>(["stopped", "completed", "degraded", "error"]);
   private listeners = new Set<(state: WorkoutSessionState) => void>();
 
-  constructor(bleService: BleService, persistence: WorkoutPersistence) {
+  constructor(bleService: BleService, persistence: WorkoutPersistence, options: ErgWorkoutEngineOptions = {}) {
     this.bleService = bleService;
     this.persistence = persistence;
+    this.autoPause = options.autoPause === undefined ? defaultAutoPause : options.autoPause;
     this.bleService.subscribeState((bleState) => {
       const nowMs = Date.now();
       // subscribeState fires on every BLE state change, not only telemetry updates.
@@ -226,6 +257,7 @@ export class ErgWorkoutEngine {
       id: randomUUID(),
       sessionId: this.state.sessionId,
       elapsedSeconds: metrics.elapsedSec,
+      positionSec: metrics.positionSec,
       blockType: metrics.blockKind,
       blockIndex: metrics.blockIndex,
       targetPowerWatts: metrics.targetPowerWatts,
@@ -281,13 +313,15 @@ export class ErgWorkoutEngine {
       summaryJson: JSON.stringify({
         reason,
         elapsedSec: this.state.elapsedSec,
+        positionSec: this.state.positionSec,
         currentIntervalIndex: this.state.currentIntervalIndex
       })
     });
     this.persistEvent("session-finalized", { lifecycle, reason });
     this.patchState({
       lifecycle,
-      endedAt
+      endedAt,
+      pauseReason: null
     });
     this.scheduler = null;
   }
@@ -327,12 +361,14 @@ export class ErgWorkoutEngine {
     }
     const nowMs = Date.now();
     const frozenElapsedSec = this.lastElapsedSec;
+    const positionSec = this.state.positionSec;
     const held = this.state.liveMetrics;
-    const cursor = this.scheduler.locate(frozenElapsedSec);
+    const cursor = this.scheduler.locate(positionSec);
     const actuals = this.resolveActuals(nowMs);
     const metrics: WorkoutLiveMetrics = {
       timestamp: new Date().toISOString(),
       elapsedSec: frozenElapsedSec,
+      positionSec,
       blockIndex: held?.blockIndex ?? cursor?.index ?? this.state.currentIntervalIndex ?? 0,
       blockKind: held?.blockKind ?? cursor?.interval.kind ?? "work",
       targetPowerWatts: held?.targetPowerWatts ?? null,
@@ -346,6 +382,73 @@ export class ErgWorkoutEngine {
       actualDistanceMeters: held?.actualDistanceMeters ?? (this.hasDistanceReading ? this.sessionDistanceMeters : null)
     };
     this.patchState({ liveMetrics: metrics });
+    this.maybeAutoResume(actuals);
+  }
+
+  // Pedaling at all: any cadence or power. Used to arm and trigger auto-pause.
+  private isPedaling(actuals: { cadenceRpm: number | null; powerWatts: number | null }): boolean {
+    return (actuals.cadenceRpm ?? 0) > 0 || (actuals.powerWatts ?? 0) > 0;
+  }
+
+  // Pedaling with intent, for auto-resume: a flywheel spinning down shouldn't count.
+  // Falls back to power when the trainer reports no cadence.
+  private isPedalingToResume(actuals: { cadenceRpm: number | null; powerWatts: number | null }): boolean {
+    if (actuals.cadenceRpm !== null) {
+      return actuals.cadenceRpm >= this.autoResumeMinCadenceRpm;
+    }
+    return (actuals.powerWatts ?? 0) >= this.autoResumeMinPowerWatts;
+  }
+
+  private async maybeAutoPause(actuals: { cadenceRpm: number | null; powerWatts: number | null }): Promise<void> {
+    if (!this.autoPause || !this.state.sessionId || this.state.lifecycle !== "running") {
+      return;
+    }
+    if (this.isPedaling(actuals)) {
+      this.pedalingSeenSinceRun = true;
+      this.idleRunningSec = 0;
+      return;
+    }
+    if (!this.pedalingSeenSinceRun) {
+      return;
+    }
+    this.idleRunningSec += 1;
+    if (this.idleRunningSec >= this.autoPause.idleSec) {
+      await this.pause(this.state.sessionId, "auto");
+    }
+  }
+
+  private maybeAutoResume(actuals: { cadenceRpm: number | null; powerWatts: number | null }): void {
+    if (!this.autoPause || !this.state.sessionId || this.state.pauseReason !== "auto") {
+      return;
+    }
+    this.pedalingPausedSec = this.isPedalingToResume(actuals) ? this.pedalingPausedSec + 1 : 0;
+    if (this.pedalingPausedSec >= this.autoPause.resumeSec) {
+      this.pedalingPausedSec = 0;
+      const sessionId = this.state.sessionId;
+      this.persistEvent("auto-resume", { positionSec: this.state.positionSec });
+      void this.resume(sessionId).catch((error) => {
+        console.error("[ErgWorkoutEngine] auto-resume failed:", error);
+      });
+    }
+  }
+
+  // Interval targets for a cursor, scaled by the intensity multiplier, before the
+  // block-entry ramp smoother is applied.
+  private scaledTargetsFor(cursor: IntervalCursor): {
+    targetPowerWatts: number | null;
+    targetResistancePercent: number | null;
+  } {
+    const intensityMultiplier = this.state.intensityMultiplier;
+    return {
+      // cursor.targetPowerWatts is already interpolated for ramp intervals
+      // (targetPowerWattsEnd set); flat blocks pass through unchanged.
+      targetPowerWatts:
+        cursor.targetPowerWatts !== null ? Math.max(0, Math.round(cursor.targetPowerWatts * intensityMultiplier)) : null,
+      targetResistancePercent:
+        cursor.interval.targetResistancePercent !== null
+          ? Math.min(100, Math.max(0, Math.round(cursor.interval.targetResistancePercent * intensityMultiplier)))
+          : null
+    };
   }
 
   private async tick(): Promise<void> {
@@ -380,31 +483,27 @@ export class ErgWorkoutEngine {
       }
       const deltaSec = Math.max(0, elapsedSec - this.lastElapsedSec);
       this.lastElapsedSec = elapsedSec;
-      const cursor = this.scheduler.locate(elapsedSec);
+      const positionSec = Math.max(0, elapsedSec + this.positionOffsetSec);
+      const cursor = this.scheduler.locate(positionSec);
 
       if (!cursor) {
-        // The scheduler reports "past the end" the instant elapsed reaches the
-        // total duration, so this tick's elapsedSec (e.g. 3960 for a 66:00
-        // workout) is never patched into state before we bail. Snap state up to
-        // the full duration here so the recorded/displayed length is 66:00, not
-        // 65:59 — this value also feeds Strava elapsed_time and "actually did".
-        this.patchState({ elapsedSec: this.scheduler.getTotalDurationSec() });
+        // The scheduler reports "past the end" the instant the cursor reaches the
+        // total duration, so this tick's values (e.g. 3960 for a 66:00 workout)
+        // are never patched into state before we bail. Snap the cursor to the end
+        // and the clock to match, so an un-seeked ride records 66:00, not 65:59 —
+        // the clock also feeds Strava elapsed_time and "actually did".
+        const totalSec = this.scheduler.getTotalDurationSec();
+        this.patchState({
+          elapsedSec: Math.max(0, totalSec - this.positionOffsetSec),
+          positionSec: totalSec
+        });
         await this.completeSession("completed", "all-intervals-finished");
         await this.safeErgStop();
         return;
       }
 
-      const intensityMultiplier = this.state.intensityMultiplier;
-      // cursor.targetPowerWatts is already interpolated for ramp intervals
-      // (targetPowerWattsEnd set); flat blocks pass through unchanged.
-      const blockTargetPowerWatts =
-        cursor.targetPowerWatts !== null
-          ? Math.max(0, Math.round(cursor.targetPowerWatts * intensityMultiplier))
-          : null;
-      const scaledTargetResistancePercent =
-        cursor.interval.targetResistancePercent !== null
-          ? Math.min(100, Math.max(0, Math.round(cursor.interval.targetResistancePercent * intensityMultiplier)))
-          : null;
+      const { targetPowerWatts: blockTargetPowerWatts, targetResistancePercent: scaledTargetResistancePercent } =
+        this.scaledTargetsFor(cursor);
 
       if (cursor.index !== this.rampBlockIndex || this.forceRampReset) {
         this.rampFromWatts = this.forceRampReset ? 0 : this.lastAppliedPowerWatts ?? 0;
@@ -428,6 +527,7 @@ export class ErgWorkoutEngine {
       const metrics: WorkoutLiveMetrics = {
         timestamp: new Date().toISOString(),
         elapsedSec,
+        positionSec,
         blockIndex: cursor.index,
         blockKind: cursor.interval.kind,
         targetPowerWatts: scaledTargetPowerWatts,
@@ -458,10 +558,12 @@ export class ErgWorkoutEngine {
       this.persistTelemetry(metrics);
       this.patchState({
         elapsedSec,
+        positionSec,
         currentIntervalIndex: cursor.index,
         liveMetrics: metrics,
         lastError: applyTargetsError
       });
+      await this.maybeAutoPause(actuals);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown workout engine error";
       console.error("[ErgWorkoutEngine] tick failure:", error);
@@ -570,6 +672,10 @@ export class ErgWorkoutEngine {
     this.fallbackDistanceMeters = 0;
     this.sessionDistanceMeters = 0;
     this.hasDistanceReading = false;
+    this.positionOffsetSec = 0;
+    this.pedalingSeenSinceRun = false;
+    this.idleRunningSec = 0;
+    this.pedalingPausedSec = 0;
 
     this.persistence.workoutSessions.create({
       id: sessionId,
@@ -592,6 +698,8 @@ export class ErgWorkoutEngine {
       pausedAt: null,
       endedAt: null,
       elapsedSec: 0,
+      positionSec: 0,
+      pauseReason: null,
       currentIntervalIndex: 0,
       intervalsTotal: request.intervals.length,
       lastError: null,
@@ -611,7 +719,7 @@ export class ErgWorkoutEngine {
     return sessionId;
   }
 
-  async pause(sessionId: string): Promise<void> {
+  async pause(sessionId: string, reason: WorkoutPauseReason = "manual"): Promise<void> {
     this.requireActiveSession(sessionId);
     if (this.state.lifecycle !== "running") {
       throw new Error("Session must be running to pause");
@@ -625,10 +733,12 @@ export class ErgWorkoutEngine {
       id: sessionId,
       status: "paused"
     });
-    this.persistEvent("session-paused", { elapsedSec: this.state.elapsedSec });
+    this.pedalingPausedSec = 0;
+    this.persistEvent("session-paused", { elapsedSec: this.state.elapsedSec, reason });
     this.patchState({
       lifecycle: "paused",
-      pausedAt: new Date().toISOString()
+      pausedAt: new Date().toISOString(),
+      pauseReason: reason
     });
     await this.pauseErg();
   }
@@ -647,8 +757,11 @@ export class ErgWorkoutEngine {
     this.persistEvent("session-resumed", { elapsedSec: this.state.elapsedSec });
     this.patchState({
       lifecycle: "running",
-      pausedAt: null
+      pausedAt: null,
+      pauseReason: null
     });
+    this.pedalingSeenSinceRun = false;
+    this.idleRunningSec = 0;
     this.forceRampReset = true;
     await this.safeStartOrResume();
     this.expectedNextTickAtMs = Date.now() + 1000;
@@ -657,6 +770,52 @@ export class ErgWorkoutEngine {
       void this.tick();
     }, 1000);
     await this.tick();
+  }
+
+  /**
+   * Jump the workout cursor to positionSec without touching the ride clock. Works
+   * running or paused; while paused the target tiles preview the new block and the
+   * jump takes effect on resume. Clamped to the workout, never past its last second
+   * (seeking to the very end would complete the ride on the next tick).
+   */
+  seek(sessionId: string, positionSec: number): void {
+    this.requireActiveSession(sessionId);
+    if (this.state.lifecycle !== "running" && this.state.lifecycle !== "paused") {
+      throw new Error("Session must be running or paused to seek");
+    }
+    if (!this.scheduler) {
+      throw new Error("No workout loaded to seek within");
+    }
+    const totalSec = this.scheduler.getTotalDurationSec();
+    const target = Math.min(Math.max(0, Math.round(positionSec)), Math.max(0, totalSec - 1));
+    const cursor = this.scheduler.locate(target);
+    if (!cursor) {
+      throw new Error("Seek target is outside the workout");
+    }
+    const fromPositionSec = this.state.positionSec;
+    this.positionOffsetSec = target - this.lastElapsedSec;
+    // Re-enter the block smoother from whatever power was last applied, so the
+    // trainer eases to the new target instead of stepping.
+    this.rampBlockIndex = null;
+    this.persistEvent("seek", { fromPositionSec, toPositionSec: target, elapsedSec: this.lastElapsedSec });
+
+    const held = this.state.liveMetrics;
+    const targets = this.scaledTargetsFor(cursor);
+    this.patchState({
+      positionSec: target,
+      currentIntervalIndex: cursor.index,
+      liveMetrics: held
+        ? {
+            ...held,
+            positionSec: target,
+            blockIndex: cursor.index,
+            blockKind: cursor.interval.kind,
+            targetPowerWatts: targets.targetPowerWatts,
+            targetResistancePercent: targets.targetResistancePercent,
+            targetCadenceRpm: cursor.interval.targetCadenceRpm ?? null
+          }
+        : held
+    });
   }
 
   setIntensity(sessionId: string, multiplier: number): void {
@@ -706,6 +865,7 @@ export class ErgWorkoutEngine {
       summaryJson: JSON.stringify({
         endReason: this.lastEndReason ?? "unknown",
         elapsedSec: this.state.elapsedSec,
+        positionSec: this.state.positionSec,
         currentIntervalIndex: this.state.currentIntervalIndex,
         avgPowerWatts,
         avgCadenceRpm,
