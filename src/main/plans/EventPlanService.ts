@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Repositories } from "@main/database/repositories";
 import type { AdaptationDecision, PlanAdaptationService } from "@main/plans/PlanAdaptationService";
 import type { WorkoutBankService } from "@main/workout/WorkoutBankService";
+import { localIsoDate, parseSessionSummary } from "@main/workout/WorkoutRecapService";
 import type {
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
@@ -9,6 +10,7 @@ import type {
   EventPlanAuditEntry,
   EventPlanDay,
   EventPlanInput,
+  EventPlanSummary,
   EventPlanVersion,
   EventPlanWeek,
   EventType,
@@ -26,7 +28,10 @@ type PlanRow = {
   id: string;
   name: string;
   notes: string | null;
+  status: "active" | "archived";
+  archived_at: string | null;
 };
+
 
 type PlanVersionRow = {
   id: string;
@@ -790,6 +795,10 @@ export class EventPlanService {
 
   generatePlan(request: GenerateEventPlanRequest): GenerateEventPlanResult {
     return this.repositories.transaction(() => {
+      // Only one plan is active at a time: a new plan puts the previous one
+      // away as a past event, in the same transaction so there is never a
+      // moment with zero or two active plans.
+      this.repositories.trainingPlans.archiveAllActiveExcept(null);
       const planId = randomUUID();
       const planTitle = this.createPlanTitle(request);
       const draftWeeks = this.buildWeekDrafts(request, { intensityBias: 0, volumeBias: 0 });
@@ -908,20 +917,116 @@ export class EventPlanService {
   }
 
   getCurrentPlan(): GetCurrentEventPlanResult {
-    const [latestPlan] = this.repositories.trainingPlans.list() as PlanRow[];
-    if (!latestPlan) {
+    const [activePlan] = this.repositories.trainingPlans.listByStatus("active") as PlanRow[];
+    if (!activePlan) {
       return null;
     }
-    const latestVersion = this.repositories.planVersions.getLatestByPlan(latestPlan.id) as PlanVersionRow | undefined;
-    if (!latestVersion) {
+    const snapshot = this.latestSnapshot(activePlan.id);
+    if (!snapshot) {
       return null;
     }
-    const snapshot = JSON.parse(latestVersion.snapshot_json) as PlanSnapshot;
     return {
-      planId: latestPlan.id,
-      name: latestPlan.name,
+      planId: activePlan.id,
+      name: activePlan.name,
+      eventType: snapshot.input.eventType,
       eventDate: snapshot.input.eventDate,
+      weeklyAvailability: snapshot.input.weeklyAvailability,
       weeks: snapshot.weeks as EventPlanWeek[]
+    };
+  }
+
+  archivePlan(planId: string): void {
+    this.repositories.transaction(() => {
+      this.requirePlan(planId);
+      this.repositories.trainingPlans.archive(planId);
+    });
+  }
+
+  /** Brings an archived plan back as the active plan, archiving whichever plan
+      was active. Only plans whose event is still ahead (or today) can come
+      back: restore exists to undo an accidental archive, and a finished
+      plan is kept as a read-only record. */
+  restorePlan(planId: string, today: string = localIsoDate(new Date().toISOString())): void {
+    this.repositories.transaction(() => {
+      this.requirePlan(planId);
+      const snapshot = this.latestSnapshot(planId);
+      if (snapshot && snapshot.input.eventDate < today) {
+        throw new Error(`Plan ${planId} has already finished and can't be restored`);
+      }
+      this.repositories.trainingPlans.archiveAllActiveExcept(planId);
+      this.repositories.trainingPlans.restore(planId);
+    });
+  }
+
+  listArchivedPlans(): EventPlanSummary[] {
+    const plans = this.repositories.trainingPlans.listByStatus("archived") as PlanRow[];
+    const rides = this.completedRides();
+    return plans.flatMap((plan) => {
+      const summary = this.summarize(plan, rides);
+      return summary ? [summary] : [];
+    });
+  }
+
+  getPlanSummary(planId: string): EventPlanSummary {
+    const summary = this.summarize(this.requirePlan(planId), this.completedRides());
+    if (!summary) {
+      throw new Error(`Plan ${planId} has no versions`);
+    }
+    return summary;
+  }
+
+  /** The plan's weeks as last generated or adapted. */
+  getPlanWeeks(planId: string): EventPlanWeek[] {
+    this.requirePlan(planId);
+    return (this.latestSnapshot(planId)?.weeks ?? []) as EventPlanWeek[];
+  }
+
+  private requirePlan(planId: string): PlanRow {
+    const plan = this.repositories.trainingPlans.getById(planId) as PlanRow | undefined;
+    if (!plan) {
+      throw new Error(`Plan ${planId} not found`);
+    }
+    return plan;
+  }
+
+  private latestSnapshot(planId: string): PlanSnapshot | null {
+    const latestVersion = this.repositories.planVersions.getLatestByPlan(planId) as PlanVersionRow | undefined;
+    return latestVersion ? (JSON.parse(latestVersion.snapshot_json) as PlanSnapshot) : null;
+  }
+
+  private completedRides(): Array<{ date: string; durationSec: number }> {
+    const rows = this.repositories.workoutSessions.listCompletedForStrava() as Array<{
+      started_at: string;
+      summary_json: string | null;
+    }>;
+    return rows.map((row) => ({
+      date: localIsoDate(row.started_at),
+      durationSec: Math.max(0, Math.round(parseSessionSummary(row.summary_json).elapsedSec))
+    }));
+  }
+
+  private summarize(plan: PlanRow, rides: Array<{ date: string; durationSec: number }>): EventPlanSummary | null {
+    const snapshot = this.latestSnapshot(plan.id);
+    if (!snapshot) {
+      return null;
+    }
+    const weeks = snapshot.weeks as EventPlanWeek[];
+    const startDate = weeks[0]?.startDate ?? snapshot.input.eventDate;
+    const endDate = snapshot.input.eventDate;
+    const window = rides.filter((ride) => ride.date >= startDate && ride.date <= endDate);
+    return {
+      planId: plan.id,
+      name: plan.name,
+      status: plan.status,
+      archivedAt: plan.archived_at,
+      eventType: snapshot.input.eventType,
+      eventDate: endDate,
+      startDate,
+      weekCount: weeks.length,
+      plannedRides: weeks.reduce((sum, week) => sum + week.days.filter((day) => day.workoutId !== null).length, 0),
+      completedRides: window.length,
+      rideSeconds: window.reduce((sum, ride) => sum + ride.durationSec, 0),
+      startFtp: snapshot.input.currentFtp
     };
   }
 

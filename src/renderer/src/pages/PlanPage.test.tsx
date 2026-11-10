@@ -1,7 +1,8 @@
+import { useState, type ReactElement } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { DayAvailability, EventPlanWeek } from "@shared/ipc/contracts";
+import type { DayAvailability, EventPlanSummary, EventPlanWeek } from "@shared/ipc/contracts";
 import { PlanPage, type AdaptPlanSectionProps, type GeneratePlanSectionProps } from "./PlanPage";
 
 /* PlanPage converts three stacked dialogs (wizard, adapt, delete-confirm) in
@@ -67,7 +68,18 @@ const oneWeek: EventPlanWeek = {
   }))
 };
 
+const lifecycleProps = () => ({
+  wizardRequested: false,
+  onWizardRequestHandled: vi.fn(),
+  onStartNextEvent: vi.fn(),
+  onArchivePlan: vi.fn(async () => {}),
+  archivedPlans: [] as EventPlanSummary[],
+  onRestorePlan: vi.fn(async (_planId: string) => {}),
+  onDeleteArchivedPlan: vi.fn(async (_planId: string) => {})
+});
+
 const renderPage = (props: Partial<Parameters<typeof PlanPage>[0]> = {}) => {
+  const lifecycle = { ...lifecycleProps(), ...props };
   const onDeletePlan = vi.fn(async () => {});
   const onOpenWorkoutBank = vi.fn();
   const previewWorkoutForDay = vi.fn(async () => {});
@@ -83,10 +95,10 @@ const renderPage = (props: Partial<Parameters<typeof PlanPage>[0]> = {}) => {
       previewWorkoutForDay={previewWorkoutForDay}
       onDeletePlan={onDeletePlan}
       onOpenWorkoutBank={onOpenWorkoutBank}
-      {...props}
+      {...lifecycle}
     />
   );
-  return { ...result, onDeletePlan, onOpenWorkoutBank, previewWorkoutForDay };
+  return { ...result, ...lifecycle, onDeletePlan, onOpenWorkoutBank, previewWorkoutForDay };
 };
 
 describe("PlanPage wizard dialog", () => {
@@ -304,10 +316,183 @@ describe("PlanPage week list", () => {
         previewWorkoutForDay={previewWorkoutForDay}
         onDeletePlan={vi.fn(async () => {})}
         onOpenWorkoutBank={vi.fn()}
+        {...lifecycleProps()}
       />
     );
     for (const button of screen.getAllByRole("button", { name: "Preview" })) {
       expect(button).toBeDisabled();
     }
+  });
+});
+
+const pastEvent = (overrides: Partial<EventPlanSummary> = {}): EventPlanSummary => ({
+  planId: "old-plan",
+  name: "Iceman 2025",
+  status: "archived",
+  archivedAt: "2025-11-20 10:00:00",
+  eventType: "xc-mtb",
+  eventDate: "2025-11-01",
+  startDate: "2025-08-10",
+  weekCount: 12,
+  plannedRides: 40,
+  completedRides: 31,
+  rideSeconds: 27 * 3600,
+  startFtp: 230,
+  ...overrides
+});
+
+describe("PlanPage plan lifecycle", () => {
+  it("opens the wizard when the app requests it, noting the current plan gets archived", async () => {
+    const onWizardRequestHandled = vi.fn();
+    const { rerender } = renderPage({ weeks: [oneWeek], currentPlanName: "Iceman 2026" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+
+    rerender(
+      <PlanPage
+        generate={buildGenerate()}
+        adapt={buildAdapt()}
+        weeks={[oneWeek]}
+        eventDate={null}
+        currentPlanName="Iceman 2026"
+        liveWorkoutBusy={false}
+        isWorkoutSessionActive={false}
+        previewWorkoutForDay={vi.fn(async () => {})}
+        onDeletePlan={vi.fn(async () => {})}
+        onOpenWorkoutBank={vi.fn()}
+        {...lifecycleProps()}
+        wizardRequested
+        onWizardRequestHandled={onWizardRequestHandled}
+      />
+    );
+
+    const dialog = await screen.findByRole("dialog", { name: "New training plan" });
+    expect(within(dialog).getByText(/moves .Iceman 2026. to Past events/)).toBeInTheDocument();
+    expect(onWizardRequestHandled).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reopen the wizard after leaving the page and coming back", async () => {
+    const user = userEvent.setup();
+    /* Mirrors App: it owns the request flag, and navigating away unmounts
+       PlanPage. A request left standing used to reopen the wizard on every
+       return to the page. */
+    const Harness = (): ReactElement => {
+      const [requested, setRequested] = useState(true);
+      const [onPlanPage, setOnPlanPage] = useState(true);
+      return (
+        <>
+          <button type="button" onClick={() => setOnPlanPage((value) => !value)}>
+            toggle page
+          </button>
+          {onPlanPage ? (
+            <PlanPage
+              generate={buildGenerate()}
+              adapt={buildAdapt()}
+              weeks={[oneWeek]}
+              eventDate={null}
+              currentPlanName="Iceman 2026"
+              liveWorkoutBusy={false}
+              isWorkoutSessionActive={false}
+              previewWorkoutForDay={vi.fn(async () => {})}
+              onDeletePlan={vi.fn(async () => {})}
+              onOpenWorkoutBank={vi.fn()}
+              {...lifecycleProps()}
+              wizardRequested={requested}
+              onWizardRequestHandled={() => setRequested(false)}
+            />
+          ) : null}
+        </>
+      );
+    };
+    render(<Harness />);
+
+    const dialog = await screen.findByRole("dialog", { name: "New training plan" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "toggle page" })); // leave
+    await user.click(screen.getByRole("button", { name: "toggle page" })); // come back
+    expect(screen.getByRole("heading", { name: "Iceman 2026" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("offers archive and next-event actions once the event has passed", async () => {
+    const user = userEvent.setup();
+    const { onArchivePlan, onStartNextEvent } = renderPage({
+      weeks: [oneWeek],
+      eventDate: "2020-01-01",
+      currentPlanName: "Iceman 2026"
+    });
+
+    expect(screen.getByText("Event completed")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Archive plan" }));
+    expect(onArchivePlan).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "Plan your next event" }));
+    expect(onStartNextEvent).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a finished past event be viewed but not restored, and deletes only after confirming", async () => {
+    const user = userEvent.setup();
+    vi.mocked(window.kickr.eventPlan.getReport).mockResolvedValue({
+      summary: pastEvent(),
+      endFtp: 248,
+      weeks: [
+        { weekIndex: 0, startDate: "2025-08-10", loadTag: "build", plannedRides: 4, completedRides: 3, rideSeconds: 3 * 3600 }
+      ],
+      rides: [
+        {
+          sessionId: "ride-1",
+          workoutId: null,
+          workoutName: "Sweet spot 3x15",
+          startedAt: "2025-08-12T17:00:00.000Z",
+          durationSec: 3600,
+          avgPowerWatts: 201,
+          distanceMeters: null,
+          plannedIntervals: []
+        }
+      ]
+    });
+    const { onRestorePlan, onDeleteArchivedPlan } = renderPage({ archivedPlans: [pastEvent()] });
+
+    const section = screen.getByRole("region", { name: "Past events" });
+    expect(within(section).getByText("Iceman 2025")).toBeInTheDocument();
+    expect(within(section).getByText(/31 of 40 rides · 27 h/)).toBeInTheDocument();
+    expect(within(section).queryByRole("button", { name: "Restore" })).not.toBeInTheDocument();
+
+    await user.click(within(section).getByRole("button", { name: "View summary" }));
+    const summary = await screen.findByRole("dialog", { name: "Iceman 2025" });
+    expect(window.kickr.eventPlan.getReport).toHaveBeenCalledWith({ planId: "old-plan" });
+    expect(await within(summary).findByText("230 → 248 W")).toBeInTheDocument();
+    expect(within(summary).getByText("78% of planned")).toBeInTheDocument();
+    expect(within(summary).getByText("3/4 rides")).toBeInTheDocument();
+    expect(within(summary).getByRole("button", { name: /Sweet spot 3x15/ })).toBeInTheDocument();
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(onRestorePlan).not.toHaveBeenCalled();
+
+    await user.click(within(section).getByRole("button", { name: "Delete" }));
+    const confirm = await screen.findByRole("alertdialog", { name: "Delete past event?" });
+    await user.click(within(confirm).getByRole("button", { name: "Cancel" }));
+    expect(onDeleteArchivedPlan).not.toHaveBeenCalled();
+
+    await user.click(within(section).getByRole("button", { name: "Delete" }));
+    await user.click(
+      within(await screen.findByRole("alertdialog", { name: "Delete past event?" })).getByRole("button", {
+        name: "Delete"
+      })
+    );
+    await waitFor(() => expect(onDeleteArchivedPlan).toHaveBeenCalledWith("old-plan"));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+
+  it("offers Restore for an archived plan whose event is still ahead", async () => {
+    const user = userEvent.setup();
+    const { onRestorePlan } = renderPage({
+      archivedPlans: [pastEvent({ planId: "spring", name: "Spring gravel", eventDate: "2099-04-10" })]
+    });
+
+    const section = screen.getByRole("region", { name: "Past events" });
+    expect(within(section).queryByRole("button", { name: "View summary" })).not.toBeInTheDocument();
+    await user.click(within(section).getByRole("button", { name: "Restore" }));
+    expect(onRestorePlan).toHaveBeenCalledWith("spring");
   });
 });

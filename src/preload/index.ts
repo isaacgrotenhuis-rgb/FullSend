@@ -100,7 +100,12 @@ const api: KickrDesktopApi = {
     generate: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.generate, request),
     adapt: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.adapt, request),
     delete: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.delete, request),
-    getCurrent: async () => ipcRenderer.invoke(ipcChannels.eventPlan.getCurrent, {})
+    getCurrent: async () => ipcRenderer.invoke(ipcChannels.eventPlan.getCurrent, {}),
+    archive: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.archive, request),
+    restore: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.restore, request),
+    listArchived: async () => ipcRenderer.invoke(ipcChannels.eventPlan.listArchived, {}),
+    getSummary: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.getSummary, request),
+    getReport: async (request) => ipcRenderer.invoke(ipcChannels.eventPlan.getReport, request)
   },
   dashboard: {
     getMetrics: async (request) => ipcRenderer.invoke(ipcChannels.dashboard.getMetrics, request ?? {})

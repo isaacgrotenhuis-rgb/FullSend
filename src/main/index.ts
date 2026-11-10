@@ -13,6 +13,7 @@ import { WorkoutBankService } from "@main/workout/WorkoutBankService";
 import { seedWorkoutBankIfEmpty } from "@main/workout/seedWorkoutBank";
 import { createPlanAdaptationService } from "@main/plans/PlanAdaptationService";
 import { EventPlanService } from "@main/plans/EventPlanService";
+import { PlanReportService } from "@main/plans/PlanReportService";
 import { ProgressDashboardService } from "@main/dashboard/ProgressDashboardService";
 import { StravaService } from "@main/strava/StravaService";
 import { ProfileService } from "@main/profile/ProfileService";
@@ -63,6 +64,7 @@ const bootstrap = async (): Promise<void> => {
     workoutBankService
   );
   const progressDashboardService = new ProgressDashboardService(databaseService.repositories);
+  const planReportService = new PlanReportService(databaseService.repositories, eventPlanService, workoutRecapService);
   const stravaService = new StravaService(databaseService.repositories);
   const profileService = new ProfileService(databaseService.repositories);
   const fitnessTestService = new FitnessTestService(databaseService.repositories, profileService);
@@ -83,7 +85,8 @@ const bootstrap = async (): Promise<void> => {
     workoutRecapService,
     profileService,
     fitnessTestController,
-    fitnessTestService
+    fitnessTestService,
+    planReportService
   );
 
   await createWindow();

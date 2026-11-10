@@ -17,6 +17,9 @@ import type {
   GenerateEventPlanRequest,
   GenerateEventPlanResult,
   GetCurrentEventPlanResult,
+  EventPlanIdRequest,
+  EventPlanSummary,
+  EventPlanReport,
   AdaptEventPlanRequest,
   AdaptEventPlanResult,
   DeleteEventPlanRequest,
@@ -145,6 +148,11 @@ export interface KickrDesktopApi {
     adapt: (request: AdaptEventPlanRequest) => Promise<AdaptEventPlanResult>;
     delete: (request: DeleteEventPlanRequest) => Promise<OkResult>;
     getCurrent: () => Promise<GetCurrentEventPlanResult>;
+    archive: (request: EventPlanIdRequest) => Promise<OkResult>;
+    restore: (request: EventPlanIdRequest) => Promise<OkResult>;
+    listArchived: () => Promise<EventPlanSummary[]>;
+    getSummary: (request: EventPlanIdRequest) => Promise<EventPlanSummary>;
+    getReport: (request: EventPlanIdRequest) => Promise<EventPlanReport>;
   };
   dashboard: {
     getMetrics: (request?: Partial<DashboardMetricsRequest>) => Promise<DashboardMetrics>;

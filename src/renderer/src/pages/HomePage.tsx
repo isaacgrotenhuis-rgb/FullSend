@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { DashboardMetrics, EventPlanWeek, SessionType } from "@shared/ipc/contracts";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
+import { EventWrapUpCard } from "./EventWrapUpCard";
 import { RecentWorkoutsSection } from "./RecentWorkoutsSection";
 import { TrainingStatusBar, TrainingStatusCards } from "./TrainingStatusCards";
 
@@ -12,6 +13,8 @@ type Props = {
   currentFtp: number;
   /** Profile weight, for the FTP card's W/kg; null when not entered. */
   weightKg?: number | null;
+  /** The active plan's id; empty when there is no plan. */
+  planId: string;
   eventDate: string | null;
   weeks: EventPlanWeek[];
   previewWorkoutForDay: (
@@ -20,6 +23,8 @@ type Props = {
     sessionType: SessionType | null
   ) => Promise<void>;
   onNavigateToPlan: () => void;
+  /** Opens the new-plan wizard, prefilled from the finished plan. */
+  onPlanNextEvent: () => void;
   /** Opens the fitness test briefing; the card is hidden when omitted. */
   onStartFitnessTest?: () => void;
 };
@@ -66,10 +71,12 @@ export const HomePage = ({
   dashboard,
   currentFtp,
   weightKg = null,
+  planId,
   eventDate,
   weeks,
   previewWorkoutForDay,
   onNavigateToPlan,
+  onPlanNextEvent,
   onStartFitnessTest
 }: Props): ReactElement => {
   const today = new Date();
@@ -96,6 +103,8 @@ export const HomePage = ({
           ? "Event day"
           : "Event completed";
 
+  const eventPassed = planId !== "" && weeks.length > 0 && daysUntilEvent !== null && daysUntilEvent < 0;
+
   // Shared by the full cards and the pinned bar that replaces them on scroll.
   const statusProps = {
     dashboard,
@@ -118,6 +127,15 @@ export const HomePage = ({
           {today.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
         </p>
       </div>
+
+      {eventPassed ? (
+        <EventWrapUpCard
+          planId={planId}
+          currentFtp={currentFtp}
+          onPlanNextEvent={onPlanNextEvent}
+          onViewPlan={onNavigateToPlan}
+        />
+      ) : null}
 
       <section aria-label="Training status" className="mb-10">
         <TrainingStatusCards {...statusProps} />
@@ -145,96 +163,100 @@ export const HomePage = ({
         </section>
       ) : null}
 
-      <div className="flex items-baseline justify-between gap-4">
-        <h2 className="m-0">This week</h2>
-      </div>
-      <Separator className={cn(dividerClass, "my-4")} />
-      {currentWeek ? (
-        <div className="mb-8 grid grid-cols-7 gap-2">
-          {currentWeek.days.map((day) => {
-            const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
-            const isToday = cellDate.getTime() === today.getTime();
-            const hasWorkout = day.workoutId !== null;
-            const durationLabel = `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}`;
+      {eventPassed ? null : (
+        <>
+          <div className="flex items-baseline justify-between gap-4">
+            <h2 className="m-0">This week</h2>
+          </div>
+          <Separator className={cn(dividerClass, "my-4")} />
+          {currentWeek ? (
+            <div className="mb-8 grid grid-cols-7 gap-2">
+              {currentWeek.days.map((day) => {
+                const cellDate = addDaysToDate(parseIsoDate(currentWeek.startDate), day.dayIndex);
+                const isToday = cellDate.getTime() === today.getTime();
+                const hasWorkout = day.workoutId !== null;
+                const durationLabel = `${day.durationMin} min${day.targetIF !== null ? ` · IF ${day.targetIF}` : ""}`;
 
-            /* Each day is its own rounded tile rather than a cell in one
-               square-bordered strip. One base class list for both variants so
-               the interactive and rest tiles share their geometry; `text-left`
-               is the only addition a button needs over a div: the UA centers
-               button text, everything else Preflight already inherits.
-               Workout days sit on the muted surface (the same fill as the
-               status cards' muted surfaces — `bg-card` is the page colour in this
-               theme, so it would read as an empty outline); rest days recede
-               to a dashed outline; today is marked with the brand border on
-               top of its accent tint. */
-            const cellClass = cn(
-              "scroll-reveal flex min-h-24 flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
-              isToday
-                ? "border-primary bg-[var(--color-accent-100)]"
-                : hasWorkout
-                  ? "border-foreground/15 bg-muted shadow-xs"
-                  : "border-dashed border-foreground/30 text-muted-foreground"
-            );
+                /* Each day is its own rounded tile rather than a cell in one
+                   square-bordered strip. One base class list for both variants so
+                   the interactive and rest tiles share their geometry; `text-left`
+                   is the only addition a button needs over a div: the UA centers
+                   button text, everything else Preflight already inherits.
+                   Workout days sit on the muted surface (the same fill as the
+                   status cards' muted surfaces — `bg-card` is the page colour in this
+                   theme, so it would read as an empty outline); rest days recede
+                   to a dashed outline; today is marked with the brand border on
+                   top of its accent tint. */
+                const cellClass = cn(
+                  "scroll-reveal flex min-h-24 flex-col gap-1 rounded-lg border p-3 text-left transition-colors",
+                  isToday
+                    ? "border-primary bg-[var(--color-accent-100)]"
+                    : hasWorkout
+                      ? "border-foreground/15 bg-muted shadow-xs"
+                      : "border-dashed border-foreground/30 text-muted-foreground"
+                );
 
-            // Tiles enter together, so each day trails the previous one slightly.
-            const revealStyle = { "--reveal-offset": `${day.dayIndex * 3}%` } as CSSProperties;
+                // Tiles enter together, so each day trails the previous one slightly.
+                const revealStyle = { "--reveal-offset": `${day.dayIndex * 3}%` } as CSSProperties;
 
-            const cellContent = (
-              <>
-                <span className={cn(dayLabelClass, isToday && "text-[var(--color-accent-700)]")}>
-                  {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
-                </span>
-                <span className="flex-1 text-[13px] font-semibold [overflow-wrap:break-word]">
-                  {day.workoutName ?? "Rest"}
-                </span>
-                {hasWorkout ? <span className={cardMetaClass}>{durationLabel}</span> : null}
-              </>
-            );
+                const cellContent = (
+                  <>
+                    <span className={cn(dayLabelClass, isToday && "text-[var(--color-accent-700)]")}>
+                      {dayLabels[day.dayIndex]} · {formatShortDate(cellDate)}
+                    </span>
+                    <span className="flex-1 text-[13px] font-semibold [overflow-wrap:break-word]">
+                      {day.workoutName ?? "Rest"}
+                    </span>
+                    {hasWorkout ? <span className={cardMetaClass}>{durationLabel}</span> : null}
+                  </>
+                );
 
-            /* Rest days carry no action, so they stay a plain <div> and out of
-               the tab order entirely. Only days with a workout become real
-               <button>s — previously every cell was a <div onClick>, which Tab
-               never reaches and Enter/Space never activates. */
-            if (!hasWorkout) {
-              return (
-                <div key={day.dayIndex} className={cn(cellClass, "cursor-default")} style={revealStyle}>
-                  {cellContent}
-                </div>
-              );
-            }
-
-            /* The cell's own text would read as one run-on string ("Mon · Mar 3
-               Threshold 2x20 60 min · IF 0.88"), so the button gets an explicit
-               label instead: the day first for orientation within the week,
-               then what activating it does. */
-            const workoutName = day.workoutName ?? "Workout";
-            const ariaLabel = `${dayLabels[day.dayIndex]} ${formatShortDate(cellDate)}${
-              isToday ? ", today" : ""
-            }: ${workoutName}, ${durationLabel.replace(" · ", ", ")}. Preview workout.`;
-
-            return (
-              <button
-                key={day.dayIndex}
-                type="button"
-                style={revealStyle}
-                aria-label={ariaLabel}
-                onClick={() =>
-                  void previewWorkoutForDay(day.workoutId as string, workoutName, day.sessionType)
+                /* Rest days carry no action, so they stay a plain <div> and out of
+                   the tab order entirely. Only days with a workout become real
+                   <button>s — previously every cell was a <div onClick>, which Tab
+                   never reaches and Enter/Space never activates. */
+                if (!hasWorkout) {
+                  return (
+                    <div key={day.dayIndex} className={cn(cellClass, "cursor-default")} style={revealStyle}>
+                      {cellContent}
+                    </div>
+                  );
                 }
-                className={cn(
-                  cellClass,
-                  "cursor-pointer appearance-none hover:border-primary/60"
-                )}
-              >
-                {cellContent}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
-          No workouts scheduled for the current week.
-        </p>
+
+                /* The cell's own text would read as one run-on string ("Mon · Mar 3
+                   Threshold 2x20 60 min · IF 0.88"), so the button gets an explicit
+                   label instead: the day first for orientation within the week,
+                   then what activating it does. */
+                const workoutName = day.workoutName ?? "Workout";
+                const ariaLabel = `${dayLabels[day.dayIndex]} ${formatShortDate(cellDate)}${
+                  isToday ? ", today" : ""
+                }: ${workoutName}, ${durationLabel.replace(" · ", ", ")}. Preview workout.`;
+
+                return (
+                  <button
+                    key={day.dayIndex}
+                    type="button"
+                    style={revealStyle}
+                    aria-label={ariaLabel}
+                    onClick={() =>
+                      void previewWorkoutForDay(day.workoutId as string, workoutName, day.sessionType)
+                    }
+                    className={cn(
+                      cellClass,
+                      "cursor-pointer appearance-none hover:border-primary/60"
+                    )}
+                  >
+                    {cellContent}
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mb-8 text-[color-mix(in_srgb,var(--color-text)_55%,transparent)]">
+              No workouts scheduled for the current week.
+            </p>
+          )}
+        </>
       )}
 
       <RecentWorkoutsSection />

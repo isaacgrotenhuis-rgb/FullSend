@@ -26,7 +26,7 @@ type IntervalRow = {
   duration_seconds: number;
 };
 
-type ParsedSummary = {
+export type ParsedSummary = {
   elapsedSec: number;
   avgPowerWatts: number | null;
   avgCadenceRpm: number | null;
@@ -42,6 +42,14 @@ const EMPTY_SUMMARY: ParsedSummary = {
   avgHeartRateBpm: null,
   avgSpeedKmh: null,
   distanceMeters: null
+};
+
+/** Local calendar date (YYYY-MM-DD) of a stored timestamp, the way plan weeks and event dates are expressed. */
+export const localIsoDate = (timestamp: string): string => {
+  const date = new Date(timestamp);
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${date.getFullYear()}-${month}-${day}`;
 };
 
 const finiteOrNull = (value: unknown): number | null =>
@@ -63,19 +71,32 @@ export class WorkoutRecapService {
 
   listCompletedSessions(limit: number): CompletedSessionSummary[] {
     const rows = this.repositories.workoutSessions.listCompletedForRecap(limit) as RecapRow[];
-    return rows.map((row) => {
-      const summary = this.parseSummary(row.summary_json);
-      return {
-        sessionId: row.id,
-        workoutId: row.workout_id,
-        workoutName: row.workout_name,
-        startedAt: row.started_at,
-        durationSec: summary.elapsedSec,
-        avgPowerWatts: roundOrNull(summary.avgPowerWatts),
-        distanceMeters: roundOrNull(summary.distanceMeters ?? row.telemetry_distance_meters),
-        plannedIntervals: row.workout_id ? this.loadPlannedIntervals(row.workout_id) : []
-      };
-    });
+    return rows.map((row) => this.toCompletedSummary(row));
+  }
+
+  /** Completed rides whose local start date falls in [startDate, endDate] (YYYY-MM-DD, inclusive), newest first. */
+  listCompletedSessionsBetween(startDate: string, endDate: string): CompletedSessionSummary[] {
+    const rows = this.repositories.workoutSessions.listAllCompletedForRecap() as RecapRow[];
+    return rows
+      .filter((row) => {
+        const date = localIsoDate(row.started_at);
+        return date >= startDate && date <= endDate;
+      })
+      .map((row) => this.toCompletedSummary(row));
+  }
+
+  private toCompletedSummary(row: RecapRow): CompletedSessionSummary {
+    const summary = parseSessionSummary(row.summary_json);
+    return {
+      sessionId: row.id,
+      workoutId: row.workout_id,
+      workoutName: row.workout_name,
+      startedAt: row.started_at,
+      durationSec: summary.elapsedSec,
+      avgPowerWatts: roundOrNull(summary.avgPowerWatts),
+      distanceMeters: roundOrNull(summary.distanceMeters ?? row.telemetry_distance_meters),
+      plannedIntervals: row.workout_id ? this.loadPlannedIntervals(row.workout_id) : []
+    };
   }
 
   getSessionRecap(sessionId: string): SessionRecap {
@@ -83,7 +104,7 @@ export class WorkoutRecapService {
     if (!row) {
       throw new Error(`Completed session not found: ${sessionId}`);
     }
-    const parsed = this.parseSummary(row.summary_json);
+    const parsed = parseSessionSummary(row.summary_json);
     const summary: WorkoutSessionSummary = {
       sessionId: row.id,
       durationSec: parsed.elapsedSec,
@@ -110,31 +131,31 @@ export class WorkoutRecapService {
       targetCadenceRpm: row.target_cadence_rpm
     }));
   }
-
-  // Only status='completed' rows reach here, and those always pass through
-  // finalizeSession with the full key set — this still hardens against a
-  // partial/legacy blob rather than throwing inside an IPC handler.
-  private parseSummary(summaryJson: string | null): ParsedSummary {
-    if (!summaryJson) {
-      return EMPTY_SUMMARY;
-    }
-    let raw: unknown;
-    try {
-      raw = JSON.parse(summaryJson);
-    } catch {
-      return EMPTY_SUMMARY;
-    }
-    if (!raw || typeof raw !== "object") {
-      return EMPTY_SUMMARY;
-    }
-    const record = raw as Record<string, unknown>;
-    return {
-      elapsedSec: finiteOrNull(record.elapsedSec) ?? 0,
-      avgPowerWatts: finiteOrNull(record.avgPowerWatts),
-      avgCadenceRpm: finiteOrNull(record.avgCadenceRpm),
-      avgHeartRateBpm: finiteOrNull(record.avgHeartRateBpm),
-      avgSpeedKmh: finiteOrNull(record.avgSpeedKmh),
-      distanceMeters: finiteOrNull(record.distanceMeters)
-    };
-  }
 }
+
+// Only status='completed' rows reach here, and those always pass through
+// finalizeSession with the full key set — this still hardens against a
+// partial/legacy blob rather than throwing inside an IPC handler.
+export const parseSessionSummary = (summaryJson: string | null): ParsedSummary => {
+  if (!summaryJson) {
+    return EMPTY_SUMMARY;
+  }
+  let raw: unknown;
+  try {
+    raw = JSON.parse(summaryJson);
+  } catch {
+    return EMPTY_SUMMARY;
+  }
+  if (!raw || typeof raw !== "object") {
+    return EMPTY_SUMMARY;
+  }
+  const record = raw as Record<string, unknown>;
+  return {
+    elapsedSec: finiteOrNull(record.elapsedSec) ?? 0,
+    avgPowerWatts: finiteOrNull(record.avgPowerWatts),
+    avgCadenceRpm: finiteOrNull(record.avgCadenceRpm),
+    avgHeartRateBpm: finiteOrNull(record.avgHeartRateBpm),
+    avgSpeedKmh: finiteOrNull(record.avgSpeedKmh),
+    distanceMeters: finiteOrNull(record.distanceMeters)
+  };
+};

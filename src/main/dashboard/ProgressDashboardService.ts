@@ -15,6 +15,8 @@ type PlannedWorkoutRow = {
   day_index: number;
   workout_id: string;
   start_date: string;
+  plan_id: string;
+  plan_created_at: string;
   duration_seconds: number;
   intensity_factor: number | null;
 };
@@ -57,6 +59,20 @@ const computeLoad = (durationSeconds: number | null, intensityFactor: number | n
 
 const round = (value: number): number => Number(value.toFixed(1));
 
+/** A new plan's first weeks can overlap the last weeks of the plan it
+    replaced. The rider was following the older one then, so each week counts
+    only the earliest-created plan that has workouts in it. */
+const pickOnePlanPerWeek = (rows: PlannedWorkoutRow[]): PlannedWorkoutRow[] => {
+  const ownerByWeek = new Map<string, { planId: string; createdAt: string }>();
+  for (const row of rows) {
+    const owner = ownerByWeek.get(row.start_date);
+    if (!owner || row.plan_created_at < owner.createdAt) {
+      ownerByWeek.set(row.start_date, { planId: row.plan_id, createdAt: row.plan_created_at });
+    }
+  }
+  return rows.filter((row) => ownerByWeek.get(row.start_date)?.planId === row.plan_id);
+};
+
 export class ProgressDashboardService {
   constructor(private readonly repositories: Repositories) {}
 
@@ -66,7 +82,9 @@ export class ProgressDashboardService {
     const currentWeekStart = startOfWeekSunday(toIsoDate(today));
     const firstWeek = addDays(currentWeekStart, -7 * (normalizedWeeksBack - 1));
 
-    const plannedRows = this.repositories.planWeekWorkouts.listPlannedWithWorkoutLoad() as PlannedWorkoutRow[];
+    const plannedRows = pickOnePlanPerWeek(
+      this.repositories.planWeekWorkouts.listPlannedWithWorkoutLoad() as PlannedWorkoutRow[]
+    );
     const completedRows = this.repositories.workoutSessions.listCompletedWithWorkoutLoad() as CompletedWorkoutRow[];
     const ftpRows = this.repositories.metricsSnapshots.listFtpTrend(24) as FtpRow[];
 

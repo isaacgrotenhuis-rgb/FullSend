@@ -124,3 +124,112 @@ describe("EventPlanService — phase matrix + taper", () => {
     expect(readapted.eventDate).toBe("2026-11-21");
   });
 });
+
+describe("EventPlanService — archive lifecycle", () => {
+  let db: Database.Database;
+  let repos: Repositories;
+  let service: EventPlanService;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    applySchema(db);
+    repos = new Repositories(db);
+    service = new EventPlanService(repos, createPlanAdaptationService(), new WorkoutBankService(repos));
+  });
+
+  afterEach(() => {
+    db.close();
+  });
+
+  const activeCount = (): number =>
+    (db.prepare("SELECT COUNT(*) AS n FROM training_plans WHERE status = 'active'").get() as { n: number }).n;
+
+  // summary_json as ErgWorkoutEngine.finalizeSession writes it: the ride's
+  // length is `elapsedSec`.
+  const addCompletedRide = (startedAt: string, elapsedSec: number): void => {
+    repos.workoutSessions.create({
+      id: `ride-${startedAt}`,
+      workoutId: null,
+      deviceId: null,
+      startedAt,
+      status: "completed",
+      summaryJson: JSON.stringify({ endReason: "all-intervals-finished", elapsedSec, avgPowerWatts: 180 })
+    });
+  };
+
+  it("generating a new plan archives the previous one and keeps exactly one active", () => {
+    const first = service.generatePlan(baseRequest({ name: "Iceman" }));
+    const second = service.generatePlan(baseRequest({ name: "Spring fondo", eventDate: "2027-04-10" }));
+
+    expect(activeCount()).toBe(1);
+    expect(service.getCurrentPlan()?.planId).toBe(second.planId);
+    expect(service.listArchivedPlans().map((plan) => plan.planId)).toEqual([first.planId]);
+    expect(service.listArchivedPlans()[0].archivedAt).not.toBeNull();
+  });
+
+  it("archiving the active plan leaves no current plan; restoring brings it back and archives the other", () => {
+    const first = service.generatePlan(baseRequest({ name: "Iceman" }));
+    service.archivePlan(first.planId);
+    expect(service.getCurrentPlan()).toBeNull();
+
+    const second = service.generatePlan(baseRequest({ name: "Spring fondo", eventDate: "2027-04-10" }));
+    // Before the first plan's event, so it can still come back.
+    service.restorePlan(first.planId, "2026-10-01");
+
+    expect(activeCount()).toBe(1);
+    expect(service.getCurrentPlan()?.planId).toBe(first.planId);
+    expect(service.listArchivedPlans().map((plan) => plan.planId)).toEqual([second.planId]);
+    expect(service.getPlanSummary(first.planId).archivedAt).toBeNull();
+  });
+
+  it("getCurrentPlan carries the event type and availability for prefilling the next plan", () => {
+    service.generatePlan(baseRequest());
+    const current = service.getCurrentPlan();
+    expect(current?.eventType).toBe("xc-mtb");
+    expect(current?.weeklyAvailability).toEqual(availability);
+  });
+
+  it("summarizes planned vs completed rides inside the plan's window only", () => {
+    const plan = service.generatePlan(baseRequest());
+    const startDate = plan.weeks[0].startDate;
+    const plannedRides = plan.weeks.reduce(
+      (sum, week) => sum + week.days.filter((day) => day.workoutId !== null).length,
+      0
+    );
+
+    // Midday local times so the local-date match cannot slip across midnight.
+    addCompletedRide(new Date(`${startDate}T12:00:00`).toISOString(), 3600);
+    addCompletedRide(new Date("2026-11-07T12:00:00").toISOString(), 1800); // event day counts
+    addCompletedRide(new Date("2026-11-08T12:00:00").toISOString(), 900); // after the event
+    addCompletedRide(new Date("2026-01-01T12:00:00").toISOString(), 900); // before the plan
+
+    const summary = service.getPlanSummary(plan.planId);
+    expect(summary).toMatchObject({
+      status: "active",
+      startDate,
+      eventDate: "2026-11-07",
+      weekCount: 12,
+      plannedRides,
+      completedRides: 2,
+      rideSeconds: 5400,
+      startFtp: 250
+    });
+  });
+
+  it("refuses to restore a plan whose event has passed, but allows it on event day", () => {
+    const finished = service.generatePlan(baseRequest({ name: "Iceman", eventDate: "2026-11-07" }));
+    service.generatePlan(baseRequest({ name: "Spring fondo", eventDate: "2027-04-10" }));
+
+    expect(() => service.restorePlan(finished.planId, "2026-11-08")).toThrow(/already finished/);
+    expect(service.getCurrentPlan()?.name).toBe("Spring fondo");
+
+    service.restorePlan(finished.planId, "2026-11-07");
+    expect(service.getCurrentPlan()?.planId).toBe(finished.planId);
+  });
+
+  it("throws for unknown plans", () => {
+    expect(() => service.archivePlan("missing")).toThrow(/not found/);
+    expect(() => service.restorePlan("missing", "2026-01-01")).toThrow(/not found/);
+  });
+});

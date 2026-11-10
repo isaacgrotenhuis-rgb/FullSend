@@ -62,17 +62,21 @@ const renderPage = (eventDate: string | null = "2099-01-01") => {
   // on the page are the event countdown and the one workout cell.
   vi.mocked(window.kickr.workout.listCompletedSessions).mockResolvedValue([]);
   const previewWorkoutForDay = vi.fn(async () => {});
+  const onNavigateToPlan = vi.fn();
+  const onPlanNextEvent = vi.fn();
   const result = render(
     <HomePage
       dashboard={null}
       currentFtp={240}
+      planId="plan-1"
       eventDate={eventDate}
       weeks={[thisWeek()]}
       previewWorkoutForDay={previewWorkoutForDay}
-      onNavigateToPlan={vi.fn()}
+      onNavigateToPlan={onNavigateToPlan}
+      onPlanNextEvent={onPlanNextEvent}
     />
   );
-  return { ...result, previewWorkoutForDay };
+  return { ...result, previewWorkoutForDay, onNavigateToPlan, onPlanNextEvent };
 };
 
 const workoutCell = (): HTMLElement => screen.getByRole("button", { name: /Threshold 2x20/ });
@@ -183,5 +187,45 @@ describe("HomePage event countdown", () => {
     await screen.findByText("No completed workouts recorded yet.");
 
     expect(screen.queryByText(/to event|Event day|Event completed/)).not.toBeInTheDocument();
+  });
+});
+
+describe("HomePage after the event", () => {
+  it("swaps this week's grid for a wrap-up card that leads to the next event", async () => {
+    vi.mocked(window.kickr.eventPlan.getSummary).mockResolvedValue({
+      planId: "plan-1",
+      name: "Iceman 2026",
+      status: "active",
+      archivedAt: null,
+      eventType: "xc-mtb",
+      eventDate: daysFromToday(-3),
+      startDate: daysFromToday(-87),
+      weekCount: 12,
+      plannedRides: 40,
+      completedRides: 34,
+      rideSeconds: 34 * 3600,
+      startFtp: 220
+    });
+    const user = userEvent.setup();
+    const { onPlanNextEvent, onNavigateToPlan } = renderPage(daysFromToday(-3));
+
+    expect(await screen.findByRole("heading", { name: "Iceman 2026 complete" })).toBeInTheDocument();
+    expect(window.kickr.eventPlan.getSummary).toHaveBeenCalledWith({ planId: "plan-1" });
+    expect(screen.getByText("34/40")).toBeInTheDocument();
+    expect(screen.getByText("220 → 240 W")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "This week" })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Plan your next event" }));
+    expect(onPlanNextEvent).toHaveBeenCalledTimes(1);
+    await user.click(screen.getByRole("button", { name: "View plan" }));
+    expect(onNavigateToPlan).toHaveBeenCalled();
+  });
+
+  it("keeps the regular week view on event day", async () => {
+    renderPage(daysFromToday(0));
+    await screen.findByText("No completed workouts recorded yet.");
+
+    expect(screen.queryByRole("region", { name: "Event complete" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "This week" })).toBeInTheDocument();
   });
 });

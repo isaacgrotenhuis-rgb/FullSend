@@ -81,7 +81,12 @@ export const ipcChannels = {
     generate: "event-plan:generate",
     adapt: "event-plan:adapt",
     delete: "event-plan:delete",
-    getCurrent: "event-plan:get-current"
+    getCurrent: "event-plan:get-current",
+    archive: "event-plan:archive",
+    restore: "event-plan:restore",
+    listArchived: "event-plan:list-archived",
+    getSummary: "event-plan:get-summary",
+    getReport: "event-plan:get-report"
   },
   dashboard: {
     getMetrics: "dashboard:get-metrics"
@@ -814,10 +819,58 @@ export const getCurrentEventPlanResultSchema = z
   .object({
     planId: z.string().min(1),
     name: z.string().min(1),
+    eventType: eventTypeSchema,
     eventDate: isoDateSchema,
+    // Carried so "Plan your next event" can prefill the wizard with the
+    // rider's existing schedule.
+    weeklyAvailability: z.array(dayAvailabilitySchema).length(7),
     weeks: z.array(eventPlanWeekSchema)
   })
   .nullable();
+
+export const eventPlanIdRequestSchema = z.object({
+  planId: z.string().min(1)
+});
+
+export const eventPlanStatusSchema = z.enum(["active", "archived"]);
+
+// A finished (or archived) plan at a glance: what was planned between the
+// plan's first week and its event date, and what was actually ridden then.
+// Rides are matched by date, not by plan — sessions carry no plan link.
+export const eventPlanSummarySchema = z.object({
+  planId: z.string().min(1),
+  name: z.string().min(1),
+  status: eventPlanStatusSchema,
+  archivedAt: z.string().nullable(),
+  eventType: eventTypeSchema,
+  eventDate: isoDateSchema,
+  startDate: isoDateSchema,
+  weekCount: z.number().int().min(0),
+  plannedRides: z.number().int().min(0),
+  completedRides: z.number().int().min(0),
+  rideSeconds: z.number().int().min(0),
+  startFtp: z.number().int()
+});
+export const eventPlanSummariesSchema = z.array(eventPlanSummarySchema);
+
+// The read-only view of a finished plan: its headline numbers, a week-by-week
+// look at planned vs ridden, and the rides themselves (newest first).
+export const eventPlanReportSchema = z.object({
+  summary: eventPlanSummarySchema,
+  // FTP from the latest valid fitness test taken during the plan, if any.
+  endFtp: z.number().int().nullable(),
+  weeks: z.array(
+    z.object({
+      weekIndex: z.number().int().min(0),
+      startDate: isoDateSchema,
+      loadTag: loadTagSchema,
+      plannedRides: z.number().int().min(0),
+      completedRides: z.number().int().min(0),
+      rideSeconds: z.number().int().min(0)
+    })
+  ),
+  rides: completedSessionSummariesSchema
+});
 
 export const adaptEventPlanResultSchema = z.object({
   ok: z.literal(true),
@@ -1044,6 +1097,9 @@ export type AdaptEventPlanRequest = z.infer<typeof adaptEventPlanRequestSchema>;
 export type DeleteEventPlanRequest = z.infer<typeof deleteEventPlanRequestSchema>;
 export type EventPlanVersion = z.infer<typeof eventPlanVersionSchema>;
 export type EventPlanAuditEntry = z.infer<typeof eventPlanAuditEntrySchema>;
+export type EventPlanIdRequest = z.infer<typeof eventPlanIdRequestSchema>;
+export type EventPlanSummary = z.infer<typeof eventPlanSummarySchema>;
+export type EventPlanReport = z.infer<typeof eventPlanReportSchema>;
 export type GenerateEventPlanResult = z.infer<typeof generateEventPlanResultSchema>;
 export type AdaptEventPlanResult = z.infer<typeof adaptEventPlanResultSchema>;
 export type GetCurrentEventPlanResult = z.infer<typeof getCurrentEventPlanResultSchema>;
