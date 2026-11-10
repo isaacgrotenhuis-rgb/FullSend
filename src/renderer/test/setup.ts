@@ -130,7 +130,12 @@ const createApiStub = (): KickrDesktopApi => ({
     "generate",
     "adapt",
     "delete",
-    "getCurrent"
+    "getCurrent",
+    "archive",
+    "restore",
+    "listArchived",
+    "getSummary",
+    "getReport"
   ]),
   dashboard: namespace<KickrDesktopApi["dashboard"]>("dashboard", ["getMetrics"]),
   strava: namespace<KickrDesktopApi["strava"]>("strava", [

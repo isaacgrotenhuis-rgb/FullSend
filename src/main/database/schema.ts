@@ -329,6 +329,19 @@ export const applySchema = (db: Database): void => {
     }
   }
 
+  const trainingPlanColumnNames = new Set(
+    (db.prepare("SELECT name FROM pragma_table_info('training_plans')").all() as Array<{ name: string }>).map(
+      (column) => column.name
+    )
+  );
+  if (!trainingPlanColumnNames.has("status")) {
+    // 'active' | 'archived'. At most one plan is active; the rest are past events.
+    db.exec("ALTER TABLE training_plans ADD COLUMN status TEXT NOT NULL DEFAULT 'active';");
+  }
+  if (!trainingPlanColumnNames.has("archived_at")) {
+    db.exec("ALTER TABLE training_plans ADD COLUMN archived_at TEXT;");
+  }
+
   const telemetryColumnsForCadence = db
     .prepare("SELECT name FROM pragma_table_info('workout_session_telemetry')")
     .all() as Array<{ name: string }>;

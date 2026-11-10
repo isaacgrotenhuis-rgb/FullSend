@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactElement } from "react";
 import type {
   DayAvailability,
+  EventPlanSummary,
   EventPlanWeek,
   EventType,
   LoadTag,
@@ -37,6 +38,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { cn } from "@/lib/utils";
+import { formatEventDate, formatRideStats } from "./EventWrapUpCard";
+import { PlanSummaryDialog } from "./PlanSummaryDialog";
 
 const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
@@ -120,6 +123,16 @@ type Props = {
   ) => Promise<void>;
   onDeletePlan: () => Promise<void>;
   onOpenWorkoutBank: () => void;
+  /** Set by the app to open the wizard (e.g. from Home's wrap-up card). */
+  wizardRequested: boolean;
+  /** Clears the request once the wizard has opened, so a later visit doesn't reopen it. */
+  onWizardRequestHandled: () => void;
+  /** Prefills the wizard from the current plan and opens it. */
+  onStartNextEvent: () => void;
+  onArchivePlan: () => Promise<void>;
+  archivedPlans: EventPlanSummary[];
+  onRestorePlan: (planId: string) => Promise<void>;
+  onDeleteArchivedPlan: (planId: string) => Promise<void>;
 };
 
 const loadTagLabels: Record<LoadTag, string> = {
@@ -246,7 +259,14 @@ export const PlanPage = ({
   isWorkoutSessionActive,
   previewWorkoutForDay,
   onDeletePlan,
-  onOpenWorkoutBank
+  onOpenWorkoutBank,
+  wizardRequested,
+  onWizardRequestHandled,
+  onStartNextEvent,
+  onArchivePlan,
+  archivedPlans,
+  onRestorePlan,
+  onDeleteArchivedPlan
 }: Props): ReactElement => {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
@@ -257,11 +277,20 @@ export const PlanPage = ({
   const [adaptOpen, setAdaptOpen] = useState(false);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  // The past event awaiting delete confirmation, if any.
+  const [pastEventToDelete, setPastEventToDelete] = useState<EventPlanSummary | null>(null);
+  const [pastEventBusy, setPastEventBusy] = useState<string | null>(null);
+  const [summaryPlanId, setSummaryPlanId] = useState<string | null>(null);
 
   const hasPlan = weeks.length > 0;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const todayIso = `${today.getFullYear()}-${`${today.getMonth() + 1}`.padStart(2, "0")}-${`${today.getDate()}`.padStart(
+    2,
+    "0"
+  )}`;
 
   /* The week containing today is scrolled to the top of the list on open;
      earlier weeks sit above it, reachable by scrolling up. */
@@ -301,6 +330,48 @@ export const PlanPage = ({
     setWizardOpen(true);
   };
 
+  /* The app sets wizardRequested after prefilling the form. The request is
+     cleared straight away: this page unmounts whenever the rider navigates
+     elsewhere, and a request left standing would reopen the wizard on every
+     return. */
+  useEffect(() => {
+    if (!wizardRequested) return;
+    openWizard();
+    onWizardRequestHandled();
+  }, [wizardRequested]);
+
+  const eventPassed = hasPlan && daysUntilEvent !== null && daysUntilEvent < 0;
+
+  const handleArchive = async (): Promise<void> => {
+    setArchiveBusy(true);
+    try {
+      await onArchivePlan();
+      setAdaptOpen(false);
+    } finally {
+      setArchiveBusy(false);
+    }
+  };
+
+  const handleRestore = async (planId: string): Promise<void> => {
+    setPastEventBusy(planId);
+    try {
+      await onRestorePlan(planId);
+    } finally {
+      setPastEventBusy(null);
+    }
+  };
+
+  const handleDeletePastEvent = async (): Promise<void> => {
+    if (!pastEventToDelete) return;
+    setPastEventBusy(pastEventToDelete.planId);
+    try {
+      await onDeleteArchivedPlan(pastEventToDelete.planId);
+      setPastEventToDelete(null);
+    } finally {
+      setPastEventBusy(null);
+    }
+  };
+
   const handleGenerate = async (): Promise<void> => {
     await generate.generatePlan();
     setWizardOpen(false);
@@ -330,13 +401,33 @@ export const PlanPage = ({
           <Button variant="outline-primary" onClick={onOpenWorkoutBank}>
             Browse workout bank
           </Button>
+          {hasPlan ? (
+            <Button variant="outline" onClick={onStartNextEvent}>
+              New event plan
+            </Button>
+          ) : null}
           {hasPlan ? <Button onClick={() => setAdaptOpen(true)}>Edit plan</Button> : null}
         </div>
       </div>
 
       {hasPlan ? (
         <>
-          {countdownLabel ? (
+          {eventPassed ? (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/40 bg-[var(--color-accent-100)] px-4 py-3">
+              <div className="min-w-0">
+                <div className="font-semibold">Event completed</div>
+                <p className="m-0 text-sm text-muted-foreground">
+                  Start a plan for your next event, or put this one away under Past events.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" disabled={archiveBusy} onClick={() => void handleArchive()}>
+                  {archiveBusy ? "Archiving..." : "Archive plan"}
+                </Button>
+                <Button onClick={onStartNextEvent}>Plan your next event</Button>
+              </div>
+            </div>
+          ) : countdownLabel ? (
             <h6 className="mb-6 text-[var(--color-accent-700)]">{countdownLabel}</h6>
           ) : null}
 
@@ -385,6 +476,60 @@ export const PlanPage = ({
         </Empty>
       )}
 
+      {archivedPlans.length > 0 ? (
+        <section aria-labelledby="past-events-heading" className="mt-10">
+          <h2 id="past-events-heading" className="mb-3">
+            Past events
+          </h2>
+          <ItemGroup className="overflow-hidden rounded-xl border border-foreground/15 bg-muted">
+            {archivedPlans.map((plan, index) => (
+              <Fragment key={plan.planId}>
+                {index > 0 ? <ItemSeparator className="bg-foreground/10" /> : null}
+                <Item role="listitem" className="flex-nowrap gap-4 rounded-none px-4 py-3">
+                  <ItemContent className="min-w-0">
+                    <div className="truncate text-sm font-semibold">{plan.name}</div>
+                    <div className={cn("text-[12px]", mutedText60Class)}>
+                      {formatEventDate(plan.eventDate)} · {plan.weekCount} weeks · {formatRideStats(plan)}
+                    </div>
+                  </ItemContent>
+                  <ItemActions>
+                    <Button
+                      variant="ghost"
+                      size="xs"
+                      className={mutedText55Class}
+                      disabled={pastEventBusy !== null}
+                      onClick={() => setPastEventToDelete(plan)}
+                    >
+                      Delete
+                    </Button>
+                    {/* A finished plan is a read-only record; only one whose event is
+                        still ahead (archived by mistake, say) can come back. The
+                        main process enforces the same rule. */}
+                    {plan.eventDate < todayIso ? (
+                      <Button variant="outline" size="xs" onClick={() => setSummaryPlanId(plan.planId)}>
+                        View summary
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="xs"
+                        disabled={pastEventBusy !== null}
+                        title={hasPlan ? "Makes this the active plan and archives the current one" : undefined}
+                        onClick={() => void handleRestore(plan.planId)}
+                      >
+                        {pastEventBusy === plan.planId && pastEventToDelete === null ? "Restoring..." : "Restore"}
+                      </Button>
+                    )}
+                  </ItemActions>
+                </Item>
+              </Fragment>
+            ))}
+          </ItemGroup>
+        </section>
+      ) : null}
+
+      <PlanSummaryDialog planId={summaryPlanId} onClose={() => setSummaryPlanId(null)} />
+
       {/* The plan wizard, the adapt dialog and the delete confirmation all
           convert together: the delete confirmation can open on top of either
           the wizard or the adapt dialog, so all three need to keep stacking
@@ -399,6 +544,12 @@ export const PlanPage = ({
             Step {wizardStep + 1} of 4 · {wizardStepLabels[wizardStep]}
           </div>
           <div className="mb-4 h-0.5 w-full bg-[var(--color-divider)]" />
+
+          {hasPlan && currentPlanName ? (
+            <p className={cn("-mt-2 mb-2 text-[13px]", mutedText60Class)}>
+              Generating this plan moves &ldquo;{currentPlanName}&rdquo; to Past events. You can restore it later.
+            </p>
+          ) : null}
 
           {wizardStep === 0 ? (
             <>
@@ -610,9 +761,20 @@ export const PlanPage = ({
             </div>
           </div>
           <DialogFooter className="sm:justify-between">
-            <Button type="button" variant="ghost" className={mutedText55Class} onClick={() => setDeleteConfirmOpen(true)}>
-              Delete plan
-            </Button>
+            <div className="flex gap-1">
+              <Button type="button" variant="ghost" className={mutedText55Class} onClick={() => setDeleteConfirmOpen(true)}>
+                Delete plan
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                className={mutedText55Class}
+                disabled={archiveBusy}
+                onClick={() => void handleArchive()}
+              >
+                {archiveBusy ? "Archiving..." : "Archive plan"}
+              </Button>
+            </div>
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setAdaptOpen(false)}>
                 Cancel
@@ -653,6 +815,36 @@ export const PlanPage = ({
               }}
             >
               {deleteBusy ? "Deleting..." : "Delete plan"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pastEventToDelete !== null}
+        onOpenChange={(open) => {
+          if (!open && pastEventBusy === null) setPastEventToDelete(null);
+        }}
+      >
+        <AlertDialogContent className="gap-3 sm:max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete past event?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes &ldquo;{pastEventToDelete?.name}&rdquo; and its schedule. Your rides stay in your
+              history. This can&apos;t be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pastEventBusy !== null}>Cancel</AlertDialogCancel>
+            {/* Same preventDefault pattern as the plan delete above. */}
+            <AlertDialogAction
+              disabled={pastEventBusy !== null}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDeletePastEvent();
+              }}
+            >
+              {pastEventBusy !== null ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

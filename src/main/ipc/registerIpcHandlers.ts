@@ -19,6 +19,10 @@ import {
   generateEventPlanRequestSchema,
   generateEventPlanResultSchema,
   getCurrentEventPlanResultSchema,
+  eventPlanIdRequestSchema,
+  eventPlanSummarySchema,
+  eventPlanSummariesSchema,
+  eventPlanReportSchema,
   bleDeviceRequestSchema,
   bleCapabilitiesSchema,
   bleConnectRequestSchema,
@@ -92,6 +96,7 @@ import {
   workoutSummariesSchema
 } from "@shared/ipc/contracts";
 import { safeHandle } from "@main/ipc/safeHandle";
+import type { PlanReportService } from "@main/plans/PlanReportService";
  
 const emptySchema = z.object({}).passthrough();
 
@@ -106,7 +111,8 @@ export const registerIpcHandlers = (
   workoutRecapService: WorkoutRecapService,
   profileService: ProfileService,
   fitnessTestController: FitnessTestController,
-  fitnessTestService: FitnessTestService
+  fitnessTestService: FitnessTestService,
+  planReportService: PlanReportService
 ): (() => void) => {
   const bleSubscribers = new Set<WebContents>();
   const workoutSubscribers = new Set<WebContents>();
@@ -547,6 +553,23 @@ export const registerIpcHandlers = (
   });
   safeHandle(ipcChannels.eventPlan.getCurrent, emptySchema, getCurrentEventPlanResultSchema, () =>
     eventPlanService.getCurrentPlan()
+  );
+  safeHandle(ipcChannels.eventPlan.archive, eventPlanIdRequestSchema, okResultSchema, (_event, input) => {
+    eventPlanService.archivePlan(input.planId);
+    return { ok: true as const };
+  });
+  safeHandle(ipcChannels.eventPlan.restore, eventPlanIdRequestSchema, okResultSchema, (_event, input) => {
+    eventPlanService.restorePlan(input.planId);
+    return { ok: true as const };
+  });
+  safeHandle(ipcChannels.eventPlan.listArchived, emptySchema, eventPlanSummariesSchema, () =>
+    eventPlanService.listArchivedPlans()
+  );
+  safeHandle(ipcChannels.eventPlan.getSummary, eventPlanIdRequestSchema, eventPlanSummarySchema, (_event, input) =>
+    eventPlanService.getPlanSummary(input.planId)
+  );
+  safeHandle(ipcChannels.eventPlan.getReport, eventPlanIdRequestSchema, eventPlanReportSchema, (_event, input) =>
+    planReportService.getPlanReport(input.planId)
   );
   safeHandle(
     ipcChannels.dashboard.getMetrics,

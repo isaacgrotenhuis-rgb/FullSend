@@ -27,7 +27,7 @@ import { RidePage } from "./pages/RidePage";
 import { WorkoutPreviewDialog } from "./pages/WorkoutPreviewDialog";
 import { FitnessTestBriefingDialog } from "./pages/FitnessTestBriefingDialog";
 import type { FitnessTestVariant } from "@shared/fitnessTest";
-import type { ApplyFitnessTestRequest, FitnessTestRecord } from "@shared/ipc/contracts";
+import type { ApplyFitnessTestRequest, EventPlanSummary, FitnessTestRecord } from "@shared/ipc/contracts";
 import { ProfilePage, type StravaSectionProps } from "./pages/ProfilePage";
 import { WorkoutBankBrowser } from "./pages/WorkoutBankBrowser";
 import { OnboardingFlow } from "./pages/OnboardingFlow";
@@ -116,6 +116,15 @@ export const App = (): ReactElement => {
   // The saved plan's event date, which drives the countdown. Kept separate from
   // `eventDate` above, which is only the plan wizard's form state.
   const [planEventDate, setPlanEventDate] = useState<string | null>(null);
+  // The active plan's inputs, kept to prefill the wizard for the next event.
+  const [planInputs, setPlanInputs] = useState<{ eventType: EventType; weeklyAvailability: DayAvailability[] } | null>(
+    null
+  );
+  const [archivedPlans, setArchivedPlans] = useState<EventPlanSummary[]>([]);
+  // A one-shot ask for PlanPage to open its wizard (e.g. from Home's wrap-up
+  // card). PlanPage clears it once handled, so remounting the page later
+  // doesn't reopen the wizard.
+  const [wizardRequested, setWizardRequested] = useState(false);
 
   const [adaptReason, setAdaptReason] = useState("Adapt plan based on latest constraints");
   const [adaptationPrompt, setAdaptationPrompt] = useState("");
@@ -123,8 +132,8 @@ export const App = (): ReactElement => {
   const [overrideDate, setOverrideDate] = useState("");
 
   const canGenerate = useMemo(
-    () => weeklyAvailability.filter((day) => day.canTrain).length >= 2,
-    [weeklyAvailability]
+    () => weeklyAvailability.filter((day) => day.canTrain).length >= 2 && eventDate !== "" && eventDate >= todayIso(),
+    [weeklyAvailability, eventDate]
   );
 
   useEffect(() => {
@@ -140,16 +149,22 @@ export const App = (): ReactElement => {
     if (activeIntervals !== null) setDrawerOpen(false);
   }, [activeIntervals]);
 
+  const loadCurrentPlan = async (): Promise<void> => {
+    const current = await window.kickr.eventPlan.getCurrent();
+    setPlanId(current?.planId ?? "");
+    setWeeks(current?.weeks ?? []);
+    setCurrentPlanName(current?.name ?? null);
+    setPlanEventDate(current?.eventDate ?? null);
+    setPlanInputs(current ? { eventType: current.eventType, weeklyAvailability: current.weeklyAvailability } : null);
+  };
+
+  const refreshArchivedPlans = async (): Promise<void> => {
+    setArchivedPlans(await window.kickr.eventPlan.listArchived());
+  };
+
   useEffect(() => {
-    void (async () => {
-      const current = await window.kickr.eventPlan.getCurrent();
-      if (current) {
-        setPlanId(current.planId);
-        setWeeks(current.weeks);
-        setCurrentPlanName(current.name);
-        setPlanEventDate(current.eventDate);
-      }
-    })();
+    void loadCurrentPlan();
+    void refreshArchivedPlans();
   }, []);
 
   const getRoleConnection = (state: BleState, role: BleRole): BleConnectionEntry =>
@@ -485,7 +500,49 @@ export const App = (): ReactElement => {
     setWeeks(result.weeks);
     setCurrentPlanName(result.name);
     setPlanEventDate(result.eventDate);
+    setPlanInputs({ eventType, weeklyAvailability });
     setStatus(`Generated plan "${result.name}", version ${result.versionNumber}`);
+    // Generating archives whatever plan was active before.
+    void refreshArchivedPlans();
+    void refreshDashboard();
+  };
+
+  /** Opens the wizard for a new event, prefilled from the current plan's
+      schedule; the current plan is archived only once the new one is generated. */
+  const startNextEvent = (): void => {
+    setPlanName("");
+    setEventDate("");
+    if (planInputs) {
+      setEventType(planInputs.eventType);
+      setWeeklyAvailability(planInputs.weeklyAvailability);
+    }
+    setPage("plan");
+    setWizardRequested(true);
+  };
+
+  const archivePlan = async (): Promise<void> => {
+    if (!planId) {
+      return;
+    }
+    await window.kickr.eventPlan.archive({ planId });
+    await loadCurrentPlan();
+    await refreshArchivedPlans();
+    void refreshDashboard();
+    setStatus("Plan archived");
+  };
+
+  const restorePlan = async (archivedPlanId: string): Promise<void> => {
+    await window.kickr.eventPlan.restore({ planId: archivedPlanId });
+    await loadCurrentPlan();
+    await refreshArchivedPlans();
+    void refreshDashboard();
+    setStatus("Plan restored");
+  };
+
+  const deleteArchivedPlan = async (archivedPlanId: string): Promise<void> => {
+    await window.kickr.eventPlan.delete({ planId: archivedPlanId });
+    await refreshArchivedPlans();
+    void refreshDashboard();
   };
 
   const adaptPlan = async (): Promise<void> => {
@@ -522,6 +579,9 @@ export const App = (): ReactElement => {
     setPlanId("");
     setWeeks([]);
     setPlanEventDate(null);
+    setCurrentPlanName(null);
+    setPlanInputs(null);
+    void refreshDashboard();
     setStatus("Plan deleted");
   };
 
@@ -860,6 +920,13 @@ export const App = (): ReactElement => {
           previewWorkoutForDay={previewWorkoutForDay}
           onDeletePlan={deletePlan}
           onOpenWorkoutBank={() => setBankBrowserOpen(true)}
+          wizardRequested={wizardRequested}
+          onWizardRequestHandled={() => setWizardRequested(false)}
+          onStartNextEvent={startNextEvent}
+          onArchivePlan={archivePlan}
+          archivedPlans={archivedPlans}
+          onRestorePlan={restorePlan}
+          onDeleteArchivedPlan={deleteArchivedPlan}
         />
       ) : page === "profile" ? (
         <ProfilePage
@@ -897,10 +964,12 @@ export const App = (): ReactElement => {
           dashboard={dashboard}
           currentFtp={currentFtp}
           weightKg={profile?.weightKg ?? null}
+          planId={planId}
           eventDate={planEventDate}
           weeks={weeks}
           previewWorkoutForDay={previewWorkoutForDay}
           onNavigateToPlan={() => setPage("plan")}
+          onPlanNextEvent={startNextEvent}
           onStartFitnessTest={openFitnessBriefing}
         />
       )}

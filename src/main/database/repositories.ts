@@ -333,6 +333,10 @@ export class WorkoutSessionsRepository extends BaseRepository {
       .all(limit) as Row[];
   }
 
+  listAllCompletedForRecap(): Row[] {
+    return this.db.prepare(`${this.recapSelect} ORDER BY ws.started_at DESC`).all() as Row[];
+  }
+
   getCompletedForRecap(sessionId: string): Row | undefined {
     return this.db.prepare(`${this.recapSelect} AND ws.id = ?`).get(sessionId) as Row | undefined;
   }
@@ -507,7 +511,9 @@ export class TrainingPlansRepository extends BaseRepository {
 
   getById(planId: string): Row | undefined {
     return this.db
-      .prepare("SELECT id, name, source, notes, created_at, updated_at FROM training_plans WHERE id = ?")
+      .prepare(
+        "SELECT id, name, source, notes, status, archived_at, created_at, updated_at FROM training_plans WHERE id = ?"
+      )
       .get(planId) as Row | undefined;
   }
 
@@ -529,6 +535,37 @@ export class TrainingPlansRepository extends BaseRepository {
 
   delete(planId: string): void {
     this.db.prepare("DELETE FROM training_plans WHERE id = ?").run(planId);
+  }
+
+  listByStatus(status: "active" | "archived"): Row[] {
+    const order = status === "archived" ? "archived_at DESC, updated_at DESC" : "updated_at DESC";
+    return this.db
+      .prepare(`SELECT * FROM training_plans WHERE status = ? ORDER BY ${order}`)
+      .all(status) as Row[];
+  }
+
+  /** Archiving leaves updated_at alone so it keeps meaning "last edited". */
+  archive(planId: string): void {
+    this.db
+      .prepare("UPDATE training_plans SET status = 'archived', archived_at = datetime('now') WHERE id = ?")
+      .run(planId);
+  }
+
+  archiveAllActiveExcept(planId: string | null): void {
+    this.db
+      .prepare(
+        `UPDATE training_plans SET status = 'archived', archived_at = datetime('now')
+         WHERE status = 'active' AND (? IS NULL OR id != ?)`
+      )
+      .run(planId, planId);
+  }
+
+  restore(planId: string): void {
+    this.db
+      .prepare(
+        "UPDATE training_plans SET status = 'active', archived_at = NULL, updated_at = datetime('now') WHERE id = ?"
+      )
+      .run(planId);
   }
 }
 
@@ -599,10 +636,16 @@ export class PlanWeekWorkoutsRepository extends BaseRepository {
     return this.db
       .prepare(
         `SELECT pww.plan_week_id, pww.day_index, pww.workout_id, pw.start_date,
+                pw.plan_id, tp.created_at AS plan_created_at,
                 w.duration_seconds, w.intensity_factor
          FROM plan_week_workouts pww
          JOIN plan_weeks pw ON pw.id = pww.plan_week_id
+         JOIN training_plans tp ON tp.id = pw.plan_id
          JOIN workouts w ON w.id = pww.workout_id
+         -- An archived plan still counts for the weeks it was in use, so past
+         -- compliance holds, but not for weeks after it was put away (which a
+         -- newer plan may now cover).
+         WHERE tp.status = 'active' OR pw.start_date < date(tp.archived_at)
          ORDER BY pw.start_date ASC, pww.day_index ASC`
       )
       .all() as Row[];
